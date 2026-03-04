@@ -849,6 +849,12 @@ class Parameter:
             "max_pages": self.max_pages,
             "run_command": " ".join(self.run_command[::-1]),
             "ffmpeg": self.ffmpeg.path or "",
+            "timeout": self.timeout,
+            "live_qualities": self.live_qualities,
+            "douyin_platform": self.douyin_platform,
+            "tiktok_platform": self.tiktok_platform,
+            "browser_info": self.browser_info,
+            "browser_info_tiktok": self.browser_info_tiktok,
         }
 
     async def set_settings_data(
@@ -888,6 +894,7 @@ class Parameter:
             ),
         )
         self.set_general_params(data)
+        self.settings.update(self.get_settings_data())
 
     async def __update_cookie_data(self, data: dict) -> None:
         for i, j in zip(("cookie", "cookie_tiktok"), (_("抖音"), "TikTok")):
@@ -959,8 +966,12 @@ class Parameter:
 
     def set_general_params(self, data: dict[str, Any]) -> None:
         for i, j in data.items():
-            if j is not None:
-                self.__CHECK[i](j)
+            if j is not None and (checker := self.__CHECK.get(i)):
+                setattr(
+                    self,
+                    i,
+                    checker(j),
+                )
 
     async def set_proxy(self, proxy: str | None, proxy_tiktok: str | None):
         if isinstance(proxy, str):
