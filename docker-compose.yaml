@@ -1,0 +1,20 @@
+services:
+  douyin-download:
+    image: kook00/tiktok-downloader
+
+    container_name: douyin-download
+
+    working_dir: /app
+    entrypoint: ["sleep"]
+    command: ["infinity"]
+
+    environment:
+      TZ: America/Los_Angeles
+      NVIDIA_VISIBLE_DEVICES: void
+
+    ports:
+      - "5555:5555"
+
+    volumes:
+      - ./settings:/app/settings
+      - ./downloads:/app/downloads
