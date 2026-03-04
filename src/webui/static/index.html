@@ -147,6 +147,40 @@
             <h2>工具模块</h2>
           </div>
           <div class="tool-block">
+            <h3>任务执行中心</h3>
+            <label class="field">
+              <span>API Endpoint</span>
+              <select id="task-endpoint">
+                <option value="/douyin/detail">/douyin/detail</option>
+                <option value="/douyin/account">/douyin/account</option>
+                <option value="/douyin/mix">/douyin/mix</option>
+                <option value="/douyin/live">/douyin/live</option>
+                <option value="/douyin/comment">/douyin/comment</option>
+                <option value="/tiktok/detail">/tiktok/detail</option>
+                <option value="/tiktok/account">/tiktok/account</option>
+                <option value="/tiktok/mix">/tiktok/mix</option>
+                <option value="/tiktok/live">/tiktok/live</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Payload(JSON)</span>
+              <textarea
+                id="task-payload"
+                class="payload-editor"
+                rows="8"
+                placeholder='{"detail_id":"..."}'
+              ></textarea>
+            </label>
+            <div class="card-actions">
+              <button id="task-template-btn" class="btn ghost">加载模板</button>
+              <button id="task-run-btn" class="btn primary">执行请求</button>
+              <button id="task-copy-btn" class="btn ghost">复制结果</button>
+            </div>
+            <div id="task-status" class="status-line">等待执行</div>
+            <div id="task-summary" class="status-line"></div>
+            <pre id="task-result" class="json-output">暂无结果</pre>
+          </div>
+          <div class="tool-block">
             <h3>分享链接解析</h3>
             <label class="field">
               <span>平台</span>

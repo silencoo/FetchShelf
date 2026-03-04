@@ -378,6 +378,31 @@ a {
   font-size: 14px;
 }
 
+.tool-block + .tool-block {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.payload-editor {
+  min-height: 150px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.json-output {
+  margin: 10px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #080d15;
+  padding: 10px;
+  max-height: 240px;
+  overflow: auto;
+  color: #c6d4ea;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .link-result {
   display: inline-block;
   margin-top: 8px;

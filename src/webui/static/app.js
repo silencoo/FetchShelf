@@ -42,6 +42,86 @@ const refs = {
   shareCopyBtn: document.getElementById("share-copy-btn"),
   shareStatus: document.getElementById("share-status"),
   shareResult: document.getElementById("share-result"),
+
+  taskEndpoint: document.getElementById("task-endpoint"),
+  taskPayload: document.getElementById("task-payload"),
+  taskTemplateBtn: document.getElementById("task-template-btn"),
+  taskRunBtn: document.getElementById("task-run-btn"),
+  taskCopyBtn: document.getElementById("task-copy-btn"),
+  taskStatus: document.getElementById("task-status"),
+  taskSummary: document.getElementById("task-summary"),
+  taskResult: document.getElementById("task-result"),
+};
+
+const TASK_TEMPLATES = {
+  "/douyin/detail": {
+    detail_id: "7399999999999999999",
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/douyin/account": {
+    sec_user_id: "MS4wLjABAAAA...",
+    tab: "post",
+    pages: 1,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/douyin/mix": {
+    mix_id: "7399999999999999999",
+    detail_id: "",
+    cursor: 0,
+    count: 12,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/douyin/live": {
+    web_rid: "",
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/douyin/comment": {
+    detail_id: "7399999999999999999",
+    pages: 1,
+    cursor: 0,
+    count: 20,
+    count_reply: 3,
+    reply: false,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/tiktok/detail": {
+    detail_id: "7399999999999999999",
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/tiktok/account": {
+    sec_user_id: "MS4wLjABAAAA...",
+    tab: "post",
+    pages: 1,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/tiktok/mix": {
+    mix_id: "7399999999999999999",
+    cursor: 0,
+    count: 30,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/tiktok/live": {
+    room_id: "",
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
 };
 
 function setBadge(element, text, kind = "") {
@@ -538,6 +618,89 @@ async function copyShareResult() {
   }
 }
 
+function getTaskTemplate(endpoint) {
+  const template = TASK_TEMPLATES[endpoint] || {
+    cookie: "",
+    proxy: "",
+    source: false,
+  };
+  return JSON.stringify(template, null, 2);
+}
+
+function loadTaskTemplate() {
+  refs.taskPayload.value = getTaskTemplate(refs.taskEndpoint.value);
+  refs.taskStatus.textContent = "已加载模板，可直接修改后执行";
+}
+
+function summarizeTaskResponse(payload) {
+  const parts = [];
+  if (payload?.message) {
+    parts.push(`message: ${payload.message}`);
+  }
+  if (Array.isArray(payload?.data)) {
+    parts.push(`data items: ${payload.data.length}`);
+  } else if (payload?.data && typeof payload.data === "object") {
+    parts.push(`data fields: ${Object.keys(payload.data).length}`);
+  } else if (payload?.url) {
+    parts.push("url ready");
+  }
+  if (payload?.time) {
+    parts.push(`time: ${payload.time}`);
+  }
+  return parts.join(" · ");
+}
+
+function parseTaskPayload(text) {
+  if (!text.trim()) {
+    return {};
+  }
+  let payload = {};
+  try {
+    payload = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Payload JSON 解析失败: ${error.message}`);
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Payload 必须是 JSON 对象");
+  }
+  return payload;
+}
+
+async function runTaskRequest() {
+  const endpoint = refs.taskEndpoint.value;
+  refs.taskStatus.textContent = "请求中…";
+  refs.taskSummary.textContent = "";
+  try {
+    const payload = parseTaskPayload(refs.taskPayload.value);
+    const result = await fetchJson(endpoint, {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify(payload),
+    });
+    refs.taskResult.textContent = JSON.stringify(result, null, 2);
+    refs.taskStatus.textContent = "执行完成";
+    refs.taskSummary.textContent = summarizeTaskResponse(result);
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.taskStatus.textContent = `执行失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function copyTaskResult() {
+  const text = refs.taskResult.textContent?.trim();
+  if (!text) {
+    refs.taskStatus.textContent = "暂无可复制内容";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    refs.taskStatus.textContent = "结果已复制";
+  } catch (error) {
+    refs.taskStatus.textContent = `复制失败: ${error.message}`;
+  }
+}
+
 function bindEvents() {
   refs.applyTokenBtn.addEventListener("click", () => {
     state.token = refs.tokenInput.value.trim();
@@ -592,6 +755,22 @@ function bindEvents() {
   refs.shareCopyBtn.addEventListener("click", () => {
     copyShareResult();
   });
+
+  refs.taskEndpoint.addEventListener("change", () => {
+    loadTaskTemplate();
+  });
+
+  refs.taskTemplateBtn.addEventListener("click", () => {
+    loadTaskTemplate();
+  });
+
+  refs.taskRunBtn.addEventListener("click", () => {
+    runTaskRequest();
+  });
+
+  refs.taskCopyBtn.addEventListener("click", () => {
+    copyTaskResult();
+  });
 }
 
 function startLogFallbackPolling() {
@@ -612,6 +791,7 @@ function bootstrap() {
   bindEvents();
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
+  loadTaskTemplate();
   connectLogSocket();
   startLogFallbackPolling();
   pollLogs();
