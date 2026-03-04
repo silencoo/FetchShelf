@@ -625,18 +625,19 @@ class RecordManager:
         root = parameter.root.joinpath(
             name := parameter.CLEANER.filter_name(folder, "Data")
         )
-        self.compatible(
-            parameter.root,
-            root,
-            name,
-        )
-        root.mkdir(exist_ok=True)
         params = self.LoggerParams[type_]
         logger = (
             BaseTextLogger
             if blank
             else self.DataLogger.get(parameter.storage_format, BaseTextLogger)
         )
+        if logger is not BaseTextLogger:
+            self.compatible(
+                parameter.root,
+                root,
+                name,
+            )
+            root.mkdir(exist_ok=True)
         return root, params, logger
 
     @staticmethod
