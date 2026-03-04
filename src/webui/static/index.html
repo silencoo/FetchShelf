@@ -89,6 +89,23 @@
             </label>
           </form>
           <div id="settings-status" class="status-line">等待加载配置…</div>
+          <div class="raw-settings-block">
+            <div class="card-head mini">
+              <h3>settings.json Editor</h3>
+              <div class="card-actions">
+                <button id="settings-raw-load-btn" class="btn ghost">加载原文</button>
+                <button id="settings-raw-format-btn" class="btn ghost">格式化</button>
+                <button id="settings-raw-save-btn" class="btn primary">保存原文</button>
+              </div>
+            </div>
+            <textarea
+              id="settings-raw-editor"
+              class="payload-editor"
+              rows="10"
+              placeholder="加载并直接编辑 settings.json 原始内容"
+            ></textarea>
+            <div id="settings-raw-status" class="status-line">等待加载 settings.json…</div>
+          </div>
         </section>
 
         <section class="card logs-card">
@@ -173,12 +190,17 @@
             </label>
             <div class="card-actions">
               <button id="task-template-btn" class="btn ghost">加载模板</button>
-              <button id="task-run-btn" class="btn primary">执行请求</button>
+              <button id="task-run-btn" class="btn primary">加入队列</button>
               <button id="task-copy-btn" class="btn ghost">复制结果</button>
             </div>
             <div id="task-status" class="status-line">等待执行</div>
             <div id="task-summary" class="status-line"></div>
             <pre id="task-result" class="json-output">暂无结果</pre>
+            <div class="card-actions">
+              <button id="task-queue-refresh-btn" class="btn ghost">刷新队列</button>
+            </div>
+            <div id="task-queue-meta" class="status-line">队列未加载</div>
+            <div id="task-queue-list" class="task-queue-list"></div>
           </div>
           <div class="tool-block">
             <h3>分享链接解析</h3>

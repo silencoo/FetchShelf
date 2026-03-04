@@ -9,6 +9,7 @@ const state = {
   currentScope: "download",
   currentPath: "",
   selectedFilePath: "",
+  selectedTaskId: "",
 };
 
 const refs = {
@@ -21,6 +22,11 @@ const refs = {
   settingsReloadBtn: document.getElementById("settings-reload-btn"),
   settingsSaveBtn: document.getElementById("settings-save-btn"),
   settingsStatus: document.getElementById("settings-status"),
+  settingsRawEditor: document.getElementById("settings-raw-editor"),
+  settingsRawLoadBtn: document.getElementById("settings-raw-load-btn"),
+  settingsRawSaveBtn: document.getElementById("settings-raw-save-btn"),
+  settingsRawFormatBtn: document.getElementById("settings-raw-format-btn"),
+  settingsRawStatus: document.getElementById("settings-raw-status"),
 
   logStream: document.getElementById("log-stream"),
   logsAutoscroll: document.getElementById("logs-autoscroll"),
@@ -51,6 +57,9 @@ const refs = {
   taskStatus: document.getElementById("task-status"),
   taskSummary: document.getElementById("task-summary"),
   taskResult: document.getElementById("task-result"),
+  taskQueueRefreshBtn: document.getElementById("task-queue-refresh-btn"),
+  taskQueueMeta: document.getElementById("task-queue-meta"),
+  taskQueueList: document.getElementById("task-queue-list"),
 };
 
 const TASK_TEMPLATES = {
@@ -385,6 +394,54 @@ async function saveSettings() {
   }
 }
 
+async function loadRawSettings() {
+  refs.settingsRawStatus.textContent = "正在读取 settings.json 原文…";
+  try {
+    const payload = await fetchJson("/ui/api/settings/raw", {
+      method: "GET",
+      headers: headerOptions(false),
+    });
+    refs.settingsRawEditor.value = String(payload?.text || "");
+    refs.settingsRawStatus.textContent = `已加载: ${payload?.path || ""}`;
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.settingsRawStatus.textContent = `读取失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+function formatRawSettings() {
+  try {
+    const parsed = JSON.parse(refs.settingsRawEditor.value || "{}");
+    refs.settingsRawEditor.value = JSON.stringify(parsed, null, 2);
+    refs.settingsRawStatus.textContent = "JSON 格式化完成";
+  } catch (error) {
+    refs.settingsRawStatus.textContent = `格式化失败: ${error.message}`;
+  }
+}
+
+async function saveRawSettings() {
+  refs.settingsRawStatus.textContent = "正在保存 settings.json 原文…";
+  try {
+    const text = refs.settingsRawEditor.value || "{}";
+    const payload = await fetchJson("/ui/api/settings/raw", {
+      method: "PUT",
+      headers: headerOptions(true),
+      body: JSON.stringify({ text }),
+    });
+    refs.settingsRawStatus.textContent = payload?.message || "保存成功";
+    if (payload?.settings) {
+      mapSettingsToForm(payload.settings);
+    } else {
+      await loadSettings();
+    }
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.settingsRawStatus.textContent = `保存失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
 function normalizeEntries(payload) {
   if (!payload) {
     return { entries: [], currentPath: "", total: 0 };
@@ -668,21 +725,168 @@ function parseTaskPayload(text) {
 
 async function runTaskRequest() {
   const endpoint = refs.taskEndpoint.value;
-  refs.taskStatus.textContent = "请求中…";
+  refs.taskStatus.textContent = "任务入队中…";
   refs.taskSummary.textContent = "";
   try {
     const payload = parseTaskPayload(refs.taskPayload.value);
-    const result = await fetchJson(endpoint, {
+    const result = await fetchJson("/ui/api/tasks", {
       method: "POST",
       headers: headerOptions(true),
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        endpoint,
+        payload,
+      }),
     });
-    refs.taskResult.textContent = JSON.stringify(result, null, 2);
-    refs.taskStatus.textContent = "执行完成";
-    refs.taskSummary.textContent = summarizeTaskResponse(result);
+    const task = result?.task;
+    state.selectedTaskId = task?.task_id || "";
+    refs.taskStatus.textContent = `已入队: ${state.selectedTaskId || endpoint}`;
+    refs.taskSummary.textContent = task
+      ? `${task.task_id} · ${task.status} · ${task.endpoint}`
+      : "";
+    if (task) {
+      refs.taskResult.textContent = JSON.stringify(task, null, 2);
+    }
+    await loadTaskList();
     setApiStatus("就绪", "ok");
   } catch (error) {
     refs.taskStatus.textContent = `执行失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+function renderTaskResult(task) {
+  if (!task) {
+    return;
+  }
+  state.selectedTaskId = task.task_id || "";
+  refs.taskSummary.textContent = `${task.task_id || "-"} · ${task.status || "-"} · ${
+    task.endpoint || "-"
+  }`;
+  refs.taskStatus.textContent =
+    task.message || task.error || `任务状态: ${task.status || "-"}`;
+  if (typeof task.result !== "undefined" && task.result !== null) {
+    refs.taskResult.textContent = JSON.stringify(task.result, null, 2);
+    return;
+  }
+  if (task.error) {
+    refs.taskResult.textContent = JSON.stringify(
+      {
+        error: task.error,
+      },
+      null,
+      2,
+    );
+    return;
+  }
+  refs.taskResult.textContent = "暂无结果";
+}
+
+async function taskControl(taskId, action) {
+  try {
+    const result = await fetchJson(`/ui/api/tasks/${encodeURIComponent(taskId)}/${action}`, {
+      method: "POST",
+      headers: headerOptions(false),
+    });
+    if (result?.task) {
+      renderTaskResult(result.task);
+    }
+    await loadTaskList();
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.taskStatus.textContent = `${action} 失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+function renderTaskList(items) {
+  refs.taskQueueList.innerHTML = "";
+  if (!Array.isArray(items) || !items.length) {
+    refs.taskQueueList.innerHTML =
+      '<div class="task-row"><div class="task-main"><span class="task-endpoint">暂无任务</span></div></div>';
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const task of items) {
+    const row = document.createElement("div");
+    row.className = "task-row";
+    row.dataset.taskId = task.task_id || "";
+
+    const status = document.createElement("span");
+    status.className = `task-status ${task.status || ""}`;
+    status.textContent = task.status || "-";
+
+    const main = document.createElement("div");
+    main.className = "task-main";
+    main.innerHTML = `
+      <span class="task-id">${task.task_id || "-"}</span>
+      <span class="task-endpoint">${task.endpoint || "-"}</span>
+      <span class="task-time">${task.updated_at || task.created_at || ""}</span>
+    `;
+
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+
+    const viewBtn = document.createElement("button");
+    viewBtn.className = "btn ghost";
+    viewBtn.textContent = "查看";
+    viewBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      renderTaskResult(task);
+    });
+    actions.appendChild(viewBtn);
+
+    if (["pending", "running", "canceling"].includes(task.status)) {
+      const cancelBtn = document.createElement("button");
+      cancelBtn.className = "btn ghost";
+      cancelBtn.textContent = "取消";
+      cancelBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        taskControl(task.task_id, "cancel");
+      });
+      actions.appendChild(cancelBtn);
+    } else {
+      const retryBtn = document.createElement("button");
+      retryBtn.className = "btn ghost";
+      retryBtn.textContent = "重试";
+      retryBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        taskControl(task.task_id, "retry");
+      });
+      actions.appendChild(retryBtn);
+    }
+
+    row.appendChild(status);
+    row.appendChild(main);
+    row.appendChild(actions);
+
+    row.addEventListener("click", () => {
+      renderTaskResult(task);
+    });
+
+    fragment.appendChild(row);
+  }
+  refs.taskQueueList.appendChild(fragment);
+}
+
+async function loadTaskList() {
+  try {
+    const payload = await fetchJson("/ui/api/tasks?limit=120", {
+      method: "GET",
+      headers: headerOptions(false),
+    });
+    const items = payload?.items || [];
+    renderTaskList(items);
+    refs.taskQueueMeta.textContent = `任务: ${payload?.count ?? items.length} · pending: ${
+      payload?.pending ?? 0
+    } · running: ${payload?.running ?? 0}`;
+    if (state.selectedTaskId) {
+      const selected = items.find((item) => item.task_id === state.selectedTaskId);
+      if (selected) {
+        renderTaskResult(selected);
+      }
+    }
+  } catch (error) {
+    refs.taskQueueMeta.textContent = `队列加载失败: ${error.message}`;
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -706,7 +910,9 @@ function bindEvents() {
     state.token = refs.tokenInput.value.trim();
     setApiStatus("令牌已应用", "ok");
     loadSettings();
+    loadRawSettings();
     loadFiles();
+    loadTaskList();
     connectLogSocket();
   });
 
@@ -724,6 +930,18 @@ function bindEvents() {
 
   refs.settingsSaveBtn.addEventListener("click", () => {
     saveSettings();
+  });
+
+  refs.settingsRawLoadBtn.addEventListener("click", () => {
+    loadRawSettings();
+  });
+
+  refs.settingsRawFormatBtn.addEventListener("click", () => {
+    formatRawSettings();
+  });
+
+  refs.settingsRawSaveBtn.addEventListener("click", () => {
+    saveRawSettings();
   });
 
   refs.filesScope.addEventListener("change", () => {
@@ -771,6 +989,10 @@ function bindEvents() {
   refs.taskCopyBtn.addEventListener("click", () => {
     copyTaskResult();
   });
+
+  refs.taskQueueRefreshBtn.addEventListener("click", () => {
+    loadTaskList();
+  });
 }
 
 function startLogFallbackPolling() {
@@ -787,6 +1009,12 @@ function startLogFallbackPolling() {
   }, 6000);
 }
 
+function startTaskPolling() {
+  setInterval(() => {
+    loadTaskList();
+  }, 2000);
+}
+
 function bootstrap() {
   bindEvents();
   state.currentScope = refs.filesScope.value;
@@ -794,9 +1022,12 @@ function bootstrap() {
   loadTaskTemplate();
   connectLogSocket();
   startLogFallbackPolling();
+  startTaskPolling();
   pollLogs();
   loadSettings();
+  loadRawSettings();
   loadFiles();
+  loadTaskList();
 }
 
 bootstrap();
