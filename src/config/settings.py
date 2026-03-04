@@ -62,7 +62,7 @@ class Settings:
         },
         "owner_url_tiktok": None,
         "root": "",
-        "folder_name": "Download",
+        "folder_name": "downloads",
         "name_format": "create_time type nickname desc",
         "desc_length": 64,
         "name_length": 128,
