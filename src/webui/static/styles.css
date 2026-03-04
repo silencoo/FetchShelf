@@ -79,12 +79,12 @@ a {
 }
 
 .settings-card {
-  grid-column: span 6;
+  grid-column: span 8;
   padding: 14px;
 }
 
 .logs-card {
-  grid-column: span 6;
+  grid-column: span 4;
   padding: 14px;
 }
 
@@ -269,7 +269,7 @@ a {
 
 .account-editor-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -289,8 +289,9 @@ a {
 
 .account-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 0;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .account-table th,
@@ -306,6 +307,38 @@ a {
   font-weight: 500;
 }
 
+.account-table th:nth-child(1),
+.account-table td:nth-child(1) {
+  width: 64px;
+}
+
+.account-table th:nth-child(2),
+.account-table td:nth-child(2) {
+  width: 120px;
+}
+
+.account-table th:nth-child(3),
+.account-table td:nth-child(3) {
+  width: auto;
+}
+
+.account-table th:nth-child(4),
+.account-table td:nth-child(4) {
+  width: 110px;
+}
+
+.account-table th:nth-child(5),
+.account-table td:nth-child(5),
+.account-table th:nth-child(6),
+.account-table td:nth-child(6) {
+  width: 124px;
+}
+
+.account-table th:nth-child(7),
+.account-table td:nth-child(7) {
+  width: 72px;
+}
+
 .account-table td input,
 .account-table td select {
   width: 100%;
@@ -315,6 +348,7 @@ a {
   border-radius: 8px;
   padding: 6px 8px;
   font-size: 12px;
+  min-width: 0;
 }
 
 .account-table td input[type="checkbox"] {
