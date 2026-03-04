@@ -10,6 +10,11 @@ const state = {
   currentPath: "",
   selectedFilePath: "",
   selectedTaskId: "",
+  settingsData: {},
+  accountRows: {
+    douyin: [],
+    tiktok: [],
+  },
 };
 
 const refs = {
@@ -27,6 +32,10 @@ const refs = {
   settingsRawSaveBtn: document.getElementById("settings-raw-save-btn"),
   settingsRawFormatBtn: document.getElementById("settings-raw-format-btn"),
   settingsRawStatus: document.getElementById("settings-raw-status"),
+  accountsDouyinBody: document.getElementById("accounts-douyin-body"),
+  accountsTiktokBody: document.getElementById("accounts-tiktok-body"),
+  accountsDouyinAddBtn: document.getElementById("accounts-douyin-add-btn"),
+  accountsTiktokAddBtn: document.getElementById("accounts-tiktok-add-btn"),
 
   logStream: document.getElementById("log-stream"),
   logsAutoscroll: document.getElementById("logs-autoscroll"),
@@ -48,6 +57,22 @@ const refs = {
   shareCopyBtn: document.getElementById("share-copy-btn"),
   shareStatus: document.getElementById("share-status"),
   shareResult: document.getElementById("share-result"),
+
+  workflowAccountPlatform: document.getElementById("workflow-account-platform"),
+  workflowAccountSource: document.getElementById("workflow-account-source"),
+  workflowAccountCookie: document.getElementById("workflow-account-cookie"),
+  workflowAccountProxy: document.getElementById("workflow-account-proxy"),
+  workflowAccountRunBtn: document.getElementById("workflow-account-run-btn"),
+  workflowAccountStatus: document.getElementById("workflow-account-status"),
+  workflowAccountSummary: document.getElementById("workflow-account-summary"),
+
+  workflowDetailPlatform: document.getElementById("workflow-detail-platform"),
+  workflowDetailLinks: document.getElementById("workflow-detail-links"),
+  workflowDetailCookie: document.getElementById("workflow-detail-cookie"),
+  workflowDetailProxy: document.getElementById("workflow-detail-proxy"),
+  workflowDetailRunBtn: document.getElementById("workflow-detail-run-btn"),
+  workflowDetailStatus: document.getElementById("workflow-detail-status"),
+  workflowDetailSummary: document.getElementById("workflow-detail-summary"),
 
   taskEndpoint: document.getElementById("task-endpoint"),
   taskPayload: document.getElementById("task-payload"),
@@ -130,6 +155,46 @@ const TASK_TEMPLATES = {
     cookie: "",
     proxy: "",
     source: false,
+  },
+  "/workflow/douyin/account_batch": {
+    use_settings: false,
+    items: [
+      {
+        mark: "",
+        url: "https://www.douyin.com/user/MS4wLjABAAAA...",
+        tab: "post",
+        earliest: "",
+        latest: "",
+        enable: true,
+      },
+    ],
+    cookie: "",
+    proxy: "",
+  },
+  "/workflow/tiktok/account_batch": {
+    use_settings: false,
+    items: [
+      {
+        mark: "",
+        url: "https://www.tiktok.com/@username",
+        tab: "post",
+        earliest: "",
+        latest: "",
+        enable: true,
+      },
+    ],
+    cookie: "",
+    proxy: "",
+  },
+  "/workflow/douyin/detail_links": {
+    links: ["https://www.douyin.com/video/7399999999999999999"],
+    cookie: "",
+    proxy: "",
+  },
+  "/workflow/tiktok/detail_links": {
+    links: ["https://www.tiktok.com/@username/video/7399999999999999999"],
+    cookie: "",
+    proxy: "",
   },
 };
 
@@ -315,7 +380,139 @@ function connectLogSocket() {
   });
 }
 
+function defaultAccountRow() {
+  return {
+    mark: "",
+    url: "",
+    tab: "post",
+    earliest: "",
+    latest: "",
+    enable: true,
+  };
+}
+
+function normalizeAccountRows(rows) {
+  if (!Array.isArray(rows)) {
+    return [defaultAccountRow()];
+  }
+  const normalized = rows
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      mark: String(item.mark || "").trim(),
+      url: String(item.url || "").trim(),
+      tab: String(item.tab || "post").trim() || "post",
+      earliest: String(item.earliest || "").trim(),
+      latest: String(item.latest || "").trim(),
+      enable: Boolean(item.enable ?? true),
+    }));
+  return normalized.length ? normalized : [defaultAccountRow()];
+}
+
+function accountRowsKey(platform) {
+  return platform === "tiktok" ? "tiktok" : "douyin";
+}
+
+function accountBodyRef(platform) {
+  return platform === "tiktok" ? refs.accountsTiktokBody : refs.accountsDouyinBody;
+}
+
+function escapeAttr(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function renderAccountRows(platform) {
+  const key = accountRowsKey(platform);
+  const body = accountBodyRef(platform);
+  if (!body) {
+    return;
+  }
+  const rows = state.accountRows[key];
+  body.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  rows.forEach((item, index) => {
+    const tr = document.createElement("tr");
+    tr.dataset.platform = key;
+    tr.dataset.index = String(index);
+    tr.innerHTML = `
+      <td>
+        <input data-field="enable" type="checkbox" ${item.enable ? "checked" : ""} />
+      </td>
+      <td>
+        <input data-field="mark" type="text" value="${escapeAttr(item.mark)}" placeholder="可选标识" />
+      </td>
+      <td>
+        <input data-field="url" type="text" value="${escapeAttr(item.url)}" placeholder="账号主页链接" />
+      </td>
+      <td>
+        <input data-field="tab" type="text" value="${escapeAttr(item.tab)}" placeholder="post/favorite/collection" />
+      </td>
+      <td>
+        <input data-field="earliest" type="text" value="${escapeAttr(item.earliest)}" placeholder="YYYY/MM/DD" />
+      </td>
+      <td>
+        <input data-field="latest" type="text" value="${escapeAttr(item.latest)}" placeholder="YYYY/MM/DD" />
+      </td>
+      <td>
+        <button data-action="remove-row" class="btn ghost" type="button">删除</button>
+      </td>
+    `;
+    fragment.appendChild(tr);
+  });
+  body.appendChild(fragment);
+}
+
+function setAccountRows(platform, rows) {
+  const key = accountRowsKey(platform);
+  state.accountRows[key] = normalizeAccountRows(rows);
+  renderAccountRows(platform);
+}
+
+function addAccountRow(platform) {
+  const key = accountRowsKey(platform);
+  state.accountRows[key].push(defaultAccountRow());
+  renderAccountRows(platform);
+}
+
+function removeAccountRow(platform, index) {
+  const key = accountRowsKey(platform);
+  const rows = state.accountRows[key];
+  if (!rows.length) {
+    return;
+  }
+  rows.splice(index, 1);
+  if (!rows.length) {
+    rows.push(defaultAccountRow());
+  }
+  renderAccountRows(platform);
+}
+
+function updateAccountRow(platform, index, field, value) {
+  const key = accountRowsKey(platform);
+  const row = state.accountRows[key]?.[index];
+  if (!row) {
+    return;
+  }
+  row[field] = value;
+}
+
+function collectAccountRows(platform) {
+  const key = accountRowsKey(platform);
+  return state.accountRows[key].map((item) => ({
+    mark: String(item.mark || "").trim(),
+    url: String(item.url || "").trim(),
+    tab: String(item.tab || "post").trim() || "post",
+    earliest: String(item.earliest || "").trim(),
+    latest: String(item.latest || "").trim(),
+    enable: Boolean(item.enable),
+  }));
+}
+
 function mapSettingsToForm(settings) {
+  state.settingsData = settings && typeof settings === "object" ? settings : {};
   const fields = [
     "root",
     "folder_name",
@@ -340,6 +537,9 @@ function mapSettingsToForm(settings) {
     }
     element.checked = Boolean(settings?.[name]);
   }
+
+  setAccountRows("douyin", settings?.accounts_urls || []);
+  setAccountRows("tiktok", settings?.accounts_urls_tiktok || []);
 }
 
 function collectSettingsPayload() {
@@ -356,6 +556,8 @@ function collectSettingsPayload() {
     music: refs.settingsForm.elements.namedItem("music").checked,
     dynamic_cover: refs.settingsForm.elements.namedItem("dynamic_cover").checked,
     static_cover: refs.settingsForm.elements.namedItem("static_cover").checked,
+    accounts_urls: collectAccountRows("douyin"),
+    accounts_urls_tiktok: collectAccountRows("tiktok"),
   };
   return payload;
 }
@@ -723,21 +925,25 @@ function parseTaskPayload(text) {
   return payload;
 }
 
+async function enqueueTaskRequest(endpoint, payload) {
+  const result = await fetchJson("/ui/api/tasks", {
+    method: "POST",
+    headers: headerOptions(true),
+    body: JSON.stringify({
+      endpoint,
+      payload,
+    }),
+  });
+  return result?.task;
+}
+
 async function runTaskRequest() {
   const endpoint = refs.taskEndpoint.value;
   refs.taskStatus.textContent = "任务入队中…";
   refs.taskSummary.textContent = "";
   try {
     const payload = parseTaskPayload(refs.taskPayload.value);
-    const result = await fetchJson("/ui/api/tasks", {
-      method: "POST",
-      headers: headerOptions(true),
-      body: JSON.stringify({
-        endpoint,
-        payload,
-      }),
-    });
-    const task = result?.task;
+    const task = await enqueueTaskRequest(endpoint, payload);
     state.selectedTaskId = task?.task_id || "";
     refs.taskStatus.textContent = `已入队: ${state.selectedTaskId || endpoint}`;
     refs.taskSummary.textContent = task
@@ -750,6 +956,92 @@ async function runTaskRequest() {
     setApiStatus("就绪", "ok");
   } catch (error) {
     refs.taskStatus.textContent = `执行失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+function workflowAccountEndpoint(platform) {
+  return platform === "tiktok"
+    ? "/workflow/tiktok/account_batch"
+    : "/workflow/douyin/account_batch";
+}
+
+function workflowDetailEndpoint(platform) {
+  return platform === "tiktok"
+    ? "/workflow/tiktok/detail_links"
+    : "/workflow/douyin/detail_links";
+}
+
+async function runWorkflowAccountTask() {
+  const platform = refs.workflowAccountPlatform.value;
+  const source = refs.workflowAccountSource.value;
+  refs.workflowAccountStatus.textContent = "正在创建账号批量任务…";
+  refs.workflowAccountSummary.textContent = "";
+  try {
+    const useSettings = source === "settings";
+    const payload = {
+      use_settings: useSettings,
+      items: useSettings
+        ? []
+        : collectAccountRows(platform === "tiktok" ? "tiktok" : "douyin"),
+      cookie: refs.workflowAccountCookie.value.trim(),
+      proxy: refs.workflowAccountProxy.value.trim(),
+    };
+    const endpoint = workflowAccountEndpoint(platform);
+    const task = await enqueueTaskRequest(endpoint, payload);
+    state.selectedTaskId = task?.task_id || "";
+    refs.workflowAccountStatus.textContent = `任务已入队: ${task?.task_id || endpoint}`;
+    refs.workflowAccountSummary.textContent = `${task?.status || "pending"} · ${
+      task?.endpoint || endpoint
+    }`;
+    if (task) {
+      renderTaskResult(task);
+    }
+    await loadTaskList();
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.workflowAccountStatus.textContent = `创建失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+function parseWorkflowLinks(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function runWorkflowDetailTask() {
+  const platform = refs.workflowDetailPlatform.value;
+  const links = parseWorkflowLinks(refs.workflowDetailLinks.value);
+  if (!links.length) {
+    refs.workflowDetailStatus.textContent = "请至少输入一条链接";
+    refs.workflowDetailSummary.textContent = "";
+    return;
+  }
+  refs.workflowDetailStatus.textContent = "正在创建链接下载任务…";
+  refs.workflowDetailSummary.textContent = "";
+  try {
+    const endpoint = workflowDetailEndpoint(platform);
+    const payload = {
+      links,
+      cookie: refs.workflowDetailCookie.value.trim(),
+      proxy: refs.workflowDetailProxy.value.trim(),
+    };
+    const task = await enqueueTaskRequest(endpoint, payload);
+    state.selectedTaskId = task?.task_id || "";
+    refs.workflowDetailStatus.textContent = `任务已入队: ${task?.task_id || endpoint}`;
+    refs.workflowDetailSummary.textContent = `${task?.status || "pending"} · ${
+      task?.endpoint || endpoint
+    } · ${links.length} 条链接`;
+    if (task) {
+      renderTaskResult(task);
+    }
+    await loadTaskList();
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.workflowDetailStatus.textContent = `创建失败: ${error.message}`;
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -944,6 +1236,55 @@ function bindEvents() {
     saveRawSettings();
   });
 
+  refs.accountsDouyinAddBtn.addEventListener("click", () => {
+    addAccountRow("douyin");
+  });
+
+  refs.accountsTiktokAddBtn.addEventListener("click", () => {
+    addAccountRow("tiktok");
+  });
+
+  [refs.accountsDouyinBody, refs.accountsTiktokBody].forEach((body) => {
+    body.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) {
+        return;
+      }
+      const row = target.closest("tr");
+      if (!row) {
+        return;
+      }
+      const platform = row.dataset.platform || "douyin";
+      const index = Number(row.dataset.index || "0");
+      const field = target.dataset.field || "";
+      if (!field) {
+        return;
+      }
+      if (field === "enable") {
+        updateAccountRow(platform, index, field, target.checked);
+      } else {
+        updateAccountRow(platform, index, field, target.value);
+      }
+    });
+
+    body.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      if (target.dataset.action !== "remove-row") {
+        return;
+      }
+      const row = target.closest("tr");
+      if (!row) {
+        return;
+      }
+      const platform = row.dataset.platform || "douyin";
+      const index = Number(row.dataset.index || "0");
+      removeAccountRow(platform, index);
+    });
+  });
+
   refs.filesScope.addEventListener("change", () => {
     state.currentScope = refs.filesScope.value;
     state.currentPath = "";
@@ -972,6 +1313,14 @@ function bindEvents() {
 
   refs.shareCopyBtn.addEventListener("click", () => {
     copyShareResult();
+  });
+
+  refs.workflowAccountRunBtn.addEventListener("click", () => {
+    runWorkflowAccountTask();
+  });
+
+  refs.workflowDetailRunBtn.addEventListener("click", () => {
+    runWorkflowDetailTask();
   });
 
   refs.taskEndpoint.addEventListener("change", () => {
@@ -1019,6 +1368,8 @@ function bootstrap() {
   bindEvents();
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
+  setAccountRows("douyin", []);
+  setAccountRows("tiktok", []);
   loadTaskTemplate();
   connectLogSocket();
   startLogFallbackPolling();

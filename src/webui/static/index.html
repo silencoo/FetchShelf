@@ -88,6 +88,69 @@
               <span>static_cover</span>
             </label>
           </form>
+          <div class="accounts-settings-block">
+            <div class="card-head mini">
+              <h3>accounts_urls 可视化配置</h3>
+            </div>
+            <div class="account-editor-grid">
+              <div class="account-editor-panel">
+                <div class="card-head mini">
+                  <h3>抖音账号（accounts_urls）</h3>
+                  <div class="card-actions">
+                    <button id="accounts-douyin-add-btn" type="button" class="btn ghost">
+                      新增一行
+                    </button>
+                  </div>
+                </div>
+                <div class="account-table-wrap">
+                  <table class="account-table">
+                    <thead>
+                      <tr>
+                        <th>启用</th>
+                        <th>mark</th>
+                        <th>url</th>
+                        <th>tab</th>
+                        <th>earliest</th>
+                        <th>latest</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="accounts-douyin-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="account-editor-panel">
+                <div class="card-head mini">
+                  <h3>TikTok 账号（accounts_urls_tiktok）</h3>
+                  <div class="card-actions">
+                    <button id="accounts-tiktok-add-btn" type="button" class="btn ghost">
+                      新增一行
+                    </button>
+                  </div>
+                </div>
+                <div class="account-table-wrap">
+                  <table class="account-table">
+                    <thead>
+                      <tr>
+                        <th>启用</th>
+                        <th>mark</th>
+                        <th>url</th>
+                        <th>tab</th>
+                        <th>earliest</th>
+                        <th>latest</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="accounts-tiktok-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="status-line">
+              提示：保存配置后可长期复用；也可直接在“下载工作台”按当前表格执行。
+            </div>
+          </div>
           <div id="settings-status" class="status-line">等待加载配置…</div>
           <div class="raw-settings-block">
             <div class="card-head mini">
@@ -161,10 +224,90 @@
 
         <section class="card tools-card">
           <div class="card-head">
-            <h2>工具模块</h2>
+            <h2>下载工作台</h2>
           </div>
           <div class="tool-block">
-            <h3>任务执行中心</h3>
+            <h3>账号批量下载（终端 5→12→1）</h3>
+            <label class="field">
+              <span>平台</span>
+              <select id="workflow-account-platform">
+                <option value="douyin">douyin / accounts_urls</option>
+                <option value="tiktok">tiktok / accounts_urls_tiktok</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>来源</span>
+              <select id="workflow-account-source">
+                <option value="editor">当前页面账号表格</option>
+                <option value="settings">运行时 settings 配置</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>cookie(可选覆盖)</span>
+              <input
+                id="workflow-account-cookie"
+                type="text"
+                placeholder="留空使用程序默认 Cookie"
+              />
+            </label>
+            <label class="field">
+              <span>proxy(可选覆盖)</span>
+              <input
+                id="workflow-account-proxy"
+                type="text"
+                placeholder="如 socks5://127.0.0.1:1080"
+              />
+            </label>
+            <div class="card-actions">
+              <button id="workflow-account-run-btn" class="btn primary">加入批量下载队列</button>
+            </div>
+            <div id="workflow-account-status" class="status-line">等待执行</div>
+            <div id="workflow-account-summary" class="status-line"></div>
+          </div>
+
+          <div class="tool-block">
+            <h3>链接下载（单条 / 批量）</h3>
+            <label class="field">
+              <span>平台</span>
+              <select id="workflow-detail-platform">
+                <option value="douyin">douyin</option>
+                <option value="tiktok">tiktok</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>链接输入（每行一条；支持分享文本）</span>
+              <textarea
+                id="workflow-detail-links"
+                class="payload-editor"
+                rows="5"
+                placeholder="https://www.tiktok.com/@xxx/video/123..."
+              ></textarea>
+            </label>
+            <label class="field">
+              <span>cookie(可选覆盖)</span>
+              <input
+                id="workflow-detail-cookie"
+                type="text"
+                placeholder="留空使用程序默认 Cookie"
+              />
+            </label>
+            <label class="field">
+              <span>proxy(可选覆盖)</span>
+              <input
+                id="workflow-detail-proxy"
+                type="text"
+                placeholder="如 socks5://127.0.0.1:1080"
+              />
+            </label>
+            <div class="card-actions">
+              <button id="workflow-detail-run-btn" class="btn primary">解析并下载</button>
+            </div>
+            <div id="workflow-detail-status" class="status-line">等待执行</div>
+            <div id="workflow-detail-summary" class="status-line"></div>
+          </div>
+
+          <div class="tool-block">
+            <h3>开发接口任务</h3>
             <label class="field">
               <span>API Endpoint</span>
               <select id="task-endpoint">
@@ -177,6 +320,10 @@
                 <option value="/tiktok/account">/tiktok/account</option>
                 <option value="/tiktok/mix">/tiktok/mix</option>
                 <option value="/tiktok/live">/tiktok/live</option>
+                <option value="/workflow/douyin/account_batch">/workflow/douyin/account_batch</option>
+                <option value="/workflow/tiktok/account_batch">/workflow/tiktok/account_batch</option>
+                <option value="/workflow/douyin/detail_links">/workflow/douyin/detail_links</option>
+                <option value="/workflow/tiktok/detail_links">/workflow/tiktok/detail_links</option>
               </select>
             </label>
             <label class="field">
