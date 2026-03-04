@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from asyncio import Event, create_task, gather, sleep, Queue, QueueEmpty
 from .main_terminal import TikTok
 from ..translation import _
-from pyperclip import copy, paste
+from pyperclip import copy, paste, PyperclipException
 
 if TYPE_CHECKING:
     from ..config import Parameter
@@ -41,7 +41,14 @@ class ClipboardMonitor(TikTok):
                 "程序会自动检测并提取剪贴板中的抖音和 TikTok 作品链接，并自动下载作品文件；如需关闭，请按下 Ctrl+C，或将剪贴板内容设置为“close”以停止监听！"
             ),
         )
-        copy("")
+        try:
+            copy("")
+        except PyperclipException as error:
+            self.console.warning(
+                _("当前运行环境无法访问系统剪贴板，已自动关闭监听模式！")
+            )
+            self.console.debug(error)
+            return
         self.event_clipboard.clear()
         await gather(
             self.check_clipboard(
@@ -65,7 +72,14 @@ class ClipboardMonitor(TikTok):
     ):
         self.console.debug("开始监听剪贴板！")
         while not self.event_clipboard.is_set():
-            if (c := paste()).lower() == "close":
+            try:
+                c = paste()
+            except PyperclipException as error:
+                self.console.warning(_("读取系统剪贴板失败，已自动停止监听模式！"))
+                self.console.debug(error)
+                await self.stop_listener()
+                break
+            if c.lower() == "close":
                 await self.stop_listener()
             elif c != self.clipboard_cache:
                 self.clipboard_cache = c
