@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 from ..tools import cookie_str_to_dict
 from ..translation import _
 from re import compile
-from pyperclip import paste
+from pyperclip import paste, PyperclipException
 
 if TYPE_CHECKING:
     from ..config import Settings
@@ -32,7 +32,9 @@ class Cookie:
         tiktok=False,
     ) -> bool:
         """提取 Cookie 并写入配置文件"""
-        if self.validate_cookie_minimal(cookie := paste()):
+        if not (cookie := self.read_cookie()):
+            return False
+        if self.validate_cookie_minimal(cookie):
             self.extract(
                 cookie,
                 key=self.PLATFORM_KEY[tiktok],
@@ -41,6 +43,18 @@ class Cookie:
             return True
         self.console.warning(_("当前剪贴板的内容不是有效的 Cookie 内容！"))
         return False
+
+    def read_cookie(self) -> str:
+        try:
+            return paste()
+        except PyperclipException as error:
+            self.console.warning(
+                _(
+                    "当前运行环境无法访问系统剪贴板，请手动粘贴 Cookie 内容并按回车继续；留空后回车可取消。"
+                )
+            )
+            self.console.debug(error)
+            return self.console.input(_("Cookie: ")).strip()
 
     def extract(
         self,
