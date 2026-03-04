@@ -36,6 +36,10 @@ const refs = {
   accountsTiktokBody: document.getElementById("accounts-tiktok-body"),
   accountsDouyinAddBtn: document.getElementById("accounts-douyin-add-btn"),
   accountsTiktokAddBtn: document.getElementById("accounts-tiktok-add-btn"),
+  accountsExportJsonBtn: document.getElementById("accounts-export-json-btn"),
+  accountsImportJsonBtn: document.getElementById("accounts-import-json-btn"),
+  accountsImportJsonFile: document.getElementById("accounts-import-json-file"),
+  accountsIoStatus: document.getElementById("accounts-io-status"),
 
   logStream: document.getElementById("log-stream"),
   logsAutoscroll: document.getElementById("logs-autoscroll"),
@@ -509,6 +513,98 @@ function collectAccountRows(platform) {
     latest: String(item.latest || "").trim(),
     enable: Boolean(item.enable),
   }));
+}
+
+function setAccountsIoStatus(text) {
+  if (!refs.accountsIoStatus) {
+    return;
+  }
+  refs.accountsIoStatus.textContent = text;
+}
+
+function accountExportPayload() {
+  return {
+    version: 1,
+    generated_at: new Date().toISOString(),
+    accounts_urls: collectAccountRows("douyin"),
+    accounts_urls_tiktok: collectAccountRows("tiktok"),
+  };
+}
+
+function exportAccountsJson() {
+  const payload = accountExportPayload();
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  const suffix = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(
+    now.getHours(),
+  )}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const filename = `accounts_urls_${suffix}.json`;
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setAccountsIoStatus(
+    `已导出 JSON：抖音 ${payload.accounts_urls.length} 条，TikTok ${payload.accounts_urls_tiktok.length} 条`,
+  );
+}
+
+function parseImportedAccountPayload(parsed) {
+  if (Array.isArray(parsed)) {
+    return {
+      accounts_urls: parsed,
+      accounts_urls_tiktok: [],
+    };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("JSON 根节点必须为对象或数组");
+  }
+  const accountsDouyin =
+    parsed.accounts_urls ??
+    parsed.douyin ??
+    parsed.douyin_accounts ??
+    parsed.douyin_accounts_urls ??
+    [];
+  const accountsTikTok =
+    parsed.accounts_urls_tiktok ??
+    parsed.tiktok ??
+    parsed.tiktok_accounts ??
+    parsed.tiktok_accounts_urls ??
+    [];
+  if (!Array.isArray(accountsDouyin) || !Array.isArray(accountsTikTok)) {
+    throw new Error("accounts_urls / accounts_urls_tiktok 必须是数组");
+  }
+  return {
+    accounts_urls: accountsDouyin,
+    accounts_urls_tiktok: accountsTikTok,
+  };
+}
+
+async function importAccountsJsonFile(file) {
+  if (!file) {
+    return;
+  }
+  setAccountsIoStatus(`正在导入：${file.name}`);
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const extracted = parseImportedAccountPayload(parsed);
+    setAccountRows("douyin", extracted.accounts_urls);
+    setAccountRows("tiktok", extracted.accounts_urls_tiktok);
+    setAccountsIoStatus(
+      `导入成功：抖音 ${collectAccountRows("douyin").length} 条，TikTok ${collectAccountRows("tiktok").length} 条（记得点“保存配置”）`,
+    );
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setAccountsIoStatus(`导入失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
 }
 
 function mapSettingsToForm(settings) {
@@ -1242,6 +1338,20 @@ function bindEvents() {
 
   refs.accountsTiktokAddBtn.addEventListener("click", () => {
     addAccountRow("tiktok");
+  });
+
+  refs.accountsExportJsonBtn.addEventListener("click", () => {
+    exportAccountsJson();
+  });
+
+  refs.accountsImportJsonBtn.addEventListener("click", () => {
+    refs.accountsImportJsonFile.value = "";
+    refs.accountsImportJsonFile.click();
+  });
+
+  refs.accountsImportJsonFile.addEventListener("change", (event) => {
+    const file = event.target.files?.[0];
+    importAccountsJsonFile(file);
   });
 
   [refs.accountsDouyinBody, refs.accountsTiktokBody].forEach((body) => {
