@@ -91,6 +91,20 @@
           <div class="accounts-settings-block">
             <div class="card-head mini">
               <h3>accounts_urls 可视化配置</h3>
+              <div class="card-actions">
+                <button id="accounts-export-json-btn" type="button" class="btn ghost">
+                  导出 JSON
+                </button>
+                <button id="accounts-import-json-btn" type="button" class="btn ghost">
+                  导入 JSON
+                </button>
+                <input
+                  id="accounts-import-json-file"
+                  type="file"
+                  accept=".json,application/json"
+                  hidden
+                />
+              </div>
             </div>
             <div class="account-editor-grid">
               <div class="account-editor-panel">
@@ -150,6 +164,7 @@
             <div class="status-line">
               提示：保存配置后可长期复用；也可直接在“下载工作台”按当前表格执行。
             </div>
+            <div id="accounts-io-status" class="status-line">可导入或导出账号配置 JSON</div>
           </div>
           <div id="settings-status" class="status-line">等待加载配置…</div>
           <div class="raw-settings-block">
