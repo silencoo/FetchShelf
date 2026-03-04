@@ -4,7 +4,7 @@ from json import JSONDecodeError, dumps, loads
 from mimetypes import guess_type
 from pathlib import Path
 from textwrap import dedent
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import (
     Depends,
@@ -319,6 +319,14 @@ class APIServer(TikTok):
             if data := await self.handle_live(extract, True):
                 return self.success_response(extract, data[0])
             return self.failed_response(extract)
+        if endpoint == "/workflow/douyin/account_batch":
+            return await self._run_ui_account_batch(payload, False)
+        if endpoint == "/workflow/tiktok/account_batch":
+            return await self._run_ui_account_batch(payload, True)
+        if endpoint == "/workflow/douyin/detail_links":
+            return await self._run_ui_detail_links(payload, False)
+        if endpoint == "/workflow/tiktok/detail_links":
+            return await self._run_ui_detail_links(payload, True)
         raise HTTPException(
             status_code=400,
             detail="Unsupported endpoint.",
@@ -342,6 +350,10 @@ class APIServer(TikTok):
             "/tiktok/account",
             "/tiktok/mix",
             "/tiktok/live",
+            "/workflow/douyin/account_batch",
+            "/workflow/tiktok/account_batch",
+            "/workflow/douyin/detail_links",
+            "/workflow/tiktok/detail_links",
         }
 
     @staticmethod
@@ -360,6 +372,294 @@ class APIServer(TikTok):
         model = validators.get(endpoint)
         if model:
             model(**payload)
+            return
+        if endpoint in {
+            "/workflow/douyin/account_batch",
+            "/workflow/tiktok/account_batch",
+        }:
+            APIServer._validate_ui_workflow_account_payload(payload)
+            return
+        if endpoint in {
+            "/workflow/douyin/detail_links",
+            "/workflow/tiktok/detail_links",
+        }:
+            APIServer._validate_ui_workflow_detail_payload(payload)
+
+    @staticmethod
+    def _normalize_string(value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    @staticmethod
+    def _normalize_optional_int(value: Any) -> int | None:
+        if value in {
+            None,
+            "",
+        }:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _normalize_account_items(items: list[dict]) -> list[dict]:
+        results = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            enable = item.get("enable", True)
+            if not isinstance(enable, bool):
+                enable = bool(enable)
+            results.append(
+                {
+                    "mark": APIServer._normalize_string(item.get("mark")),
+                    "url": APIServer._normalize_string(item.get("url")),
+                    "tab": APIServer._normalize_string(item.get("tab")) or "post",
+                    "earliest": APIServer._normalize_string(item.get("earliest")),
+                    "latest": APIServer._normalize_string(item.get("latest")),
+                    "enable": enable,
+                    "pages": APIServer._normalize_optional_int(item.get("pages")),
+                }
+            )
+        return results
+
+    @staticmethod
+    def _validate_ui_workflow_account_payload(payload: dict) -> None:
+        use_settings = payload.get("use_settings", True)
+        if not isinstance(use_settings, bool):
+            raise ValueError("use_settings must be a boolean value.")
+        items = payload.get("items", [])
+        if not isinstance(items, list):
+            raise ValueError("items must be a list.")
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError("items must be a list of objects.")
+        for key in (
+            "cookie",
+            "proxy",
+        ):
+            value = payload.get(key)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{key} must be string or null.")
+
+    @staticmethod
+    def _normalize_link_inputs(raw_links: str | list[str]) -> list[str]:
+        if isinstance(raw_links, str):
+            lines = raw_links.splitlines()
+        else:
+            lines = [item for item in raw_links if isinstance(item, str)]
+        return [line.strip() for line in lines if isinstance(line, str) and line.strip()]
+
+    @staticmethod
+    def _validate_ui_workflow_detail_payload(payload: dict) -> None:
+        raw_links = payload.get("links")
+        if not isinstance(raw_links, (str, list)):
+            raise ValueError("links must be a string or a string list.")
+        if isinstance(raw_links, list) and any(
+            not isinstance(item, str) for item in raw_links
+        ):
+            raise ValueError("links list only accepts string items.")
+        if not APIServer._normalize_link_inputs(raw_links):
+            raise ValueError("links cannot be empty.")
+        for key in (
+            "cookie",
+            "proxy",
+        ):
+            value = payload.get(key)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{key} must be string or null.")
+
+    async def _run_ui_account_batch(
+        self,
+        payload: dict,
+        tiktok: bool,
+    ) -> DataResponse:
+        use_settings = payload.get("use_settings", True)
+        cookie = self._normalize_string(payload.get("cookie")) or None
+        proxy = self._normalize_string(payload.get("proxy")) or None
+        platform = "tiktok" if tiktok else "douyin"
+
+        if use_settings:
+            rows = [vars(item) for item in (
+                self.parameter.accounts_urls_tiktok if tiktok else self.parameter.accounts_urls
+            )]
+        else:
+            rows = payload.get("items", [])
+        items = self._normalize_account_items(rows)
+        queued_items = [item for item in items if item["url"] and item["enable"]]
+
+        if not queued_items:
+            return DataResponse(
+                message=_("未找到可执行的账号任务！"),
+                data={
+                    "platform": platform,
+                    "source": "settings" if use_settings else "editor",
+                    "total": len(items),
+                    "queued": 0,
+                    "success": 0,
+                    "failed": 0,
+                    "skipped": len(items),
+                    "failures": [],
+                },
+                params=payload,
+            )
+
+        success = 0
+        failed = 0
+        failures = []
+        for index, item in enumerate(queued_items, start=1):
+            if not (sec_user_id := await self.check_sec_user_id(item["url"], tiktok)):
+                failed += 1
+                failures.append(
+                    {
+                        "index": index,
+                        "url": item["url"],
+                        "reason": _("提取 sec_user_id 失败"),
+                    }
+                )
+                continue
+            if await self.deal_account_detail(
+                index,
+                sec_user_id=sec_user_id,
+                mark=item["mark"],
+                tab=item["tab"],
+                earliest=item["earliest"],
+                latest=item["latest"],
+                pages=item["pages"],
+                api=False,
+                source=False,
+                cookie=cookie,
+                proxy=proxy,
+                tiktok=tiktok,
+            ):
+                success += 1
+                continue
+            failed += 1
+            failures.append(
+                {
+                    "index": index,
+                    "url": item["url"],
+                    "reason": _("账号作品下载失败"),
+                }
+            )
+        skipped = max(0, len(items) - len(queued_items))
+        if success == 0:
+            message = _("账号批量下载任务失败！")
+        elif failed > 0:
+            message = _("账号批量下载任务完成，部分账号未成功。")
+        else:
+            message = _("账号批量下载任务完成！")
+        return DataResponse(
+            message=message,
+            data={
+                "platform": platform,
+                "source": "settings" if use_settings else "editor",
+                "total": len(items),
+                "queued": len(queued_items),
+                "success": success,
+                "failed": failed,
+                "skipped": skipped,
+                "failures": failures,
+            },
+            params=payload,
+        )
+
+    async def _run_ui_detail_links(
+        self,
+        payload: dict,
+        tiktok: bool,
+    ) -> DataResponse:
+        platform = "tiktok" if tiktok else "douyin"
+        cookie = self._normalize_string(payload.get("cookie")) or None
+        proxy = self._normalize_string(payload.get("proxy")) or None
+        links = self._normalize_link_inputs(payload.get("links", []))
+        if not links:
+            return DataResponse(
+                message=_("未找到有效链接！"),
+                data={
+                    "platform": platform,
+                    "input_links": 0,
+                    "parsed_ids": 0,
+                    "downloaded": 0,
+                    "invalid_links": [],
+                    "preview": "",
+                },
+                params=payload,
+            )
+
+        parser = self.links_tiktok if tiktok else self.links
+        invalid_links = []
+        parsed_ids = []
+        for text in links:
+            if ids := await parser.run(text):
+                parsed_ids.extend(ids)
+            else:
+                invalid_links.append(text)
+        unique_ids = []
+        seen = set()
+        for item in parsed_ids:
+            if item in seen:
+                continue
+            seen.add(item)
+            unique_ids.append(item)
+        if not unique_ids:
+            return DataResponse(
+                message=_("链接解析失败！"),
+                data={
+                    "platform": platform,
+                    "input_links": len(links),
+                    "parsed_ids": 0,
+                    "downloaded": 0,
+                    "invalid_links": invalid_links,
+                    "preview": "",
+                },
+                params=payload,
+            )
+
+        root, params, logger = self.record.run(self.parameter)
+        async with logger(root, console=self.console, **params) as record:
+            data = await self._handle_detail(
+                unique_ids,
+                tiktok,
+                record,
+                api=True,
+                source=False,
+                cookie=cookie,
+                proxy=proxy,
+            )
+        if not data:
+            return DataResponse(
+                message=_("作品下载失败！"),
+                data={
+                    "platform": platform,
+                    "input_links": len(links),
+                    "parsed_ids": len(unique_ids),
+                    "downloaded": 0,
+                    "invalid_links": invalid_links,
+                    "preview": "",
+                },
+                params=payload,
+            )
+        await self.downloader.run(data, "detail", tiktok=tiktok)
+        message = (
+            _("链接下载任务完成，部分链接未成功解析。")
+            if invalid_links
+            else _("链接下载任务完成！")
+        )
+        return DataResponse(
+            message=message,
+            data={
+                "platform": platform,
+                "input_links": len(links),
+                "parsed_ids": len(unique_ids),
+                "downloaded": len(data),
+                "invalid_links": invalid_links,
+                "preview": self._get_preview_image(data[0]) if data else "",
+            },
+            params=payload,
+        )
 
     @staticmethod
     def _coerce_log_list(records: list | tuple | None) -> list[dict]:
@@ -665,7 +965,7 @@ class APIServer(TikTok):
                 )
             try:
                 self._validate_ui_task_payload(endpoint, payload)
-            except ValidationError as error:
+            except (ValidationError, ValueError, TypeError) as error:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Payload validation failed: {error}",
