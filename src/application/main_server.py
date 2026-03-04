@@ -1,4 +1,6 @@
-from asyncio import sleep
+from asyncio import Queue, CancelledError, create_task, gather, sleep
+from datetime import datetime
+from json import JSONDecodeError, dumps, loads
 from mimetypes import guess_type
 from pathlib import Path
 from textwrap import dedent
@@ -10,11 +12,13 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Body,
     WebSocket,
     WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 from uvicorn import Config, Server
 
 from ..custom import (
@@ -97,12 +101,265 @@ class APIServer(TikTok):
             server_mode,
         )
         self.server = None
+        self.ui_task_queue: Queue[str] = Queue()
+        self.ui_task_workers = []
+        self.ui_tasks: dict[str, dict] = {}
+        self.ui_task_counter = 0
+
+    @staticmethod
+    def _now_text() -> str:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _new_task_id(self) -> str:
+        self.ui_task_counter += 1
+        return f"T{self.ui_task_counter:06d}"
+
+    def _build_ui_task(
+        self,
+        endpoint: str,
+        payload: dict,
+        retry_of: str | None = None,
+    ) -> dict:
+        task = {
+            "task_id": self._new_task_id(),
+            "endpoint": endpoint,
+            "payload": payload,
+            "status": "pending",
+            "created_at": self._now_text(),
+            "started_at": None,
+            "finished_at": None,
+            "updated_at": self._now_text(),
+            "retry_of": retry_of,
+            "worker": None,
+            "error": "",
+            "message": "",
+            "result": None,
+            "_runner": None,
+        }
+        self.ui_tasks[task["task_id"]] = task
+        return task
+
+    @staticmethod
+    def _public_ui_task(task: dict) -> dict:
+        return {
+            key: value
+            for key, value in task.items()
+            if not key.startswith("_")
+        }
+
+    @staticmethod
+    def _ui_task_sort_key(item: dict) -> int:
+        task_id = str(item.get("task_id", "")).lstrip("T")
+        try:
+            return int(task_id)
+        except ValueError:
+            return 0
+
+    def _enqueue_ui_task(
+        self,
+        endpoint: str,
+        payload: dict,
+        retry_of: str | None = None,
+    ) -> dict:
+        task = self._build_ui_task(endpoint, payload, retry_of=retry_of)
+        self.ui_task_queue.put_nowait(task["task_id"])
+        return task
+
+    async def _start_ui_task_workers(self, workers: int = 2) -> None:
+        if self.ui_task_workers:
+            return
+        for i in range(max(1, workers)):
+            self.ui_task_workers.append(create_task(self._ui_task_worker(i + 1)))
+
+    async def _stop_ui_task_workers(self) -> None:
+        if not self.ui_task_workers:
+            return
+        for worker in self.ui_task_workers:
+            worker.cancel()
+        await gather(*self.ui_task_workers, return_exceptions=True)
+        self.ui_task_workers.clear()
+
+    async def _ui_task_worker(self, worker_id: int) -> None:
+        while True:
+            try:
+                task_id = await self.ui_task_queue.get()
+            except CancelledError:
+                break
+            try:
+                await self._execute_ui_task(task_id, worker_id)
+            finally:
+                self.ui_task_queue.task_done()
+
+    @staticmethod
+    def _serialize_response(response):
+        if hasattr(response, "model_dump"):
+            return response.model_dump()
+        if isinstance(response, (dict, list, str, int, float, bool)) or response is None:
+            return response
+        return str(response)
+
+    @staticmethod
+    def _is_failed_response(result) -> bool:
+        if not isinstance(result, dict):
+            return False
+        message = str(result.get("message", ""))
+        return "失败" in message or "参数错误" in message
+
+    async def _execute_ui_task(self, task_id: str, worker_id: int) -> None:
+        task = self.ui_tasks.get(task_id)
+        if not task or task.get("status") != "pending":
+            return
+        task["status"] = "running"
+        task["worker"] = worker_id
+        task["started_at"] = self._now_text()
+        task["updated_at"] = self._now_text()
+        runner = create_task(
+            self._execute_ui_endpoint(
+                task["endpoint"],
+                task["payload"],
+            )
+        )
+        task["_runner"] = runner
+        try:
+            response = await runner
+            result = self._serialize_response(response)
+            task["result"] = result
+            task["message"] = (
+                result.get("message", "")
+                if isinstance(result, dict)
+                else ""
+            )
+            task["status"] = "failed" if self._is_failed_response(result) else "success"
+        except CancelledError:
+            task["status"] = "canceled"
+            task["error"] = "Task canceled"
+            task["message"] = _("任务已取消")
+        except ValidationError as error:
+            task["status"] = "failed"
+            task["error"] = str(error)
+            task["message"] = _("参数校验失败！")
+        except Exception as error:
+            task["status"] = "failed"
+            task["error"] = str(error)
+            task["message"] = _("任务执行失败！")
+        finally:
+            task["finished_at"] = self._now_text()
+            task["updated_at"] = self._now_text()
+            task["_runner"] = None
+
+    async def _execute_ui_endpoint(self, endpoint: str, payload: dict):
+        if endpoint == "/douyin/detail":
+            return await self.handle_detail(Detail(**payload), False)
+        if endpoint == "/douyin/account":
+            return await self.handle_account(Account(**payload), False)
+        if endpoint == "/douyin/mix":
+            extract = Mix(**payload)
+            is_mix, id_ = self.generate_mix_params(
+                extract.mix_id,
+                extract.detail_id,
+            )
+            if not isinstance(is_mix, bool):
+                return DataResponse(
+                    message=_("参数错误！"),
+                    data=None,
+                    params=extract.model_dump(),
+                )
+            if data := await self.deal_mix_detail(
+                is_mix,
+                id_,
+                api=True,
+                source=extract.source,
+                cookie=extract.cookie,
+                proxy=extract.proxy,
+                cursor=extract.cursor,
+                count=extract.count,
+            ):
+                return self.success_response(extract, data)
+            return self.failed_response(extract)
+        if endpoint == "/douyin/live":
+            extract = Live(**payload)
+            if data := await self.handle_live(extract, False):
+                return self.success_response(extract, data[0])
+            return self.failed_response(extract)
+        if endpoint == "/douyin/comment":
+            extract = Comment(**payload)
+            if data := await self.comment_handle_single(
+                extract.detail_id,
+                cookie=extract.cookie,
+                proxy=extract.proxy,
+                source=extract.source,
+                pages=extract.pages,
+                cursor=extract.cursor,
+                count=extract.count,
+                count_reply=extract.count_reply,
+                reply=extract.reply,
+            ):
+                return self.success_response(extract, data)
+            return self.failed_response(extract)
+        if endpoint == "/tiktok/detail":
+            return await self.handle_detail(DetailTikTok(**payload), True)
+        if endpoint == "/tiktok/account":
+            return await self.handle_account(AccountTiktok(**payload), True)
+        if endpoint == "/tiktok/mix":
+            extract = MixTikTok(**payload)
+            if data := await self.deal_mix_detail(
+                True,
+                extract.mix_id,
+                api=True,
+                source=extract.source,
+                cookie=extract.cookie,
+                proxy=extract.proxy,
+                cursor=extract.cursor,
+                count=extract.count,
+            ):
+                return self.success_response(extract, data)
+            return self.failed_response(extract)
+        if endpoint == "/tiktok/live":
+            extract = LiveTikTok(**payload)
+            if data := await self.handle_live(extract, True):
+                return self.success_response(extract, data[0])
+            return self.failed_response(extract)
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported endpoint.",
+        )
 
     def _scope_root(self, scope: ScopeType) -> Path:
         return {
             "project": PROJECT_ROOT,
             "download": self.parameter.root,
         }.get(scope, self.parameter.root)
+
+    @staticmethod
+    def _supported_ui_task_endpoints() -> set[str]:
+        return {
+            "/douyin/detail",
+            "/douyin/account",
+            "/douyin/mix",
+            "/douyin/live",
+            "/douyin/comment",
+            "/tiktok/detail",
+            "/tiktok/account",
+            "/tiktok/mix",
+            "/tiktok/live",
+        }
+
+    @staticmethod
+    def _validate_ui_task_payload(endpoint: str, payload: dict) -> None:
+        validators = {
+            "/douyin/detail": Detail,
+            "/douyin/account": Account,
+            "/douyin/mix": Mix,
+            "/douyin/live": Live,
+            "/douyin/comment": Comment,
+            "/tiktok/detail": DetailTikTok,
+            "/tiktok/account": AccountTiktok,
+            "/tiktok/mix": MixTikTok,
+            "/tiktok/live": LiveTikTok,
+        }
+        model = validators.get(endpoint)
+        if model:
+            model(**payload)
 
     @staticmethod
     def _coerce_log_list(records: list | tuple | None) -> list[dict]:
@@ -172,7 +429,11 @@ class APIServer(TikTok):
             log_level=log_level,
         )
         server = Server(config)
-        await server.serve()
+        await self._start_ui_task_workers()
+        try:
+            await server.serve()
+        finally:
+            await self._stop_ui_task_workers()
 
     def setup_routes(self):
         @self.server.get(
@@ -285,6 +546,73 @@ class APIServer(TikTok):
             return FileResponse(target, media_type=media_type)
 
         @self.server.get(
+            "/ui/api/settings/raw",
+            summary="Web UI 原始 settings.json",
+            description="返回 settings.json 原始文本，供 Web UI 编辑器使用",
+            tags=[_("配置")],
+        )
+        async def webui_settings_raw(
+            token: str = Depends(token_dependency),
+        ):
+            settings_path = self.parameter.settings.path
+            if not settings_path.exists():
+                self.parameter.settings.read()
+            text = settings_path.read_text(
+                encoding=self.parameter.settings.encode,
+            )
+            updated_at = datetime.fromtimestamp(settings_path.stat().st_mtime).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            return {
+                "path": str(settings_path),
+                "text": text,
+                "updated_at": updated_at,
+            }
+
+        @self.server.put(
+            "/ui/api/settings/raw",
+            summary="Web UI 保存原始 settings.json",
+            description="写入并应用 settings.json 原始文本",
+            tags=[_("配置")],
+        )
+        async def webui_settings_raw_update(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            text = body.get("text")
+            if not isinstance(text, str):
+                raise HTTPException(
+                    status_code=400,
+                    detail="text must be a JSON string.",
+                )
+            try:
+                patch_data = loads(text)
+            except JSONDecodeError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"JSON parse error: {error}",
+                )
+            if not isinstance(patch_data, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail="JSON root must be an object.",
+                )
+            merged = self.parameter.settings.read()
+            merged.update(patch_data)
+            self.parameter.settings.update(merged)
+            try:
+                await self.parameter.set_settings_data(merged.copy())
+            except Exception as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Apply settings failed: {error}",
+                )
+            return {
+                "message": _("保存配置成功！"),
+                "settings": self.parameter.get_settings_data(),
+            }
+
+        @self.server.get(
             "/ui/api/logs",
             summary="Web UI 日志轮询",
             description="按日志 ID 增量返回日志记录",
@@ -307,6 +635,145 @@ class APIServer(TikTok):
                 "after_id": after_id,
                 "latest_id": latest_id,
             }
+
+        @self.server.post(
+            "/ui/api/tasks",
+            summary="Web UI 创建任务",
+            description="将任务加入执行队列",
+            tags=[_("项目")],
+        )
+        async def webui_create_task(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            endpoint = body.get("endpoint", "")
+            payload = body.get("payload", {})
+            if not isinstance(endpoint, str) or not endpoint.startswith("/"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid endpoint.",
+                )
+            if endpoint not in self._supported_ui_task_endpoints():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Unsupported endpoint.",
+                )
+            if not isinstance(payload, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid payload.",
+                )
+            try:
+                self._validate_ui_task_payload(endpoint, payload)
+            except ValidationError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Payload validation failed: {error}",
+                )
+            task = self._enqueue_ui_task(
+                endpoint=endpoint,
+                payload=loads(dumps(payload, ensure_ascii=False)),
+            )
+            return {
+                "task": self._public_ui_task(task),
+            }
+
+        @self.server.get(
+            "/ui/api/tasks",
+            summary="Web UI 任务列表",
+            description="返回任务队列及最近任务状态",
+            tags=[_("项目")],
+        )
+        async def webui_list_tasks(
+            limit: int = Query(100, ge=1, le=500),
+            status: str = Query(""),
+            token: str = Depends(token_dependency),
+        ):
+            tasks = sorted(
+                (self._public_ui_task(item) for item in self.ui_tasks.values()),
+                key=self._ui_task_sort_key,
+                reverse=True,
+            )
+            if status:
+                tasks = [item for item in tasks if item.get("status") == status]
+            tasks = tasks[: self._normalize_limit(limit)]
+            return {
+                "items": tasks,
+                "count": len(tasks),
+                "pending": sum(1 for i in self.ui_tasks.values() if i["status"] == "pending"),
+                "running": sum(1 for i in self.ui_tasks.values() if i["status"] in {"running", "canceling"}),
+            }
+
+        @self.server.get(
+            "/ui/api/tasks/{task_id}",
+            summary="Web UI 任务详情",
+            description="返回单个任务完整状态",
+            tags=[_("项目")],
+        )
+        async def webui_get_task(
+            task_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            task = self.ui_tasks.get(task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found.")
+            return {
+                "task": self._public_ui_task(task),
+            }
+
+        @self.server.post(
+            "/ui/api/tasks/{task_id}/cancel",
+            summary="Web UI 取消任务",
+            description="取消等待中或运行中的任务",
+            tags=[_("项目")],
+        )
+        async def webui_cancel_task(
+            task_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            task = self.ui_tasks.get(task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found.")
+            if task["status"] in {"success", "failed", "canceled"}:
+                return {"task": self._public_ui_task(task)}
+            if task["status"] == "pending":
+                task["status"] = "canceled"
+                task["message"] = _("任务已取消")
+                task["finished_at"] = self._now_text()
+                task["updated_at"] = self._now_text()
+                return {"task": self._public_ui_task(task)}
+            runner = task.get("_runner")
+            if runner and not runner.done():
+                task["status"] = "canceling"
+                task["message"] = _("正在取消任务…")
+                task["updated_at"] = self._now_text()
+                runner.cancel()
+            else:
+                task["status"] = "canceled"
+                task["message"] = _("任务已取消")
+                task["finished_at"] = self._now_text()
+                task["updated_at"] = self._now_text()
+            return {"task": self._public_ui_task(task)}
+
+        @self.server.post(
+            "/ui/api/tasks/{task_id}/retry",
+            summary="Web UI 重试任务",
+            description="基于历史任务创建重试任务",
+            tags=[_("项目")],
+        )
+        async def webui_retry_task(
+            task_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            task = self.ui_tasks.get(task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found.")
+            new_task = self._enqueue_ui_task(
+                endpoint=task["endpoint"],
+                payload=loads(dumps(task["payload"], ensure_ascii=False)),
+                retry_of=task_id,
+            )
+            return {"task": self._public_ui_task(new_task)}
 
         @self.server.websocket("/ui/ws/logs")
         async def webui_logs_ws(websocket: WebSocket):
@@ -880,7 +1347,7 @@ class APIServer(TikTok):
             response_model=DataResponse,
         )
         async def handle_live_tiktok(
-            extract: Live, token: str = Depends(token_dependency)
+            extract: LiveTikTok, token: str = Depends(token_dependency)
         ):
             if data := await self.handle_live(
                 extract,
