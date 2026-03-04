@@ -91,8 +91,9 @@
 
 ## Web UI interaction mode
 
-> **The project code has been refactored; the code for this mode has not yet been updated. It will be reopened after
-future development is completed!**
+![WebUI Screenshot](docs/screenshot/WebAPI模式截图EN1.png)
+
+> **After starting this mode, open `http://127.0.0.1:5555/ui` to use the card-based Web UI (real-time logs, settings editor, file gallery, and share-link tools).**
 
 ## Web API mode
 
@@ -186,7 +187,7 @@ demo()
 <li>Method 2: Pull the image using the command <code>docker pull joeanamier/tiktok-downloader</code>.</li>
 <li>Method 3: Pull the image using the command <code>docker pull ghcr.io/joeanamier/tiktok-downloader</code>.</li>
 </ul>
-<li>Create the container: <code>docker run --name ContainerName(optional) -p HostPort:5555 -v tiktok_downloader_volume:/app/Volume -it &lt;image name&gt;</code>.</li>
+<li>Create the container: <code>docker run --name ContainerName(optional) -p HostPort:5555 -v tiktok_downloader_settings:/app/settings -it &lt;image name&gt;</code>.</li>
 <br><b>Note:</b> The <code>&lt;image name&gt;</code> here must be consistent with the image name you used in the first step (<code>joeanamier/tiktok-downloader</code> or <code>ghcr.io/joeanamier/tiktok-downloader</code>)
 <li>Run the container
 <ul>
@@ -323,7 +324,7 @@ repository to execute the build process
 
 ## Program Update
 
-<p><strong>Method 1:</strong> Download and extract the files, then copy the old version of the <code>_internal\Volume</code> folder into the new version's <code>_internal</code> folder.</p>
+<p><strong>Method 1:</strong> Download and extract the files, then copy the old version of the <code>_internal\settings</code> folder into the new version's <code>_internal</code> folder.</p>
 <p><strong>Method 2:</strong> Download and extract the files (do not run the program), then copy all files and directly overwrite the old version.</p>
 
 # ⚠️ Disclaimer

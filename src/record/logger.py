@@ -51,22 +51,26 @@ class LoggerManager(BaseLogger):
         self.log.setLevel(INFO_LEVEL)
 
     def info(self, text: str, output=True, **kwargs):
+        self.push_web_log("INFO", text)
         if output:
             self.console.print(text, style=INFO, **kwargs)
         self.log.info(text.strip())
 
     def warning(self, text: str, output=True, **kwargs):
+        self.push_web_log("WARNING", text)
         if output:
             self.console.print(text, style=WARNING, **kwargs)
         self.log.warning(text.strip())
 
     def error(self, text: str, output=True, **kwargs):
+        self.push_web_log("ERROR", text)
         if output:
             self.console.print(text, style=ERROR, **kwargs)
         self.log.error(text.strip())
 
     def debug(self, text: str, **kwargs):
         if self.DEBUG:
+            self.push_web_log("DEBUG", text)
             self.console.print(text, style=DEBUG, **kwargs)
             self.log.debug(text.strip())
 

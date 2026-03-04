@@ -342,17 +342,16 @@ class Parameter:
         return {}
 
     async def __get_tt_wid_params_tiktok(self) -> dict:
+        tt_wid_value = self.cookie_dict_tiktok.get(TtWidTikTok.NAME, "") or (
+            self.get_cookie_value(
+                self.cookie_str_tiktok,
+                TtWidTikTok.NAME,
+            )
+        )
         if tt_wid := await TtWidTikTok.get_tt_wid(
             self.logger,
             self.headers_params_tiktok,
-            self.twc_tiktok
-            or f"{TtWidTikTok.NAME}={
-                self.cookie_dict_tiktok.get(TtWidTikTok.NAME, '')
-                or self.get_cookie_value(
-                    self.cookie_str_tiktok,
-                    TtWidTikTok.NAME,
-                )
-            }",
+            self.twc_tiktok or f"{TtWidTikTok.NAME}={tt_wid_value}",
             proxy=self.proxy_tiktok,
         ):
             self.logger.info(

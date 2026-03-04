@@ -1,12 +1,25 @@
+from asyncio import sleep
+from mimetypes import guess_type
+from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING
 
-from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from uvicorn import Config, Server
 
 from ..custom import (
     __VERSION__,
+    PROJECT_ROOT,
     REPOSITORY,
     SERVER_HOST,
     SERVER_PORT,
@@ -34,7 +47,22 @@ from ..models import (
     VideoSearch,
 )
 from ..translation import _
+from ..webui.files import ScopeType, relative_path, resolve_within_root, serialize_entry
 from .main_terminal import TikTok
+
+try:
+    from ..webui.log_store import LOG_STORE
+except Exception:
+    class _FallbackLogStore:
+        @staticmethod
+        def latest(limit: int = 200):
+            return []
+
+        @staticmethod
+        def list_after(after_id: int = 0, limit: int = 200):
+            return []
+
+    LOG_STORE = _FallbackLogStore()
 
 if TYPE_CHECKING:
     from ..config import Parameter
@@ -52,6 +80,11 @@ def token_dependency(token: str = Header(None)):
 
 
 class APIServer(TikTok):
+    WEBUI_STATIC_DIR = Path(__file__).resolve().parent.parent.joinpath(
+        "webui",
+        "static",
+    )
+
     def __init__(
         self,
         parameter: "Parameter",
@@ -64,6 +97,42 @@ class APIServer(TikTok):
             server_mode,
         )
         self.server = None
+
+    def _scope_root(self, scope: ScopeType) -> Path:
+        return {
+            "project": PROJECT_ROOT,
+            "download": self.parameter.root,
+        }.get(scope, self.parameter.root)
+
+    @staticmethod
+    def _coerce_log_list(records: list | tuple | None) -> list[dict]:
+        if not isinstance(records, (list, tuple)):
+            return []
+        return [item for item in records if isinstance(item, dict)]
+
+    @classmethod
+    def _fetch_logs(cls, after_id: int = 0, limit: int = 200) -> list[dict]:
+        logs = []
+        if hasattr(LOG_STORE, "list_after"):
+            try:
+                logs = LOG_STORE.list_after(after_id=after_id, limit=limit)
+            except TypeError:
+                logs = LOG_STORE.list_after(after_id, limit)
+        elif hasattr(LOG_STORE, "latest"):
+            try:
+                logs = LOG_STORE.latest(limit=limit)
+            except TypeError:
+                logs = LOG_STORE.latest(limit)
+            logs = [
+                item
+                for item in cls._coerce_log_list(logs)
+                if int(item.get("id", 0)) > after_id
+            ]
+        return cls._coerce_log_list(logs)
+
+    @staticmethod
+    def _normalize_limit(limit: int) -> int:
+        return max(1, min(limit, 1000))
 
     async def handle_redirect(self, text: str, proxy: str = None) -> str:
         return await self.links.run(
@@ -90,6 +159,11 @@ class APIServer(TikTok):
             title="DouK-Downloader",
             version=__VERSION__,
         )
+        self.server.mount(
+            "/ui/static",
+            StaticFiles(directory=self.WEBUI_STATIC_DIR, check_dir=False),
+            name="webui-static",
+        )
         self.setup_routes()
         config = Config(
             self.server,
@@ -101,6 +175,178 @@ class APIServer(TikTok):
         await server.serve()
 
     def setup_routes(self):
+        @self.server.get(
+            "/ui",
+            include_in_schema=False,
+        )
+        async def webui():
+            index_file = self.WEBUI_STATIC_DIR.joinpath("index.html")
+            if not index_file.is_file():
+                raise HTTPException(
+                    status_code=404,
+                    detail="Web UI resources not found.",
+                )
+            return FileResponse(index_file)
+
+        @self.server.get(
+            "/ui/api/files",
+            summary="Web UI 文件浏览",
+            description="返回目录列表，供 Web UI 文件浏览卡片使用",
+            tags=[_("项目")],
+        )
+        async def webui_files(
+            scope: ScopeType = Query("download"),
+            path: str = Query(""),
+            token: str = Depends(token_dependency),
+        ):
+            if scope not in {"project", "download"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid scope.",
+                )
+            root = self._scope_root(scope)
+            try:
+                current = resolve_within_root(root, path)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Path out of scope.",
+                )
+            if not current.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail="Path does not exist.",
+                )
+            if not current.is_dir():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Path is not a directory.",
+                )
+            entries = sorted(
+                (serialize_entry(root, item) for item in current.iterdir()),
+                key=lambda item: (not item["is_dir"], item["name"].lower()),
+            )
+            root_path = root.expanduser().resolve()
+            current_path = current.expanduser().resolve()
+            return {
+                "scope": scope,
+                "root": str(root_path),
+                "path": relative_path(root_path, current_path),
+                "is_root": current_path == root_path,
+                "parent": (
+                    ""
+                    if current_path == root_path
+                    else relative_path(root_path, current_path.parent)
+                ),
+                "entries": entries,
+                "count": len(entries),
+            }
+
+        @self.server.get(
+            "/ui/api/file",
+            summary="Web UI 文件访问",
+            description="返回 scope 下的文件内容，禁止越界路径",
+            tags=[_("项目")],
+        )
+        async def webui_file(
+            scope: ScopeType = Query("download"),
+            path: str = Query(""),
+            token: str = Depends(token_dependency),
+        ):
+            if scope not in {"project", "download"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid scope.",
+                )
+            if not path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Path is required.",
+                )
+            root = self._scope_root(scope)
+            try:
+                target = resolve_within_root(root, path)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Path out of scope.",
+                )
+            if not target.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail="File does not exist.",
+                )
+            if not target.is_file():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Target is not a file.",
+                )
+            media_type = guess_type(target.name)[0] or "application/octet-stream"
+            return FileResponse(target, media_type=media_type)
+
+        @self.server.get(
+            "/ui/api/logs",
+            summary="Web UI 日志轮询",
+            description="按日志 ID 增量返回日志记录",
+            tags=[_("项目")],
+        )
+        async def webui_logs(
+            after_id: int = Query(0, ge=0),
+            limit: int = Query(200, ge=1, le=1000),
+            token: str = Depends(token_dependency),
+        ):
+            items = self._fetch_logs(
+                after_id=after_id,
+                limit=self._normalize_limit(limit),
+            )
+            latest_id = after_id
+            if items:
+                latest_id = max(int(item.get("id", 0)) for item in items)
+            return {
+                "items": items,
+                "after_id": after_id,
+                "latest_id": latest_id,
+            }
+
+        @self.server.websocket("/ui/ws/logs")
+        async def webui_logs_ws(websocket: WebSocket):
+            token = websocket.headers.get("token") or websocket.query_params.get(
+                "token"
+            )
+            if not is_valid_token(token):
+                await websocket.close(
+                    code=4403,
+                    reason=_("验证失败！"),
+                )
+                return
+            await websocket.accept()
+            raw_after = websocket.query_params.get("after_id", "0")
+            try:
+                cursor = max(int(raw_after), 0)
+            except ValueError:
+                cursor = 0
+            try:
+                while True:
+                    items = self._fetch_logs(
+                        after_id=cursor,
+                        limit=500,
+                    )
+                    if items:
+                        cursor = max(
+                            cursor,
+                            max(int(item.get("id", 0)) for item in items),
+                        )
+                        await websocket.send_json(
+                            {
+                                "type": "logs",
+                                "items": items,
+                                "latest_id": cursor,
+                            }
+                        )
+                    await sleep(1)
+            except WebSocketDisconnect:
+                return
+
         @self.server.get(
             "/",
             summary=_("访问项目 GitHub 仓库"),

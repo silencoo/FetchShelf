@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DouK-Downloader WebUI</title>
+    <link rel="stylesheet" href="/ui/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar card">
+        <div class="brand">
+          <h1>DouK-Downloader WebUI</h1>
+          <p>Card 模块化控制台</p>
+        </div>
+        <div class="topbar-tools">
+          <label class="field compact">
+            <span>Token</span>
+            <input id="token-input" type="text" placeholder="可选" autocomplete="off" />
+          </label>
+          <button id="apply-token-btn" class="btn">应用</button>
+          <span id="ws-status" class="badge warn">日志: 轮询</span>
+          <span id="api-status" class="badge">API: 就绪</span>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="card settings-card">
+          <div class="card-head">
+            <h2>设置配置</h2>
+            <div class="card-actions">
+              <button id="settings-reload-btn" class="btn ghost">重新加载</button>
+              <button id="settings-save-btn" class="btn primary">保存配置</button>
+            </div>
+          </div>
+          <form id="settings-form" class="form-grid" autocomplete="off">
+            <label class="field">
+              <span>root</span>
+              <input name="root" type="text" placeholder="下载与导出根目录" />
+            </label>
+            <label class="field">
+              <span>folder_name</span>
+              <input name="folder_name" type="text" placeholder="detail 模式目录名" />
+            </label>
+            <label class="field">
+              <span>storage_format</span>
+              <select name="storage_format">
+                <option value="">关闭</option>
+                <option value="csv">csv</option>
+                <option value="xlsx">xlsx</option>
+                <option value="sql">sql</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>proxy</span>
+              <input name="proxy" type="text" placeholder="如 socks5://127.0.0.1:1080" />
+            </label>
+            <label class="field">
+              <span>proxy_tiktok</span>
+              <input
+                name="proxy_tiktok"
+                type="text"
+                placeholder="如 socks5://127.0.0.1:1080"
+              />
+            </label>
+            <label class="field">
+              <span>run_command</span>
+              <input name="run_command" type="text" placeholder="可选命令参数" />
+            </label>
+            <label class="toggle-field">
+              <input name="download" type="checkbox" />
+              <span>download</span>
+            </label>
+            <label class="toggle-field">
+              <input name="folder_mode" type="checkbox" />
+              <span>folder_mode</span>
+            </label>
+            <label class="toggle-field">
+              <input name="music" type="checkbox" />
+              <span>music</span>
+            </label>
+            <label class="toggle-field">
+              <input name="dynamic_cover" type="checkbox" />
+              <span>dynamic_cover</span>
+            </label>
+            <label class="toggle-field">
+              <input name="static_cover" type="checkbox" />
+              <span>static_cover</span>
+            </label>
+          </form>
+          <div id="settings-status" class="status-line">等待加载配置…</div>
+        </section>
+
+        <section class="card logs-card">
+          <div class="card-head">
+            <h2>实时运行日志</h2>
+            <div class="card-actions">
+              <label class="toggle-field compact-inline">
+                <input id="logs-autoscroll" type="checkbox" checked />
+                <span>自动滚动</span>
+              </label>
+              <button id="logs-clear-btn" class="btn ghost">清屏</button>
+            </div>
+          </div>
+          <div id="log-stream" class="log-stream"></div>
+          <div class="status-line">
+            <span id="log-count">0 条日志</span>
+          </div>
+        </section>
+
+        <section class="card gallery-card">
+          <div class="card-head">
+            <h2>文件浏览 Gallery</h2>
+            <div class="card-actions">
+              <button id="files-up-btn" class="btn ghost">上一级</button>
+              <button id="files-refresh-btn" class="btn ghost">刷新</button>
+            </div>
+          </div>
+
+          <div class="files-toolbar">
+            <label class="field compact">
+              <span>scope</span>
+              <select id="files-scope">
+                <option value="download">download</option>
+                <option value="project">project</option>
+              </select>
+            </label>
+            <label class="field compact grow">
+              <span>path</span>
+              <input id="files-path" type="text" placeholder="相对路径，留空为根目录" />
+            </label>
+            <button id="files-open-btn" class="btn">打开</button>
+          </div>
+
+          <div id="files-meta" class="status-line">等待加载目录…</div>
+
+          <div class="gallery-layout">
+            <div id="files-list" class="files-list"></div>
+            <div id="file-preview" class="file-preview">
+              <div class="empty-tip">选择文件后显示预览</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card tools-card">
+          <div class="card-head">
+            <h2>工具模块</h2>
+          </div>
+          <div class="tool-block">
+            <h3>分享链接解析</h3>
+            <label class="field">
+              <span>平台</span>
+              <select id="share-platform">
+                <option value="douyin">douyin</option>
+                <option value="tiktok">tiktok</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>文本/分享链接</span>
+              <textarea
+                id="share-input"
+                rows="4"
+                placeholder="粘贴包含分享链接的文本"
+              ></textarea>
+            </label>
+            <div class="card-actions">
+              <button id="share-resolve-btn" class="btn primary">解析</button>
+              <button id="share-copy-btn" class="btn ghost">复制结果</button>
+            </div>
+            <div id="share-status" class="status-line">等待解析</div>
+            <a id="share-result" class="link-result" href="#" target="_blank" rel="noreferrer"></a>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/ui/static/app.js"></script>
+  </body>
+</html>

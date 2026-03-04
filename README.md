@@ -90,7 +90,9 @@
 
 ## Web UI 交互模式
 
-> **项目代码已重构，该模式代码尚未更新，未来开发完成重新开放！**
+![WebUI模式截图](docs/screenshot/WebAPI模式截图CN1.png)
+
+> **启动该模式后，访问 `http://127.0.0.1:5555/ui` 可使用 Card 模块化 Web UI（内置实时日志、配置编辑、文件 Gallery 与链接解析工具）。**
 
 ## Web API 接口模式
 
@@ -183,7 +185,7 @@ demo()
 <li>方式二：使用 <code>docker pull joeanamier/tiktok-downloader</code> 命令拉取镜像</li>
 <li>方式三：使用 <code>docker pull ghcr.io/joeanamier/tiktok-downloader</code> 命令拉取镜像</li>
 </ul>
-<li>创建容器：<code>docker run --name 容器名称(可选) -p 主机端口号:5555 -v tiktok_downloader_volume:/app/Volume -it &lt;镜像名称&gt;</code>
+<li>创建容器：<code>docker run --name 容器名称(可选) -p 主机端口号:5555 -v tiktok_downloader_settings:/app/settings -it &lt;镜像名称&gt;</code>
 </li>
 <br><b>注意：</b>此处的 <code>&lt;镜像名称&gt;</code> 需与您在第一步中使用的镜像名称保持一致（例如 <code>joeanamier/tiktok-downloader</code> 或 <code>ghcr.io/joeanamier/tiktok-downloader</code>）
 <li>运行容器
@@ -194,6 +196,20 @@ demo()
 </li>
 </ol>
 <p>Docker 容器无法直接访问宿主机的文件系统，部分功能不可用，例如：<code>从浏览器读取 Cookie</code>；其他功能如有异常请反馈！</p>
+<hr>
+
+## 路径参数说明（root / folder_name / settings）
+
+<ul>
+<li><code>root</code>：下载与数据导出的根目录（作品文件、CSV/XLSX/SQL 等）。默认留空时使用项目数据根目录（即 <code>./settings</code>；Docker 中通常是 <code>/app/settings</code>）。</li>
+<li><code>folder_name</code>：仅用于“链接作品下载（detail）”模式的子目录名称，默认值为 <code>Download</code>。</li>
+<li>账号发布/喜欢/收藏、合集、收藏夹等批量模式不会使用 <code>folder_name</code>，会按内置规则自动命名目录（如 <code>UIDxxx_发布作品</code>、<code>MIDxxx_合集作品</code>）。</li>
+<li><code>Music</code>、<code>Live</code> 目录也不受 <code>folder_name</code> 影响。</li>
+<li><code>settings.json</code>、数据库（<code>DouK-Downloader.db</code>）、缓存（<code>Cache</code>）默认位于项目数据根目录（<code>./settings</code>）。当前没有单独参数只改这三者路径。</li>
+<li>Docker 建议通过挂载控制持久化路径：<code>-v 宿主机目录:/app/settings</code>。</li>
+</ul>
+
+<p>示例：当 <code>root=/data/douk</code> 且 <code>folder_name=Solo</code> 时，链接作品会保存到 <code>/data/douk/Solo</code>；账号批量作品会保存到 <code>/data/douk/UIDxxx_...</code>。</p>
 <hr>
 
 ## 关于 Cookie
@@ -313,7 +329,7 @@ A: 由于权限限制，您无法直接触发主仓库的 Actions。请通过 Fo
 
 ## 程序更新
 
-<p><strong>方案一：</strong>下载并解压文件，将旧版本的 <code>_internal\Volume</code> 文件夹复制到新版本的 <code>_internal</code> 文件夹。</p>
+<p><strong>方案一：</strong>下载并解压文件，将旧版本的 <code>_internal\settings</code> 文件夹复制到新版本的 <code>_internal</code> 文件夹。</p>
 <p><strong>方案二：</strong>下载并解压文件（不要运行程序），复制全部文件，直接覆盖旧版本文件。</p>
 
 # ⚠️ 免责声明
