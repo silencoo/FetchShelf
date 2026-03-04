@@ -32,6 +32,8 @@ const refs = {
   settingsRawSaveBtn: document.getElementById("settings-raw-save-btn"),
   settingsRawFormatBtn: document.getElementById("settings-raw-format-btn"),
   settingsRawStatus: document.getElementById("settings-raw-status"),
+  accountsSettingsBlock: document.getElementById("accounts-settings-block"),
+  accountsToggleBtn: document.getElementById("accounts-toggle-btn"),
   accountsDouyinBody: document.getElementById("accounts-douyin-body"),
   accountsTiktokBody: document.getElementById("accounts-tiktok-body"),
   accountsDouyinAddBtn: document.getElementById("accounts-douyin-add-btn"),
@@ -201,6 +203,8 @@ const TASK_TEMPLATES = {
     proxy: "",
   },
 };
+
+const ACCOUNTS_COLLAPSE_STORAGE_KEY = "webui.accounts.collapsed";
 
 function setBadge(element, text, kind = "") {
   element.textContent = text;
@@ -520,6 +524,27 @@ function setAccountsIoStatus(text) {
     return;
   }
   refs.accountsIoStatus.textContent = text;
+}
+
+function toggleAccountsSettings(forceCollapsed = null) {
+  const block = refs.accountsSettingsBlock;
+  if (!block) {
+    return;
+  }
+  const nextCollapsed =
+    typeof forceCollapsed === "boolean"
+      ? forceCollapsed
+      : !block.classList.contains("collapsed");
+  block.classList.toggle("collapsed", nextCollapsed);
+  if (refs.accountsToggleBtn) {
+    refs.accountsToggleBtn.textContent = nextCollapsed ? "展开配置" : "收起配置";
+  }
+  try {
+    localStorage.setItem(
+      ACCOUNTS_COLLAPSE_STORAGE_KEY,
+      nextCollapsed ? "1" : "0",
+    );
+  } catch {}
 }
 
 function accountExportPayload() {
@@ -1340,6 +1365,10 @@ function bindEvents() {
     addAccountRow("tiktok");
   });
 
+  refs.accountsToggleBtn.addEventListener("click", () => {
+    toggleAccountsSettings();
+  });
+
   refs.accountsExportJsonBtn.addEventListener("click", () => {
     exportAccountsJson();
   });
@@ -1478,6 +1507,11 @@ function bootstrap() {
   bindEvents();
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
+  let isCollapsed = false;
+  try {
+    isCollapsed = localStorage.getItem(ACCOUNTS_COLLAPSE_STORAGE_KEY) === "1";
+  } catch {}
+  toggleAccountsSettings(isCollapsed);
   setAccountRows("douyin", []);
   setAccountRows("tiktok", []);
   loadTaskTemplate();
