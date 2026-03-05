@@ -67,15 +67,17 @@ const refs = {
   accountsDouyinSelectAllBtn: document.getElementById("accounts-douyin-select-all-btn"),
   accountsDouyinClearSelectBtn: document.getElementById("accounts-douyin-clear-select-btn"),
   accountsDouyinOpenSelectedBtn: document.getElementById("accounts-douyin-open-selected-btn"),
-  accountsDouyinBatchEarliest: document.getElementById("accounts-douyin-batch-earliest"),
-  accountsDouyinApplyEarliestBtn: document.getElementById("accounts-douyin-apply-earliest-btn"),
+  accountsDouyinBatchField: document.getElementById("accounts-douyin-batch-field"),
+  accountsDouyinBatchValue: document.getElementById("accounts-douyin-batch-value"),
+  accountsDouyinApplyBatchBtn: document.getElementById("accounts-douyin-apply-batch-btn"),
   accountsDouyinDeleteSelectedBtn: document.getElementById("accounts-douyin-delete-selected-btn"),
   accountsDouyinStatus: document.getElementById("accounts-douyin-status"),
   accountsTikTokSelectAllBtn: document.getElementById("accounts-tiktok-select-all-btn"),
   accountsTikTokClearSelectBtn: document.getElementById("accounts-tiktok-clear-select-btn"),
   accountsTikTokOpenSelectedBtn: document.getElementById("accounts-tiktok-open-selected-btn"),
-  accountsTikTokBatchEarliest: document.getElementById("accounts-tiktok-batch-earliest"),
-  accountsTikTokApplyEarliestBtn: document.getElementById("accounts-tiktok-apply-earliest-btn"),
+  accountsTikTokBatchField: document.getElementById("accounts-tiktok-batch-field"),
+  accountsTikTokBatchValue: document.getElementById("accounts-tiktok-batch-value"),
+  accountsTikTokApplyBatchBtn: document.getElementById("accounts-tiktok-apply-batch-btn"),
   accountsTikTokDeleteSelectedBtn: document.getElementById("accounts-tiktok-delete-selected-btn"),
   accountsTikTokStatus: document.getElementById("accounts-tiktok-status"),
   deletedDouyinBody: document.getElementById("deleted-douyin-body"),
@@ -818,13 +820,72 @@ function openUrls(urls) {
   urls.filter(Boolean).forEach((url) => window.open(url, "_blank", "noopener,noreferrer"));
 }
 
-function applyBatchEarliest(platform, value) {
+function parseBatchEnableValue(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  const trueValues = new Set(["1", "true", "yes", "on", "enable", "enabled", "启用", "开启"]);
+  const falseValues = new Set(["0", "false", "no", "off", "disable", "disabled", "禁用", "关闭"]);
+  if (trueValues.has(normalized)) {
+    return true;
+  }
+  if (falseValues.has(normalized)) {
+    return false;
+  }
+  return null;
+}
+
+function batchValuePlaceholder(field) {
+  if (field === "enable") {
+    return "批量值：true / false / 启用 / 禁用";
+  }
+  if (field === "url") {
+    return "批量值：账号主页链接";
+  }
+  if (field === "tab") {
+    return "批量值：post / favorite / collection";
+  }
+  return `批量值：${field}`;
+}
+
+function syncBatchValuePlaceholder(platform) {
+  const fieldRef =
+    platform === "tiktok" ? refs.accountsTikTokBatchField : refs.accountsDouyinBatchField;
+  const valueRef =
+    platform === "tiktok" ? refs.accountsTikTokBatchValue : refs.accountsDouyinBatchValue;
+  if (!fieldRef || !valueRef) {
+    return;
+  }
+  valueRef.placeholder = batchValuePlaceholder(fieldRef.value || "earliest");
+}
+
+function applyBatchField(platform, field, rawValue) {
   const key = accountRowsKey(platform);
   const indexes = selectedIndexes(platform, "active");
+  if (!indexes.length) {
+    return { updated: 0, error: "请先勾选至少一行再批量替换" };
+  }
+  const editableFields = new Set(["mark", "url", "tab", "earliest", "latest", "enable"]);
+  if (!editableFields.has(field)) {
+    return { updated: 0, error: `不支持字段: ${field}` };
+  }
+  let nextValue = rawValue;
+  if (field === "enable") {
+    const parsed = parseBatchEnableValue(rawValue);
+    if (parsed === null) {
+      return { updated: 0, error: "enable 只支持 true/false/1/0/启用/禁用" };
+    }
+    nextValue = parsed;
+  }
   indexes.forEach((index) => {
-    state.accountRows[key][index].earliest = value;
+    const row = state.accountRows[key][index];
+    if (!row) {
+      return;
+    }
+    row[field] = field === "enable" ? Boolean(nextValue) : String(nextValue ?? "");
   });
   renderAccountRows(platform);
+  return { updated: indexes.length, field };
 }
 
 function collectAccountRows(platform) {
@@ -2113,15 +2174,40 @@ function bindEvents() {
     );
   });
 
-  refs.accountsDouyinApplyEarliestBtn.addEventListener("click", async () => {
-    applyBatchEarliest("douyin", refs.accountsDouyinBatchEarliest.value.trim());
-    const result = await persistAccountTables("account_batch_earliest");
-    setAccountStatus("douyin", `批量 earliest 已保存: ${result.backup_path || "-"}`);
+  refs.accountsDouyinBatchField.addEventListener("change", () => {
+    syncBatchValuePlaceholder("douyin");
   });
-  refs.accountsTikTokApplyEarliestBtn.addEventListener("click", async () => {
-    applyBatchEarliest("tiktok", refs.accountsTikTokBatchEarliest.value.trim());
-    const result = await persistAccountTables("account_batch_earliest");
-    setAccountStatus("tiktok", `批量 earliest 已保存: ${result.backup_path || "-"}`);
+  refs.accountsTikTokBatchField.addEventListener("change", () => {
+    syncBatchValuePlaceholder("tiktok");
+  });
+
+  refs.accountsDouyinApplyBatchBtn.addEventListener("click", async () => {
+    const field = refs.accountsDouyinBatchField.value;
+    const value = refs.accountsDouyinBatchValue.value;
+    const resultState = applyBatchField("douyin", field, value);
+    if (resultState.error) {
+      setAccountStatus("douyin", resultState.error);
+      return;
+    }
+    const result = await persistAccountTables("account_batch_replace");
+    setAccountStatus(
+      "douyin",
+      `已批量替换 ${resultState.updated} 行 ${field}: ${result.backup_path || "-"}`,
+    );
+  });
+  refs.accountsTikTokApplyBatchBtn.addEventListener("click", async () => {
+    const field = refs.accountsTikTokBatchField.value;
+    const value = refs.accountsTikTokBatchValue.value;
+    const resultState = applyBatchField("tiktok", field, value);
+    if (resultState.error) {
+      setAccountStatus("tiktok", resultState.error);
+      return;
+    }
+    const result = await persistAccountTables("account_batch_replace");
+    setAccountStatus(
+      "tiktok",
+      `已批量替换 ${resultState.updated} 行 ${field}: ${result.backup_path || "-"}`,
+    );
   });
 
   refs.accountsDouyinDeleteSelectedBtn.addEventListener("click", async () => {
@@ -2243,6 +2329,8 @@ function startTaskPolling() {
 
 function bootstrap() {
   bindEvents();
+  syncBatchValuePlaceholder("douyin");
+  syncBatchValuePlaceholder("tiktok");
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
   let activeTab = "workbench";

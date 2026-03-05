@@ -146,18 +146,22 @@
                   <button id="accounts-douyin-open-selected-btn" type="button" class="btn ghost">
                     批量打开
                   </button>
+                  <select id="accounts-douyin-batch-field" class="inline-input batch-field-select">
+                    <option value="earliest">earliest</option>
+                    <option value="latest">latest</option>
+                    <option value="tab">tab</option>
+                    <option value="mark">mark</option>
+                    <option value="url">url</option>
+                    <option value="enable">enable</option>
+                  </select>
                   <input
-                    id="accounts-douyin-batch-earliest"
-                    class="inline-input"
+                    id="accounts-douyin-batch-value"
+                    class="inline-input batch-value-input"
                     type="text"
-                    placeholder="批量 earliest: 2025/01/01"
+                    placeholder="批量值（默认 earliest）"
                   />
-                  <button
-                    id="accounts-douyin-apply-earliest-btn"
-                    type="button"
-                    class="btn ghost"
-                  >
-                    批量改 earliest
+                  <button id="accounts-douyin-apply-batch-btn" type="button" class="btn ghost">
+                    批量替换字段
                   </button>
                   <button
                     id="accounts-douyin-delete-selected-btn"
@@ -267,18 +271,22 @@
                   <button id="accounts-tiktok-open-selected-btn" type="button" class="btn ghost">
                     批量打开
                   </button>
+                  <select id="accounts-tiktok-batch-field" class="inline-input batch-field-select">
+                    <option value="earliest">earliest</option>
+                    <option value="latest">latest</option>
+                    <option value="tab">tab</option>
+                    <option value="mark">mark</option>
+                    <option value="url">url</option>
+                    <option value="enable">enable</option>
+                  </select>
                   <input
-                    id="accounts-tiktok-batch-earliest"
-                    class="inline-input"
+                    id="accounts-tiktok-batch-value"
+                    class="inline-input batch-value-input"
                     type="text"
-                    placeholder="批量 earliest: 2025/01/01"
+                    placeholder="批量值（默认 earliest）"
                   />
-                  <button
-                    id="accounts-tiktok-apply-earliest-btn"
-                    type="button"
-                    class="btn ghost"
-                  >
-                    批量改 earliest
+                  <button id="accounts-tiktok-apply-batch-btn" type="button" class="btn ghost">
+                    批量替换字段
                   </button>
                   <button
                     id="accounts-tiktok-delete-selected-btn"
