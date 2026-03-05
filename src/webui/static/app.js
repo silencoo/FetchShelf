@@ -20,6 +20,16 @@ const state = {
     tiktok: [],
   },
   activeTab: "workbench",
+  selectionAnchors: {
+    active: {
+      douyin: null,
+      tiktok: null,
+    },
+    deleted: {
+      douyin: null,
+      tiktok: null,
+    },
+  },
 };
 
 const refs = {
@@ -752,12 +762,51 @@ function selectedIndexes(platform, section = "active") {
     .map((item) => item.index);
 }
 
+function sectionName(section = "active") {
+  return section === "deleted" ? "deleted" : "active";
+}
+
+function getSelectionAnchor(platform, section = "active") {
+  const key = accountRowsKey(platform);
+  const sectionKey = sectionName(section);
+  const value = state.selectionAnchors[sectionKey]?.[key];
+  return Number.isInteger(value) ? value : null;
+}
+
+function setSelectionAnchor(platform, section = "active", index = null) {
+  const key = accountRowsKey(platform);
+  const sectionKey = sectionName(section);
+  if (!state.selectionAnchors[sectionKey]) {
+    state.selectionAnchors[sectionKey] = {};
+  }
+  state.selectionAnchors[sectionKey][key] = Number.isInteger(index) ? index : null;
+}
+
+function applySelectionRange(platform, section = "active", fromIndex, toIndex, selected = true) {
+  const key = accountRowsKey(platform);
+  const rows = section === "deleted" ? state.deletedRows[key] : state.accountRows[key];
+  if (!rows.length) {
+    return;
+  }
+  const start = Math.max(0, Math.min(rows.length - 1, Math.min(fromIndex, toIndex)));
+  const end = Math.max(0, Math.min(rows.length - 1, Math.max(fromIndex, toIndex)));
+  for (let index = start; index <= end; index += 1) {
+    rows[index].selected = selected;
+  }
+  if (section === "deleted") {
+    renderDeletedRows(platform);
+  } else {
+    renderAccountRows(platform);
+  }
+}
+
 function selectAllRows(platform, section = "active", selected = true) {
   const key = accountRowsKey(platform);
   const rows = section === "deleted" ? state.deletedRows[key] : state.accountRows[key];
   rows.forEach((item) => {
     item.selected = selected;
   });
+  setSelectionAnchor(platform, section, null);
   if (section === "deleted") {
     renderDeletedRows(platform);
   } else {
@@ -1924,6 +1973,28 @@ function bindEvents() {
     body.addEventListener("click", async (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      if (
+        target instanceof HTMLInputElement &&
+        target.dataset.field === "selected"
+      ) {
+        const row = target.closest("tr");
+        if (!row) {
+          return;
+        }
+        const platform = row.dataset.platform || "douyin";
+        const index = Number(row.dataset.index || "-1");
+        if (!Number.isInteger(index) || index < 0) {
+          return;
+        }
+        if (event.shiftKey) {
+          const anchor = getSelectionAnchor(platform, section);
+          if (Number.isInteger(anchor)) {
+            applySelectionRange(platform, section, anchor, index, target.checked);
+          }
+        }
+        setSelectionAnchor(platform, section, index);
         return;
       }
       const action = target.dataset.action;
