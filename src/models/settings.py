@@ -12,6 +12,11 @@ class AccountUrl(BaseModel):
     enable: bool = True
 
 
+class DeletedAccountUrl(AccountUrl):
+    deleted_at: str = ""
+    reason: str = ""
+
+
 class MixUrl(BaseModel):
     mark: str = ""
     url: str
@@ -65,6 +70,8 @@ class TikTokBrowserInfo(BaseModel):
 class Settings(BaseModel):
     accounts_urls: List[AccountUrl] = []
     accounts_urls_tiktok: List[AccountUrl] = []
+    deleted_accounts: List[DeletedAccountUrl] = []
+    deleted_accounts_tiktok: List[DeletedAccountUrl] = []
     mix_urls: List[MixUrl] = []
     mix_urls_tiktok: List[MixUrl] = []
     owner_url: OwnerUrl | dict[str, str] = {}
@@ -100,12 +107,14 @@ class Settings(BaseModel):
     tiktok_platform: bool | None = None
     browser_info: BrowserInfo | None = None
     browser_info_tiktok: TikTokBrowserInfo | None = None
+    ui_schedules: list[dict] = []
 
     class Config:
         populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {
             AccountUrl: lambda v: v.dict(),
+            DeletedAccountUrl: lambda v: v.dict(),
             MixUrl: lambda v: v.dict(),
             OwnerUrl: lambda v: v.dict(),
             BrowserInfo: lambda v: v.dict(),

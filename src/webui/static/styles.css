@@ -65,6 +65,29 @@ a {
   font-size: 13px;
 }
 
+.top-tabs {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tab-btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  padding: 6px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  color: var(--text);
+  border-color: rgba(76, 141, 255, 0.8);
+  background: rgba(76, 141, 255, 0.2);
+}
+
 .topbar-tools {
   display: flex;
   align-items: center;
@@ -89,13 +112,17 @@ a {
 }
 
 .gallery-card {
-  grid-column: span 8;
+  grid-column: span 12;
   padding: 14px;
 }
 
 .tools-card {
-  grid-column: span 4;
+  grid-column: span 12;
   padding: 14px;
+}
+
+.hidden-panel {
+  display: none !important;
 }
 
 .card-head {
@@ -148,6 +175,11 @@ a {
 
 .btn.ghost {
   background: transparent;
+}
+
+.btn.danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #ffb2b2;
 }
 
 .badge {
@@ -259,6 +291,16 @@ a {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px dashed var(--line);
+  background: linear-gradient(180deg, rgba(9, 13, 21, 0.5), rgba(9, 13, 21, 0));
+  border-radius: 12px;
+}
+
+#settings-raw-editor {
+  min-height: 320px;
+  line-height: 1.55;
+  font-size: 12px;
+  background: #09111d;
+  border: 1px solid rgba(76, 141, 255, 0.3);
 }
 
 .accounts-settings-block {
@@ -283,6 +325,29 @@ a {
   border-radius: 10px;
   padding: 10px;
   background: rgba(10, 16, 26, 0.35);
+}
+
+.account-subhead {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.batch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.inline-input {
+  border: 1px solid var(--line);
+  background: rgba(10, 16, 26, 0.7);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 7px 10px;
+  font-size: 12px;
+  min-width: 180px;
 }
 
 .account-table-wrap {
@@ -324,7 +389,7 @@ a {
 
 .account-table th:nth-child(2),
 .account-table td:nth-child(2) {
-  width: 120px;
+  width: 74px;
 }
 
 .account-table th:nth-child(3),
@@ -346,7 +411,12 @@ a {
 
 .account-table th:nth-child(7),
 .account-table td:nth-child(7) {
-  width: 72px;
+  width: 124px;
+}
+
+.account-table th:nth-child(8),
+.account-table td:nth-child(8) {
+  width: 138px;
 }
 
 .account-table td input,
@@ -365,6 +435,89 @@ a {
   width: 18px;
   height: 18px;
   accent-color: var(--primary);
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 42px;
+  height: 22px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(167, 187, 220, 0.25);
+  border: 1px solid rgba(167, 187, 220, 0.35);
+  transition: 0.2s ease;
+}
+
+.switch-slider::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 2px;
+  top: 2px;
+  border-radius: 50%;
+  background: #fff;
+  transition: 0.2s ease;
+}
+
+.switch input:checked + .switch-slider {
+  background: rgba(45, 212, 166, 0.28);
+  border-color: rgba(45, 212, 166, 0.5);
+}
+
+.switch input:checked + .switch-slider::before {
+  transform: translateX(19px);
+}
+
+.url-cell {
+  max-width: 480px;
+  word-break: break-all;
+}
+
+.deleted-table th:nth-child(1),
+.deleted-table td:nth-child(1) {
+  width: 64px;
+}
+
+.deleted-table th:nth-child(2),
+.deleted-table td:nth-child(2) {
+  width: 120px;
+}
+
+.deleted-table th:nth-child(3),
+.deleted-table td:nth-child(3) {
+  width: auto;
+}
+
+.deleted-table th:nth-child(4),
+.deleted-table td:nth-child(4) {
+  width: 100px;
+}
+
+.deleted-table th:nth-child(5),
+.deleted-table td:nth-child(5) {
+  width: 150px;
+}
+
+.deleted-table th:nth-child(6),
+.deleted-table td:nth-child(6) {
+  width: 160px;
+}
+
+.deleted-table th:nth-child(7),
+.deleted-table td:nth-child(7) {
+  width: 132px;
 }
 
 .account-table .btn {
@@ -498,6 +651,27 @@ a {
 .tool-block h3 {
   margin: 4px 0 10px;
   font-size: 14px;
+}
+
+.inline-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.inline-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inline-time input {
+  width: 70px;
+  border: 1px solid var(--line);
+  background: rgba(10, 16, 26, 0.7);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px;
 }
 
 .tool-block + .tool-block {
@@ -635,6 +809,10 @@ a {
 
   .form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inline-grid {
+    grid-template-columns: 1fr;
   }
 }
 

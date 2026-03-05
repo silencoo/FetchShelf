@@ -39,6 +39,8 @@ class Settings:
                 "enable": True,
             },
         ],
+        "deleted_accounts": [],
+        "deleted_accounts_tiktok": [],
         "mix_urls": [
             {
                 "mark": "",
@@ -118,6 +120,7 @@ class Settings:
             "webcast_language": "zh-Hans",
             "device_id": "",
         },
+        "ui_schedules": [],
     }  # 默认配置
     rename_params = (
         (

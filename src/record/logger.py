@@ -50,20 +50,29 @@ class LoggerManager(BaseLogger):
         self.log.addHandler(file_handler)
         self.log.setLevel(INFO_LEVEL)
 
-    def info(self, text: str, output=True, **kwargs):
-        self.push_web_log("INFO", text)
+    def info(self, text: str, output=True, web: bool | None = None, **kwargs):
+        if web is None:
+            web = output
+        if web:
+            self.push_web_log("INFO", text)
         if output:
             self.console.print(text, style=INFO, **kwargs)
         self.log.info(text.strip())
 
-    def warning(self, text: str, output=True, **kwargs):
-        self.push_web_log("WARNING", text)
+    def warning(self, text: str, output=True, web: bool | None = None, **kwargs):
+        if web is None:
+            web = output
+        if web:
+            self.push_web_log("WARNING", text)
         if output:
             self.console.print(text, style=WARNING, **kwargs)
         self.log.warning(text.strip())
 
-    def error(self, text: str, output=True, **kwargs):
-        self.push_web_log("ERROR", text)
+    def error(self, text: str, output=True, web: bool | None = None, **kwargs):
+        if web is None:
+            web = output
+        if web:
+            self.push_web_log("ERROR", text)
         if output:
             self.console.print(text, style=ERROR, **kwargs)
         self.log.error(text.strip())
