@@ -15,9 +15,15 @@ const state = {
     douyin: [],
     tiktok: [],
   },
+  deletedRows: {
+    douyin: [],
+    tiktok: [],
+  },
+  activeTab: "workbench",
 };
 
 const refs = {
+  tabButtons: Array.from(document.querySelectorAll(".tab-btn")),
   tokenInput: document.getElementById("token-input"),
   applyTokenBtn: document.getElementById("apply-token-btn"),
   wsStatus: document.getElementById("ws-status"),
@@ -42,6 +48,36 @@ const refs = {
   accountsImportJsonBtn: document.getElementById("accounts-import-json-btn"),
   accountsImportJsonFile: document.getElementById("accounts-import-json-file"),
   accountsIoStatus: document.getElementById("accounts-io-status"),
+  accountsDouyinSearch: document.getElementById("accounts-douyin-search"),
+  accountsTikTokSearch: document.getElementById("accounts-tiktok-search"),
+  accountsDouyinFormatBtn: document.getElementById("accounts-douyin-format-btn"),
+  accountsTikTokFormatBtn: document.getElementById("accounts-tiktok-format-btn"),
+  accountsDouyinCheckBtn: document.getElementById("accounts-douyin-check-btn"),
+  accountsTikTokCheckBtn: document.getElementById("accounts-tiktok-check-btn"),
+  accountsDouyinSelectAllBtn: document.getElementById("accounts-douyin-select-all-btn"),
+  accountsDouyinClearSelectBtn: document.getElementById("accounts-douyin-clear-select-btn"),
+  accountsDouyinOpenSelectedBtn: document.getElementById("accounts-douyin-open-selected-btn"),
+  accountsDouyinBatchEarliest: document.getElementById("accounts-douyin-batch-earliest"),
+  accountsDouyinApplyEarliestBtn: document.getElementById("accounts-douyin-apply-earliest-btn"),
+  accountsDouyinDeleteSelectedBtn: document.getElementById("accounts-douyin-delete-selected-btn"),
+  accountsDouyinStatus: document.getElementById("accounts-douyin-status"),
+  accountsTikTokSelectAllBtn: document.getElementById("accounts-tiktok-select-all-btn"),
+  accountsTikTokClearSelectBtn: document.getElementById("accounts-tiktok-clear-select-btn"),
+  accountsTikTokOpenSelectedBtn: document.getElementById("accounts-tiktok-open-selected-btn"),
+  accountsTikTokBatchEarliest: document.getElementById("accounts-tiktok-batch-earliest"),
+  accountsTikTokApplyEarliestBtn: document.getElementById("accounts-tiktok-apply-earliest-btn"),
+  accountsTikTokDeleteSelectedBtn: document.getElementById("accounts-tiktok-delete-selected-btn"),
+  accountsTikTokStatus: document.getElementById("accounts-tiktok-status"),
+  deletedDouyinBody: document.getElementById("deleted-douyin-body"),
+  deletedTikTokBody: document.getElementById("deleted-tiktok-body"),
+  deletedDouyinSelectAllBtn: document.getElementById("deleted-douyin-select-all-btn"),
+  deletedDouyinClearSelectBtn: document.getElementById("deleted-douyin-clear-select-btn"),
+  deletedDouyinOpenSelectedBtn: document.getElementById("deleted-douyin-open-selected-btn"),
+  deletedDouyinRestoreSelectedBtn: document.getElementById("deleted-douyin-restore-selected-btn"),
+  deletedTikTokSelectAllBtn: document.getElementById("deleted-tiktok-select-all-btn"),
+  deletedTikTokClearSelectBtn: document.getElementById("deleted-tiktok-clear-select-btn"),
+  deletedTikTokOpenSelectedBtn: document.getElementById("deleted-tiktok-open-selected-btn"),
+  deletedTikTokRestoreSelectedBtn: document.getElementById("deleted-tiktok-restore-selected-btn"),
 
   logStream: document.getElementById("log-stream"),
   logsAutoscroll: document.getElementById("logs-autoscroll"),
@@ -79,6 +115,18 @@ const refs = {
   workflowDetailRunBtn: document.getElementById("workflow-detail-run-btn"),
   workflowDetailStatus: document.getElementById("workflow-detail-status"),
   workflowDetailSummary: document.getElementById("workflow-detail-summary"),
+
+  scheduleName: document.getElementById("schedule-name"),
+  schedulePlatform: document.getElementById("schedule-platform"),
+  scheduleSource: document.getElementById("schedule-source"),
+  scheduleHour: document.getElementById("schedule-hour"),
+  scheduleMinute: document.getElementById("schedule-minute"),
+  scheduleCookie: document.getElementById("schedule-cookie"),
+  scheduleProxy: document.getElementById("schedule-proxy"),
+  scheduleCreateBtn: document.getElementById("schedule-create-btn"),
+  scheduleRefreshBtn: document.getElementById("schedule-refresh-btn"),
+  scheduleStatus: document.getElementById("schedule-status"),
+  scheduleList: document.getElementById("schedule-list"),
 
   taskEndpoint: document.getElementById("task-endpoint"),
   taskPayload: document.getElementById("task-payload"),
@@ -205,6 +253,7 @@ const TASK_TEMPLATES = {
 };
 
 const ACCOUNTS_COLLAPSE_STORAGE_KEY = "webui.accounts.collapsed";
+const ACTIVE_TAB_STORAGE_KEY = "webui.active.tab";
 
 function setBadge(element, text, kind = "") {
   element.textContent = text;
@@ -388,6 +437,19 @@ function connectLogSocket() {
   });
 }
 
+function switchTab(tab) {
+  state.activeTab = tab;
+  document.querySelectorAll(".tab-panel").forEach((panel) => {
+    panel.classList.toggle("hidden-panel", panel.dataset.tabPanel !== tab);
+  });
+  refs.tabButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.tabTarget === tab);
+  });
+  try {
+    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab);
+  } catch {}
+}
+
 function defaultAccountRow() {
   return {
     mark: "",
@@ -396,6 +458,7 @@ function defaultAccountRow() {
     earliest: "",
     latest: "",
     enable: true,
+    selected: false,
   };
 }
 
@@ -412,8 +475,43 @@ function normalizeAccountRows(rows) {
       earliest: String(item.earliest || "").trim(),
       latest: String(item.latest || "").trim(),
       enable: Boolean(item.enable ?? true),
+      selected: Boolean(item.selected ?? false),
     }));
   return normalized.length ? normalized : [defaultAccountRow()];
+}
+
+function defaultDeletedRow() {
+  return {
+    mark: "",
+    url: "",
+    tab: "post",
+    earliest: "",
+    latest: "",
+    enable: false,
+    deleted_at: "",
+    reason: "",
+    selected: false,
+  };
+}
+
+function normalizeDeletedRows(rows) {
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+  return rows
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      mark: String(item.mark || "").trim(),
+      url: String(item.url || "").trim(),
+      tab: String(item.tab || "post").trim() || "post",
+      earliest: String(item.earliest || "").trim(),
+      latest: String(item.latest || "").trim(),
+      enable: Boolean(item.enable ?? false),
+      deleted_at: String(item.deleted_at || "").trim(),
+      reason: String(item.reason || "").trim(),
+      selected: Boolean(item.selected ?? false),
+    }))
+    .filter((item) => item.url);
 }
 
 function accountRowsKey(platform) {
@@ -422,6 +520,10 @@ function accountRowsKey(platform) {
 
 function accountBodyRef(platform) {
   return platform === "tiktok" ? refs.accountsTiktokBody : refs.accountsDouyinBody;
+}
+
+function deletedBodyRef(platform) {
+  return platform === "tiktok" ? refs.deletedTikTokBody : refs.deletedDouyinBody;
 }
 
 function escapeAttr(value) {
@@ -438,16 +540,31 @@ function renderAccountRows(platform) {
   if (!body) {
     return;
   }
+  const keyword =
+    (platform === "tiktok" ? refs.accountsTikTokSearch?.value : refs.accountsDouyinSearch?.value) ||
+    "";
+  const query = keyword.trim().toLowerCase();
   const rows = state.accountRows[key];
   body.innerHTML = "";
   const fragment = document.createDocumentFragment();
   rows.forEach((item, index) => {
+    const text = `${item.mark} ${item.url} ${item.tab} ${item.earliest} ${item.latest}`.toLowerCase();
+    if (query && !text.includes(query)) {
+      return;
+    }
     const tr = document.createElement("tr");
     tr.dataset.platform = key;
     tr.dataset.index = String(index);
+    tr.dataset.section = "active";
     tr.innerHTML = `
       <td>
-        <input data-field="enable" type="checkbox" ${item.enable ? "checked" : ""} />
+        <input data-field="selected" type="checkbox" ${item.selected ? "checked" : ""} />
+      </td>
+      <td>
+        <label class="switch">
+          <input data-field="enable" type="checkbox" ${item.enable ? "checked" : ""} />
+          <span class="switch-slider"></span>
+        </label>
       </td>
       <td>
         <input data-field="mark" type="text" value="${escapeAttr(item.mark)}" placeholder="可选标识" />
@@ -465,11 +582,63 @@ function renderAccountRows(platform) {
         <input data-field="latest" type="text" value="${escapeAttr(item.latest)}" placeholder="YYYY/MM/DD" />
       </td>
       <td>
-        <button data-action="remove-row" class="btn ghost" type="button">删除</button>
+        <button data-action="open-row" class="btn ghost" type="button">跳转</button>
+        <button data-action="remove-row" class="btn ghost danger" type="button">删除</button>
       </td>
     `;
     fragment.appendChild(tr);
   });
+  if (!fragment.childNodes.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="8"><span class="empty-tip">无匹配结果</span></td>`;
+    fragment.appendChild(tr);
+  }
+  body.appendChild(fragment);
+}
+
+function renderDeletedRows(platform) {
+  const key = accountRowsKey(platform);
+  const body = deletedBodyRef(platform);
+  if (!body) {
+    return;
+  }
+  const keyword =
+    (platform === "tiktok" ? refs.accountsTikTokSearch?.value : refs.accountsDouyinSearch?.value) ||
+    "";
+  const query = keyword.trim().toLowerCase();
+  const rows = state.deletedRows[key];
+  body.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  rows.forEach((item, index) => {
+    const text = `${item.mark} ${item.url} ${item.tab} ${item.deleted_at} ${item.reason}`.toLowerCase();
+    if (query && !text.includes(query)) {
+      return;
+    }
+    const tr = document.createElement("tr");
+    tr.dataset.platform = key;
+    tr.dataset.index = String(index);
+    tr.dataset.section = "deleted";
+    tr.innerHTML = `
+      <td>
+        <input data-field="selected" type="checkbox" ${item.selected ? "checked" : ""} />
+      </td>
+      <td>${escapeAttr(item.mark)}</td>
+      <td class="url-cell">${escapeAttr(item.url)}</td>
+      <td>${escapeAttr(item.tab)}</td>
+      <td>${escapeAttr(item.deleted_at || "-")}</td>
+      <td>${escapeAttr(item.reason || "-")}</td>
+      <td>
+        <button data-action="open-row" class="btn ghost" type="button">跳转</button>
+        <button data-action="restore-row" class="btn ghost" type="button">撤销</button>
+      </td>
+    `;
+    fragment.appendChild(tr);
+  });
+  if (!fragment.childNodes.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="7"><span class="empty-tip">无匹配结果</span></td>`;
+    fragment.appendChild(tr);
+  }
   body.appendChild(fragment);
 }
 
@@ -479,32 +648,134 @@ function setAccountRows(platform, rows) {
   renderAccountRows(platform);
 }
 
+function setDeletedRows(platform, rows) {
+  const key = accountRowsKey(platform);
+  state.deletedRows[key] = normalizeDeletedRows(rows);
+  renderDeletedRows(platform);
+}
+
 function addAccountRow(platform) {
   const key = accountRowsKey(platform);
-  state.accountRows[key].push(defaultAccountRow());
+  state.accountRows[key].unshift(defaultAccountRow());
   renderAccountRows(platform);
 }
 
-function removeAccountRow(platform, index) {
+function removeAccountRow(platform, index, reason = "手动删除") {
   const key = accountRowsKey(platform);
   const rows = state.accountRows[key];
   if (!rows.length) {
     return;
   }
-  rows.splice(index, 1);
+  const [removed] = rows.splice(index, 1);
+  if (removed?.url) {
+    state.deletedRows[key].unshift(
+      defaultDeletedRow(),
+    );
+    state.deletedRows[key][0] = {
+      ...state.deletedRows[key][0],
+      ...removed,
+      enable: false,
+      selected: false,
+      deleted_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+      reason,
+    };
+  }
   if (!rows.length) {
     rows.push(defaultAccountRow());
   }
   renderAccountRows(platform);
+  renderDeletedRows(platform);
 }
 
-function updateAccountRow(platform, index, field, value) {
+function updateAccountRow(platform, index, field, value, section = "active") {
   const key = accountRowsKey(platform);
-  const row = state.accountRows[key]?.[index];
+  const source = section === "deleted" ? state.deletedRows[key] : state.accountRows[key];
+  const row = source?.[index];
   if (!row) {
     return;
   }
   row[field] = value;
+}
+
+function restoreDeletedRow(platform, index) {
+  const key = accountRowsKey(platform);
+  const rows = state.deletedRows[key];
+  const [row] = rows.splice(index, 1);
+  if (row?.url) {
+    state.accountRows[key].unshift({
+      mark: row.mark,
+      url: row.url,
+      tab: row.tab || "post",
+      earliest: row.earliest || "",
+      latest: row.latest || "",
+      enable: true,
+      selected: false,
+    });
+  }
+  if (!state.accountRows[key].length) {
+    state.accountRows[key].push(defaultAccountRow());
+  }
+  renderAccountRows(platform);
+  renderDeletedRows(platform);
+}
+
+function normalizeUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) {
+    return "";
+  }
+  try {
+    const parsed = new URL(value);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return value.split("?")[0].split("#")[0].replace(/\/$/, "");
+  }
+}
+
+function formatAccountUrls(platform) {
+  const key = accountRowsKey(platform);
+  state.accountRows[key] = state.accountRows[key].map((item) => ({
+    ...item,
+    url: normalizeUrl(item.url),
+  }));
+  renderAccountRows(platform);
+}
+
+function selectedIndexes(platform, section = "active") {
+  const key = accountRowsKey(platform);
+  const rows = section === "deleted" ? state.deletedRows[key] : state.accountRows[key];
+  return rows
+    .map((item, index) => ({ selected: Boolean(item.selected), index }))
+    .filter((item) => item.selected)
+    .map((item) => item.index);
+}
+
+function selectAllRows(platform, section = "active", selected = true) {
+  const key = accountRowsKey(platform);
+  const rows = section === "deleted" ? state.deletedRows[key] : state.accountRows[key];
+  rows.forEach((item) => {
+    item.selected = selected;
+  });
+  if (section === "deleted") {
+    renderDeletedRows(platform);
+  } else {
+    renderAccountRows(platform);
+  }
+}
+
+function openUrls(urls) {
+  urls.filter(Boolean).forEach((url) => window.open(url, "_blank", "noopener,noreferrer"));
+}
+
+function applyBatchEarliest(platform, value) {
+  const key = accountRowsKey(platform);
+  const indexes = selectedIndexes(platform, "active");
+  indexes.forEach((index) => {
+    state.accountRows[key][index].earliest = value;
+  });
+  renderAccountRows(platform);
 }
 
 function collectAccountRows(platform) {
@@ -516,6 +787,20 @@ function collectAccountRows(platform) {
     earliest: String(item.earliest || "").trim(),
     latest: String(item.latest || "").trim(),
     enable: Boolean(item.enable),
+  }));
+}
+
+function collectDeletedRows(platform) {
+  const key = accountRowsKey(platform);
+  return state.deletedRows[key].map((item) => ({
+    mark: String(item.mark || "").trim(),
+    url: String(item.url || "").trim(),
+    tab: String(item.tab || "post").trim() || "post",
+    earliest: String(item.earliest || "").trim(),
+    latest: String(item.latest || "").trim(),
+    enable: false,
+    deleted_at: String(item.deleted_at || "").trim(),
+    reason: String(item.reason || "").trim(),
   }));
 }
 
@@ -553,6 +838,8 @@ function accountExportPayload() {
     generated_at: new Date().toISOString(),
     accounts_urls: collectAccountRows("douyin"),
     accounts_urls_tiktok: collectAccountRows("tiktok"),
+    deleted_accounts: collectDeletedRows("douyin"),
+    deleted_accounts_tiktok: collectDeletedRows("tiktok"),
   };
 }
 
@@ -576,7 +863,9 @@ function exportAccountsJson() {
   link.remove();
   URL.revokeObjectURL(url);
   setAccountsIoStatus(
-    `已导出 JSON：抖音 ${payload.accounts_urls.length} 条，TikTok ${payload.accounts_urls_tiktok.length} 条`,
+    `已导出 JSON：抖音 ${payload.accounts_urls.length} 条，TikTok ${payload.accounts_urls_tiktok.length} 条，删除区 ${
+      payload.deleted_accounts.length + payload.deleted_accounts_tiktok.length
+    } 条`,
   );
 }
 
@@ -585,6 +874,8 @@ function parseImportedAccountPayload(parsed) {
     return {
       accounts_urls: parsed,
       accounts_urls_tiktok: [],
+      deleted_accounts: [],
+      deleted_accounts_tiktok: [],
     };
   }
   if (!parsed || typeof parsed !== "object") {
@@ -608,6 +899,8 @@ function parseImportedAccountPayload(parsed) {
   return {
     accounts_urls: accountsDouyin,
     accounts_urls_tiktok: accountsTikTok,
+    deleted_accounts: parsed.deleted_accounts ?? [],
+    deleted_accounts_tiktok: parsed.deleted_accounts_tiktok ?? [],
   };
 }
 
@@ -622,8 +915,12 @@ async function importAccountsJsonFile(file) {
     const extracted = parseImportedAccountPayload(parsed);
     setAccountRows("douyin", extracted.accounts_urls);
     setAccountRows("tiktok", extracted.accounts_urls_tiktok);
+    setDeletedRows("douyin", extracted.deleted_accounts);
+    setDeletedRows("tiktok", extracted.deleted_accounts_tiktok);
     setAccountsIoStatus(
-      `导入成功：抖音 ${collectAccountRows("douyin").length} 条，TikTok ${collectAccountRows("tiktok").length} 条（记得点“保存配置”）`,
+      `导入成功：抖音 ${collectAccountRows("douyin").length} 条，TikTok ${collectAccountRows("tiktok").length} 条，删除区 ${
+        collectDeletedRows("douyin").length + collectDeletedRows("tiktok").length
+      } 条（记得点“保存配置”）`,
     );
     setApiStatus("就绪", "ok");
   } catch (error) {
@@ -661,6 +958,8 @@ function mapSettingsToForm(settings) {
 
   setAccountRows("douyin", settings?.accounts_urls || []);
   setAccountRows("tiktok", settings?.accounts_urls_tiktok || []);
+  setDeletedRows("douyin", settings?.deleted_accounts || []);
+  setDeletedRows("tiktok", settings?.deleted_accounts_tiktok || []);
 }
 
 function collectSettingsPayload() {
@@ -679,6 +978,9 @@ function collectSettingsPayload() {
     static_cover: refs.settingsForm.elements.namedItem("static_cover").checked,
     accounts_urls: collectAccountRows("douyin"),
     accounts_urls_tiktok: collectAccountRows("tiktok"),
+    deleted_accounts: collectDeletedRows("douyin"),
+    deleted_accounts_tiktok: collectDeletedRows("tiktok"),
+    ui_schedules: state.settingsData?.ui_schedules || [],
   };
   return payload;
 }
@@ -713,6 +1015,70 @@ async function saveSettings() {
     setApiStatus("就绪", "ok");
   } catch (error) {
     refs.settingsStatus.textContent = `保存失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+function accountStatusRef(platform) {
+  return platform === "tiktok" ? refs.accountsTikTokStatus : refs.accountsDouyinStatus;
+}
+
+function setAccountStatus(platform, text) {
+  const element = accountStatusRef(platform);
+  if (element) {
+    element.textContent = text;
+  }
+}
+
+async function persistAccountTables(reason = "accounts_batch_edit") {
+  const payload = {
+    accounts_urls: collectAccountRows("douyin"),
+    accounts_urls_tiktok: collectAccountRows("tiktok"),
+    deleted_accounts: collectDeletedRows("douyin"),
+    deleted_accounts_tiktok: collectDeletedRows("tiktok"),
+    backup: true,
+    reason,
+  };
+  const result = await fetchJson("/ui/api/accounts", {
+    method: "PUT",
+    headers: headerOptions(true),
+    body: JSON.stringify(payload),
+  });
+  setAccountRows("douyin", result.accounts_urls || payload.accounts_urls);
+  setAccountRows("tiktok", result.accounts_urls_tiktok || payload.accounts_urls_tiktok);
+  setDeletedRows("douyin", result.deleted_accounts || payload.deleted_accounts);
+  setDeletedRows("tiktok", result.deleted_accounts_tiktok || payload.deleted_accounts_tiktok);
+  return result;
+}
+
+async function verifyAccounts(platform) {
+  setAccountStatus(platform, "正在检测账号有效性…");
+  try {
+    await persistAccountTables("pre_verify_sync");
+    const payload = {
+      platform,
+      use_settings: true,
+      move_deleted: true,
+    };
+    const result = await fetchJson("/ui/api/accounts/verify", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify(payload),
+    });
+    if (platform === "tiktok") {
+      setAccountRows("tiktok", result.accounts || []);
+      setDeletedRows("tiktok", result.deleted_accounts || []);
+    } else {
+      setAccountRows("douyin", result.accounts || []);
+      setDeletedRows("douyin", result.deleted_accounts || []);
+    }
+    setAccountStatus(
+      platform,
+      `检测完成：${result.checked} 条，存在 ${result.exists}，失效 ${result.missing}，转移 ${result.moved_to_deleted}`,
+    );
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setAccountStatus(platform, `检测失败: ${error.message}`);
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -1167,6 +1533,145 @@ async function runWorkflowDetailTask() {
   }
 }
 
+function schedulePayloadFromForm() {
+  const platform = refs.schedulePlatform.value;
+  const useSettings = refs.scheduleSource.value === "settings";
+  return {
+    name: refs.scheduleName.value.trim(),
+    platform,
+    use_settings: useSettings,
+    items: useSettings
+      ? []
+      : collectAccountRows(platform === "tiktok" ? "tiktok" : "douyin"),
+    hour: Number(refs.scheduleHour.value || 0),
+    minute: Number(refs.scheduleMinute.value || 0),
+    cookie: refs.scheduleCookie.value.trim(),
+    proxy: refs.scheduleProxy.value.trim(),
+    enabled: true,
+  };
+}
+
+function renderScheduleList(items) {
+  if (!refs.scheduleList) {
+    return;
+  }
+  refs.scheduleList.innerHTML = "";
+  if (!Array.isArray(items) || !items.length) {
+    refs.scheduleList.innerHTML =
+      '<div class="task-row"><div class="task-main"><span class="task-endpoint">暂无定时任务</span></div></div>';
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "task-row";
+    row.innerHTML = `
+      <span class="task-status ${item.enabled ? "success" : "canceled"}">${
+      item.enabled ? "enabled" : "disabled"
+    }</span>
+      <div class="task-main">
+        <span class="task-id">${item.schedule_id || "-"}</span>
+        <span class="task-endpoint">${item.name || "-"} · ${item.platform || "-"}</span>
+        <span class="task-time">每日 ${String(item.hour).padStart(2, "0")}:${String(
+      item.minute,
+    ).padStart(2, "0")} · 下次 ${item.next_run_at || "-"}</span>
+      </div>
+      <div class="task-actions">
+        <button class="btn ghost" data-action="run">立即执行</button>
+        <button class="btn ghost" data-action="toggle">${
+          item.enabled ? "停用" : "启用"
+        }</button>
+        <button class="btn ghost danger" data-action="delete">删除</button>
+      </div>
+    `;
+    row.querySelector('[data-action="run"]')?.addEventListener("click", () => {
+      runScheduleNow(item.schedule_id);
+    });
+    row.querySelector('[data-action="toggle"]')?.addEventListener("click", () => {
+      toggleSchedule(item.schedule_id, !item.enabled);
+    });
+    row.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
+      deleteSchedule(item.schedule_id);
+    });
+    fragment.appendChild(row);
+  });
+  refs.scheduleList.appendChild(fragment);
+}
+
+async function loadSchedules() {
+  try {
+    const payload = await fetchJson("/ui/api/schedules", {
+      method: "GET",
+      headers: headerOptions(false),
+    });
+    state.settingsData.ui_schedules = payload.items || [];
+    renderScheduleList(payload.items || []);
+  } catch (error) {
+    refs.scheduleStatus.textContent = `加载定时任务失败: ${error.message}`;
+  }
+}
+
+async function createSchedule() {
+  refs.scheduleStatus.textContent = "正在创建定时任务…";
+  try {
+    const payload = schedulePayloadFromForm();
+    await fetchJson("/ui/api/schedules", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify(payload),
+    });
+    refs.scheduleStatus.textContent = "定时任务创建成功";
+    await loadSchedules();
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.scheduleStatus.textContent = `创建失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function toggleSchedule(scheduleId, enabled) {
+  try {
+    await fetchJson(`/ui/api/schedules/${encodeURIComponent(scheduleId)}/toggle`, {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({ enabled }),
+    });
+    await loadSchedules();
+    refs.scheduleStatus.textContent = "定时任务状态已更新";
+  } catch (error) {
+    refs.scheduleStatus.textContent = `更新失败: ${error.message}`;
+  }
+}
+
+async function runScheduleNow(scheduleId) {
+  try {
+    const result = await fetchJson(`/ui/api/schedules/${encodeURIComponent(scheduleId)}/run`, {
+      method: "POST",
+      headers: headerOptions(false),
+    });
+    refs.scheduleStatus.textContent = `已触发执行: ${scheduleId}`;
+    if (result?.task) {
+      renderTaskResult(result.task);
+      await loadTaskList();
+    }
+  } catch (error) {
+    refs.scheduleStatus.textContent = `触发失败: ${error.message}`;
+  }
+}
+
+async function deleteSchedule(scheduleId) {
+  try {
+    await fetchJson(`/ui/api/schedules/${encodeURIComponent(scheduleId)}`, {
+      method: "DELETE",
+      headers: headerOptions(false),
+    });
+    refs.scheduleStatus.textContent = "定时任务已删除";
+    await loadSchedules();
+  } catch (error) {
+    refs.scheduleStatus.textContent = `删除失败: ${error.message}`;
+  }
+}
+
 function renderTaskResult(task) {
   if (!task) {
     return;
@@ -1319,6 +1824,12 @@ async function copyTaskResult() {
 }
 
 function bindEvents() {
+  refs.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      switchTab(button.dataset.tabTarget || "workbench");
+    });
+  });
+
   refs.applyTokenBtn.addEventListener("click", () => {
     state.token = refs.tokenInput.value.trim();
     setApiStatus("令牌已应用", "ok");
@@ -1326,6 +1837,7 @@ function bindEvents() {
     loadRawSettings();
     loadFiles();
     loadTaskList();
+    loadSchedules();
     connectLogSocket();
   });
 
@@ -1383,7 +1895,7 @@ function bindEvents() {
     importAccountsJsonFile(file);
   });
 
-  [refs.accountsDouyinBody, refs.accountsTiktokBody].forEach((body) => {
+  const bindAccountBodies = (body, section = "active") => {
     body.addEventListener("input", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLInputElement)) {
@@ -1399,19 +1911,23 @@ function bindEvents() {
       if (!field) {
         return;
       }
-      if (field === "enable") {
-        updateAccountRow(platform, index, field, target.checked);
-      } else {
-        updateAccountRow(platform, index, field, target.value);
-      }
+      const checkedFields = new Set(["enable", "selected"]);
+      updateAccountRow(
+        platform,
+        index,
+        field,
+        checkedFields.has(field) ? target.checked : target.value,
+        section,
+      );
     });
 
-    body.addEventListener("click", (event) => {
+    body.addEventListener("click", async (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) {
         return;
       }
-      if (target.dataset.action !== "remove-row") {
+      const action = target.dataset.action;
+      if (!action) {
         return;
       }
       const row = target.closest("tr");
@@ -1420,8 +1936,151 @@ function bindEvents() {
       }
       const platform = row.dataset.platform || "douyin";
       const index = Number(row.dataset.index || "0");
-      removeAccountRow(platform, index);
+      if (action === "open-row") {
+        const rows =
+          section === "deleted"
+            ? state.deletedRows[accountRowsKey(platform)]
+            : state.accountRows[accountRowsKey(platform)];
+        openUrls([rows[index]?.url || ""]);
+        return;
+      }
+      if (action === "remove-row" && section === "active") {
+        removeAccountRow(platform, index);
+        const result = await persistAccountTables("account_remove_row");
+        setAccountStatus(platform, `已删除并备份: ${result.backup_path || "-"}`);
+        return;
+      }
+      if (action === "restore-row" && section === "deleted") {
+        restoreDeletedRow(platform, index);
+        const result = await persistAccountTables("account_restore_row");
+        setAccountStatus(platform, `已撤销并备份: ${result.backup_path || "-"}`);
+      }
     });
+  };
+
+  bindAccountBodies(refs.accountsDouyinBody, "active");
+  bindAccountBodies(refs.accountsTiktokBody, "active");
+  bindAccountBodies(refs.deletedDouyinBody, "deleted");
+  bindAccountBodies(refs.deletedTikTokBody, "deleted");
+
+  const bindSearch = (input, platform) => {
+    input.addEventListener("input", () => {
+      renderAccountRows(platform);
+      renderDeletedRows(platform);
+    });
+  };
+  bindSearch(refs.accountsDouyinSearch, "douyin");
+  bindSearch(refs.accountsTikTokSearch, "tiktok");
+
+  refs.accountsDouyinFormatBtn.addEventListener("click", async () => {
+    formatAccountUrls("douyin");
+    const result = await persistAccountTables("account_format_url");
+    setAccountStatus("douyin", `URL 已规则化并备份: ${result.backup_path || "-"}`);
+  });
+  refs.accountsTikTokFormatBtn.addEventListener("click", async () => {
+    formatAccountUrls("tiktok");
+    const result = await persistAccountTables("account_format_url");
+    setAccountStatus("tiktok", `URL 已规则化并备份: ${result.backup_path || "-"}`);
+  });
+
+  refs.accountsDouyinCheckBtn.addEventListener("click", () => verifyAccounts("douyin"));
+  refs.accountsTikTokCheckBtn.addEventListener("click", () => verifyAccounts("tiktok"));
+
+  refs.accountsDouyinSelectAllBtn.addEventListener("click", () =>
+    selectAllRows("douyin", "active", true),
+  );
+  refs.accountsDouyinClearSelectBtn.addEventListener("click", () =>
+    selectAllRows("douyin", "active", false),
+  );
+  refs.accountsTikTokSelectAllBtn.addEventListener("click", () =>
+    selectAllRows("tiktok", "active", true),
+  );
+  refs.accountsTikTokClearSelectBtn.addEventListener("click", () =>
+    selectAllRows("tiktok", "active", false),
+  );
+
+  refs.deletedDouyinSelectAllBtn.addEventListener("click", () =>
+    selectAllRows("douyin", "deleted", true),
+  );
+  refs.deletedDouyinClearSelectBtn.addEventListener("click", () =>
+    selectAllRows("douyin", "deleted", false),
+  );
+  refs.deletedTikTokSelectAllBtn.addEventListener("click", () =>
+    selectAllRows("tiktok", "deleted", true),
+  );
+  refs.deletedTikTokClearSelectBtn.addEventListener("click", () =>
+    selectAllRows("tiktok", "deleted", false),
+  );
+
+  refs.accountsDouyinOpenSelectedBtn.addEventListener("click", () => {
+    const key = accountRowsKey("douyin");
+    openUrls(
+      selectedIndexes("douyin", "active").map((index) => state.accountRows[key][index]?.url || ""),
+    );
+  });
+  refs.accountsTikTokOpenSelectedBtn.addEventListener("click", () => {
+    const key = accountRowsKey("tiktok");
+    openUrls(
+      selectedIndexes("tiktok", "active").map((index) => state.accountRows[key][index]?.url || ""),
+    );
+  });
+
+  refs.deletedDouyinOpenSelectedBtn.addEventListener("click", () => {
+    const key = accountRowsKey("douyin");
+    openUrls(
+      selectedIndexes("douyin", "deleted").map(
+        (index) => state.deletedRows[key][index]?.url || "",
+      ),
+    );
+  });
+  refs.deletedTikTokOpenSelectedBtn.addEventListener("click", () => {
+    const key = accountRowsKey("tiktok");
+    openUrls(
+      selectedIndexes("tiktok", "deleted").map(
+        (index) => state.deletedRows[key][index]?.url || "",
+      ),
+    );
+  });
+
+  refs.accountsDouyinApplyEarliestBtn.addEventListener("click", async () => {
+    applyBatchEarliest("douyin", refs.accountsDouyinBatchEarliest.value.trim());
+    const result = await persistAccountTables("account_batch_earliest");
+    setAccountStatus("douyin", `批量 earliest 已保存: ${result.backup_path || "-"}`);
+  });
+  refs.accountsTikTokApplyEarliestBtn.addEventListener("click", async () => {
+    applyBatchEarliest("tiktok", refs.accountsTikTokBatchEarliest.value.trim());
+    const result = await persistAccountTables("account_batch_earliest");
+    setAccountStatus("tiktok", `批量 earliest 已保存: ${result.backup_path || "-"}`);
+  });
+
+  refs.accountsDouyinDeleteSelectedBtn.addEventListener("click", async () => {
+    selectedIndexes("douyin", "active")
+      .sort((a, b) => b - a)
+      .forEach((index) => removeAccountRow("douyin", index, "批量删除"));
+    const result = await persistAccountTables("account_batch_delete");
+    setAccountStatus("douyin", `批量删除已保存: ${result.backup_path || "-"}`);
+  });
+  refs.accountsTikTokDeleteSelectedBtn.addEventListener("click", async () => {
+    selectedIndexes("tiktok", "active")
+      .sort((a, b) => b - a)
+      .forEach((index) => removeAccountRow("tiktok", index, "批量删除"));
+    const result = await persistAccountTables("account_batch_delete");
+    setAccountStatus("tiktok", `批量删除已保存: ${result.backup_path || "-"}`);
+  });
+
+  refs.deletedDouyinRestoreSelectedBtn.addEventListener("click", async () => {
+    selectedIndexes("douyin", "deleted")
+      .sort((a, b) => b - a)
+      .forEach((index) => restoreDeletedRow("douyin", index));
+    const result = await persistAccountTables("account_batch_restore");
+    setAccountStatus("douyin", `批量撤销已保存: ${result.backup_path || "-"}`);
+  });
+  refs.deletedTikTokRestoreSelectedBtn.addEventListener("click", async () => {
+    selectedIndexes("tiktok", "deleted")
+      .sort((a, b) => b - a)
+      .forEach((index) => restoreDeletedRow("tiktok", index));
+    const result = await persistAccountTables("account_batch_restore");
+    setAccountStatus("tiktok", `批量撤销已保存: ${result.backup_path || "-"}`);
   });
 
   refs.filesScope.addEventListener("change", () => {
@@ -1460,6 +2119,14 @@ function bindEvents() {
 
   refs.workflowDetailRunBtn.addEventListener("click", () => {
     runWorkflowDetailTask();
+  });
+
+  refs.scheduleCreateBtn.addEventListener("click", () => {
+    createSchedule();
+  });
+
+  refs.scheduleRefreshBtn.addEventListener("click", () => {
+    loadSchedules();
   });
 
   refs.taskEndpoint.addEventListener("change", () => {
@@ -1507,6 +2174,11 @@ function bootstrap() {
   bindEvents();
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
+  let activeTab = "workbench";
+  try {
+    activeTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY) || "workbench";
+  } catch {}
+  switchTab(activeTab);
   let isCollapsed = false;
   try {
     isCollapsed = localStorage.getItem(ACCOUNTS_COLLAPSE_STORAGE_KEY) === "1";
@@ -1514,6 +2186,8 @@ function bootstrap() {
   toggleAccountsSettings(isCollapsed);
   setAccountRows("douyin", []);
   setAccountRows("tiktok", []);
+  setDeletedRows("douyin", []);
+  setDeletedRows("tiktok", []);
   loadTaskTemplate();
   connectLogSocket();
   startLogFallbackPolling();
@@ -1523,6 +2197,7 @@ function bootstrap() {
   loadRawSettings();
   loadFiles();
   loadTaskList();
+  loadSchedules();
 }
 
 bootstrap();

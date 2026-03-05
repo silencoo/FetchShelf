@@ -12,6 +12,11 @@
         <div class="brand">
           <h1>DouK-Downloader WebUI</h1>
           <p>Card 模块化控制台</p>
+          <div class="top-tabs">
+            <button class="tab-btn active" data-tab-target="workbench">下载工作台</button>
+            <button class="tab-btn" data-tab-target="control">设置与日志</button>
+            <button class="tab-btn" data-tab-target="files">文件浏览</button>
+          </div>
         </div>
         <div class="topbar-tools">
           <label class="field compact">
@@ -25,7 +30,7 @@
       </header>
 
       <main class="dashboard-grid">
-        <section class="card settings-card">
+        <section class="card settings-card tab-panel" data-tab-panel="control">
           <div class="card-head">
             <h2>设置配置</h2>
             <div class="card-actions">
@@ -114,15 +119,59 @@
                 <div class="card-head mini">
                   <h3>抖音账号（accounts_urls）</h3>
                   <div class="card-actions">
+                    <input
+                      id="accounts-douyin-search"
+                      class="inline-input"
+                      type="text"
+                      placeholder="搜索 mark / url / 日期"
+                    />
                     <button id="accounts-douyin-add-btn" type="button" class="btn ghost">
                       新增一行
                     </button>
+                    <button id="accounts-douyin-format-btn" type="button" class="btn ghost">
+                      规则化 URL
+                    </button>
+                    <button id="accounts-douyin-check-btn" type="button" class="btn ghost">
+                      检测账号
+                    </button>
                   </div>
+                </div>
+                <div class="batch-toolbar">
+                  <button id="accounts-douyin-select-all-btn" type="button" class="btn ghost">
+                    全选
+                  </button>
+                  <button id="accounts-douyin-clear-select-btn" type="button" class="btn ghost">
+                    清空选择
+                  </button>
+                  <button id="accounts-douyin-open-selected-btn" type="button" class="btn ghost">
+                    批量打开
+                  </button>
+                  <input
+                    id="accounts-douyin-batch-earliest"
+                    class="inline-input"
+                    type="text"
+                    placeholder="批量 earliest: 2025/01/01"
+                  />
+                  <button
+                    id="accounts-douyin-apply-earliest-btn"
+                    type="button"
+                    class="btn ghost"
+                  >
+                    批量改 earliest
+                  </button>
+                  <button
+                    id="accounts-douyin-delete-selected-btn"
+                    type="button"
+                    class="btn ghost danger"
+                  >
+                    移入 deleted
+                  </button>
                 </div>
                 <div class="account-table-wrap">
                   <table class="account-table">
                     <thead>
                       <tr>
+                        <th>选中</th>
                         <th>启用</th>
                         <th>mark</th>
                         <th>url</th>
@@ -135,21 +184,115 @@
                     <tbody id="accounts-douyin-body"></tbody>
                   </table>
                 </div>
+                <div class="card-head mini account-subhead">
+                  <h3>Deleted Accounts（抖音）</h3>
+                  <div class="card-actions">
+                    <button
+                      id="deleted-douyin-select-all-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      全选
+                    </button>
+                    <button
+                      id="deleted-douyin-clear-select-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      清空选择
+                    </button>
+                    <button
+                      id="deleted-douyin-open-selected-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      批量打开
+                    </button>
+                    <button
+                      id="deleted-douyin-restore-selected-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      批量撤销
+                    </button>
+                  </div>
+                </div>
+                <div class="account-table-wrap">
+                  <table class="account-table deleted-table">
+                    <thead>
+                      <tr>
+                        <th>选中</th>
+                        <th>mark</th>
+                        <th>url</th>
+                        <th>tab</th>
+                        <th>删除时间</th>
+                        <th>原因</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="deleted-douyin-body"></tbody>
+                  </table>
+                </div>
+                <div id="accounts-douyin-status" class="status-line"></div>
               </div>
 
               <div class="account-editor-panel">
                 <div class="card-head mini">
                   <h3>TikTok 账号（accounts_urls_tiktok）</h3>
                   <div class="card-actions">
+                    <input
+                      id="accounts-tiktok-search"
+                      class="inline-input"
+                      type="text"
+                      placeholder="搜索 mark / url / 日期"
+                    />
                     <button id="accounts-tiktok-add-btn" type="button" class="btn ghost">
                       新增一行
                     </button>
+                    <button id="accounts-tiktok-format-btn" type="button" class="btn ghost">
+                      规则化 URL
+                    </button>
+                    <button id="accounts-tiktok-check-btn" type="button" class="btn ghost">
+                      检测账号
+                    </button>
                   </div>
+                </div>
+                <div class="batch-toolbar">
+                  <button id="accounts-tiktok-select-all-btn" type="button" class="btn ghost">
+                    全选
+                  </button>
+                  <button id="accounts-tiktok-clear-select-btn" type="button" class="btn ghost">
+                    清空选择
+                  </button>
+                  <button id="accounts-tiktok-open-selected-btn" type="button" class="btn ghost">
+                    批量打开
+                  </button>
+                  <input
+                    id="accounts-tiktok-batch-earliest"
+                    class="inline-input"
+                    type="text"
+                    placeholder="批量 earliest: 2025/01/01"
+                  />
+                  <button
+                    id="accounts-tiktok-apply-earliest-btn"
+                    type="button"
+                    class="btn ghost"
+                  >
+                    批量改 earliest
+                  </button>
+                  <button
+                    id="accounts-tiktok-delete-selected-btn"
+                    type="button"
+                    class="btn ghost danger"
+                  >
+                    移入 deleted
+                  </button>
                 </div>
                 <div class="account-table-wrap">
                   <table class="account-table">
                     <thead>
                       <tr>
+                        <th>选中</th>
                         <th>启用</th>
                         <th>mark</th>
                         <th>url</th>
@@ -162,6 +305,56 @@
                     <tbody id="accounts-tiktok-body"></tbody>
                   </table>
                 </div>
+                <div class="card-head mini account-subhead">
+                  <h3>Deleted Accounts（TikTok）</h3>
+                  <div class="card-actions">
+                    <button
+                      id="deleted-tiktok-select-all-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      全选
+                    </button>
+                    <button
+                      id="deleted-tiktok-clear-select-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      清空选择
+                    </button>
+                    <button
+                      id="deleted-tiktok-open-selected-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      批量打开
+                    </button>
+                    <button
+                      id="deleted-tiktok-restore-selected-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      批量撤销
+                    </button>
+                  </div>
+                </div>
+                <div class="account-table-wrap">
+                  <table class="account-table deleted-table">
+                    <thead>
+                      <tr>
+                        <th>选中</th>
+                        <th>mark</th>
+                        <th>url</th>
+                        <th>tab</th>
+                        <th>删除时间</th>
+                        <th>原因</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="deleted-tiktok-body"></tbody>
+                  </table>
+                </div>
+                <div id="accounts-tiktok-status" class="status-line"></div>
               </div>
             </div>
             <div class="status-line">
@@ -189,7 +382,7 @@
           </div>
         </section>
 
-        <section class="card logs-card">
+        <section class="card logs-card tab-panel" data-tab-panel="control">
           <div class="card-head">
             <h2>实时运行日志</h2>
             <div class="card-actions">
@@ -206,7 +399,7 @@
           </div>
         </section>
 
-        <section class="card gallery-card">
+        <section class="card gallery-card tab-panel" data-tab-panel="files">
           <div class="card-head">
             <h2>文件浏览 Gallery</h2>
             <div class="card-actions">
@@ -240,9 +433,56 @@
           </div>
         </section>
 
-        <section class="card tools-card">
+        <section class="card tools-card tab-panel" data-tab-panel="workbench">
           <div class="card-head">
             <h2>下载工作台</h2>
+          </div>
+          <div class="tool-block">
+            <h3>定时任务（每日账号批量下载）</h3>
+            <label class="field">
+              <span>任务名称</span>
+              <input id="schedule-name" type="text" placeholder="例如：每日 TikTok 拉取" />
+            </label>
+            <div class="inline-grid">
+              <label class="field">
+                <span>平台</span>
+                <select id="schedule-platform">
+                  <option value="douyin">douyin</option>
+                  <option value="tiktok">tiktok</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>来源</span>
+                <select id="schedule-source">
+                  <option value="settings">运行时 settings 配置</option>
+                  <option value="editor">当前页面账号表格</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>每日时间（24h）</span>
+                <div class="inline-time">
+                  <input id="schedule-hour" type="number" min="0" max="23" value="2" />
+                  <span>:</span>
+                  <input id="schedule-minute" type="number" min="0" max="59" value="0" />
+                </div>
+              </label>
+            </div>
+            <div class="inline-grid">
+              <label class="field">
+                <span>cookie(可选覆盖)</span>
+                <input id="schedule-cookie" type="text" placeholder="留空使用默认" />
+              </label>
+              <label class="field">
+                <span>proxy(可选覆盖)</span>
+                <input id="schedule-proxy" type="text" placeholder="留空使用默认" />
+              </label>
+            </div>
+            <div class="card-actions">
+              <button id="schedule-create-btn" class="btn primary">创建定时任务</button>
+              <button id="schedule-refresh-btn" class="btn ghost">刷新列表</button>
+            </div>
+            <div id="schedule-status" class="status-line">等待创建任务</div>
+            <div id="schedule-list" class="task-queue-list"></div>
           </div>
           <div class="tool-block">
             <h3>账号批量下载（终端 5→12→1）</h3>

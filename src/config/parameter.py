@@ -73,6 +73,8 @@ class Parameter:
         root: str,
         accounts_urls: list[dict],
         accounts_urls_tiktok: list[dict],
+        deleted_accounts: list[dict],
+        deleted_accounts_tiktok: list[dict],
         mix_urls: list[dict],
         mix_urls_tiktok: list[dict],
         folder_name: str,
@@ -103,6 +105,7 @@ class Parameter:
         recorder: "DownloadRecorder",
         browser_info: dict,
         browser_info_tiktok: dict,
+        ui_schedules: list[dict],
         timeout=10,
         douyin_platform=True,
         tiktok_platform=True,
@@ -136,6 +139,12 @@ class Parameter:
         )
         self.accounts_urls_tiktok: list[SimpleNamespace] = self.check_urls_params(
             accounts_urls_tiktok
+        )
+        self.deleted_accounts: list[dict] = self.check_deleted_accounts(
+            deleted_accounts,
+        )
+        self.deleted_accounts_tiktok: list[dict] = self.check_deleted_accounts(
+            deleted_accounts_tiktok,
         )
         self.mix_urls: list[SimpleNamespace] = self.check_urls_params(mix_urls)
         self.mix_urls_tiktok: list[SimpleNamespace] = self.check_urls_params(
@@ -190,6 +199,9 @@ class Parameter:
         self.browser_info_tiktok = self.merge_browser_info(
             browser_info_tiktok,
             {},
+        )
+        self.ui_schedules = self.check_ui_schedules(
+            ui_schedules,
         )
         self.__set_browser_info(self.browser_info)
         self.__set_browser_info_tiktok(self.browser_info_tiktok)
@@ -820,6 +832,8 @@ class Parameter:
         return {
             "accounts_urls": [vars(i) for i in self.accounts_urls],
             "accounts_urls_tiktok": [vars(i) for i in self.accounts_urls_tiktok],
+            "deleted_accounts": self.deleted_accounts,
+            "deleted_accounts_tiktok": self.deleted_accounts_tiktok,
             "mix_urls": [vars(i) for i in self.mix_urls],
             "mix_urls_tiktok": [vars(i) for i in self.mix_urls_tiktok],
             "owner_url": vars(self.owner_url),
@@ -855,6 +869,7 @@ class Parameter:
             "tiktok_platform": self.tiktok_platform,
             "browser_info": self.browser_info,
             "browser_info_tiktok": self.browser_info_tiktok,
+            "ui_schedules": self.ui_schedules,
         }
 
     async def set_settings_data(
@@ -868,6 +883,10 @@ class Parameter:
             data.pop("accounts_urls_tiktok"),
             data.pop("mix_urls_tiktok"),
             data.pop("owner_url_tiktok"),
+        )
+        self.set_deleted_accounts(
+            data.pop("deleted_accounts"),
+            data.pop("deleted_accounts_tiktok"),
         )
         self.set_cookie(
             data.pop(
@@ -893,6 +912,9 @@ class Parameter:
                 "proxy_tiktok",
             ),
         )
+        self.ui_schedules = self.check_ui_schedules(
+            data.pop("ui_schedules", []),
+        )
         self.set_general_params(data)
         self.settings.update(self.get_settings_data())
 
@@ -908,12 +930,53 @@ class Parameter:
     def check_urls_params(data: list[dict]) -> list[SimpleNamespace]:
         items = []
         for item in data:
-            if not item.get("url") or not item.get("enable", True):
+            if not item.get("url"):
                 continue
+            if not isinstance(item.get("enable"), bool):
+                item["enable"] = bool(item.get("enable", True))
             if not isinstance(item.get("mark"), str):
                 item["mark"] = ""
             items.append(item)
         return Extractor.generate_data_object(items)
+
+    @staticmethod
+    def check_deleted_accounts(data: list[dict] | None) -> list[dict]:
+        if not isinstance(data, list):
+            return []
+        items = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if not isinstance(url, str) or not url.strip():
+                continue
+            items.append(
+                {
+                    "mark": item.get("mark", "")
+                    if isinstance(item.get("mark"), str)
+                    else "",
+                    "url": url.strip(),
+                    "tab": item.get("tab", "post")
+                    if isinstance(item.get("tab"), str)
+                    else "post",
+                    "earliest": str(item.get("earliest", "") or "").strip(),
+                    "latest": str(item.get("latest", "") or "").strip(),
+                    "enable": bool(item.get("enable", False)),
+                    "deleted_at": item.get("deleted_at", "")
+                    if isinstance(item.get("deleted_at"), str)
+                    else "",
+                    "reason": item.get("reason", "")
+                    if isinstance(item.get("reason"), str)
+                    else "",
+                }
+            )
+        return items
+
+    @staticmethod
+    def check_ui_schedules(data: list[dict] | None) -> list[dict]:
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
 
     @staticmethod
     def check_url_params(data: dict) -> SimpleNamespace:
@@ -948,6 +1011,18 @@ class Parameter:
         # if owner_url_tiktok:
         #     self.owner_url_tiktok = self.check_url_params(owner_url_tiktok)
 
+    def set_deleted_accounts(
+        self,
+        deleted_accounts: list[dict],
+        deleted_accounts_tiktok: list[dict],
+    ) -> None:
+        self.deleted_accounts = self.check_deleted_accounts(
+            deleted_accounts,
+        )
+        self.deleted_accounts_tiktok = self.check_deleted_accounts(
+            deleted_accounts_tiktok,
+        )
+
     def set_cookie(
         self, cookie: str | dict[str, str], cookie_tiktok: str | dict[str, str]
     ):
@@ -974,6 +1049,8 @@ class Parameter:
                 )
 
     async def set_proxy(self, proxy: str | None, proxy_tiktok: str | None):
+        current_proxy = self.proxy
+        current_proxy_tiktok = self.proxy_tiktok
         if isinstance(proxy, str):
             self.proxy: str | None = self.__check_proxy(
                 proxy,
@@ -982,15 +1059,25 @@ class Parameter:
             )
         if isinstance(proxy_tiktok, str):
             self.proxy_tiktok: str | None = self.__check_proxy_tiktok(proxy_tiktok)
-        await self.close_client()
-        self.client = create_client(
-            timeout=self.timeout,
-            proxy=self.proxy,
-        )
-        self.client_tiktok = create_client(
-            timeout=self.timeout,
-            proxy=self.proxy_tiktok,
-        )
+        try:
+            new_client = create_client(
+                timeout=self.timeout,
+                proxy=self.proxy,
+            )
+            new_client_tiktok = create_client(
+                timeout=self.timeout,
+                proxy=self.proxy_tiktok,
+            )
+        except Exception:
+            self.proxy = current_proxy
+            self.proxy_tiktok = current_proxy_tiktok
+            raise
+        old_client = self.client
+        old_client_tiktok = self.client_tiktok
+        self.client = new_client
+        self.client_tiktok = new_client_tiktok
+        await old_client.aclose()
+        await old_client_tiktok.aclose()
 
     @staticmethod
     def merge_browser_info(

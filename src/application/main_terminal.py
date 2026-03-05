@@ -382,6 +382,8 @@ class TikTok:
             _("共有 {count} 个账号的作品等待下载").format(count=len(accounts))
         )
         for index, data in enumerate(accounts, start=1):
+            if not getattr(data, "enable", True):
+                continue
             if not (
                 sec_user_id := await self.check_sec_user_id(
                     data.url,
@@ -1616,6 +1618,8 @@ class TikTok:
     ):
         count = SimpleNamespace(time=time(), success=0, failed=0)
         for index, data in enumerate(mix, start=1):
+            if not getattr(data, "enable", True):
+                continue
             mix_id, id_, title = await self._check_mix_id(
                 data.url,
                 tiktok,
@@ -1725,6 +1729,8 @@ class TikTok:
     ):
         users = []
         for index, data in enumerate(self.accounts, start=1):
+            if not getattr(data, "enable", True):
+                continue
             if not (sec_user_id := await self.check_sec_user_id(data.url)):
                 self.logger.warning(
                     _("配置文件 accounts_urls 参数第 {index} 条数据的 url 无效").format(

@@ -1,5 +1,5 @@
 from asyncio import Queue, CancelledError, create_task, gather, sleep
-from datetime import datetime
+from datetime import datetime, timedelta
 from json import JSONDecodeError, dumps, loads
 from mimetypes import guess_type
 from pathlib import Path
@@ -50,6 +50,7 @@ from ..models import (
     UserSearch,
     VideoSearch,
 )
+from ..tools import create_client
 from ..translation import _
 from ..webui.files import ScopeType, relative_path, resolve_within_root, serialize_entry
 from .main_terminal import TikTok
@@ -105,6 +106,9 @@ class APIServer(TikTok):
         self.ui_task_workers = []
         self.ui_tasks: dict[str, dict] = {}
         self.ui_task_counter = 0
+        self.ui_schedules: dict[str, dict] = {}
+        self.ui_schedule_tasks: dict[str, Any] = {}
+        self.ui_schedule_counter = 0
 
     @staticmethod
     def _now_text() -> str:
@@ -113,6 +117,10 @@ class APIServer(TikTok):
     def _new_task_id(self) -> str:
         self.ui_task_counter += 1
         return f"T{self.ui_task_counter:06d}"
+
+    def _new_schedule_id(self) -> str:
+        self.ui_schedule_counter += 1
+        return f"S{self.ui_schedule_counter:06d}"
 
     def _build_ui_task(
         self,
@@ -179,6 +187,38 @@ class APIServer(TikTok):
         await gather(*self.ui_task_workers, return_exceptions=True)
         self.ui_task_workers.clear()
 
+    async def _start_ui_schedules(self) -> None:
+        if self.ui_schedules:
+            return
+        raw = self.parameter.ui_schedules if isinstance(self.parameter.ui_schedules, list) else []
+        for item in raw:
+            normalized = self._normalize_schedule_payload(item)
+            schedule_id = self._normalize_string(item.get("schedule_id"))
+            if schedule_id:
+                normalized["schedule_id"] = schedule_id
+            else:
+                normalized["schedule_id"] = self._new_schedule_id()
+            self.ui_schedules[normalized["schedule_id"]] = normalized
+            if normalized["enabled"]:
+                self._start_single_schedule_runner(normalized["schedule_id"])
+        self._refresh_schedule_counter()
+
+    async def _stop_ui_schedules(self) -> None:
+        for task in self.ui_schedule_tasks.values():
+            task.cancel()
+        if self.ui_schedule_tasks:
+            await gather(*self.ui_schedule_tasks.values(), return_exceptions=True)
+        self.ui_schedule_tasks.clear()
+
+    def _refresh_schedule_counter(self) -> None:
+        max_id = 0
+        for key in self.ui_schedules:
+            try:
+                max_id = max(max_id, int(str(key).lstrip("S")))
+            except ValueError:
+                continue
+        self.ui_schedule_counter = max_id
+
     async def _ui_task_worker(self, worker_id: int) -> None:
         while True:
             try:
@@ -239,8 +279,36 @@ class APIServer(TikTok):
             task["error"] = str(error)
             task["message"] = _("参数校验失败！")
         except Exception as error:
+            message = str(error)
+            if "client has been closed" in message.lower():
+                try:
+                    self.parameter.client = create_client(
+                        timeout=self.parameter.timeout,
+                        proxy=self.parameter.proxy,
+                    )
+                    self.parameter.client_tiktok = create_client(
+                        timeout=self.parameter.timeout,
+                        proxy=self.parameter.proxy_tiktok,
+                    )
+                    retry_response = await self._execute_ui_endpoint(
+                        task["endpoint"],
+                        task["payload"],
+                    )
+                    retry_result = self._serialize_response(retry_response)
+                    task["result"] = retry_result
+                    task["message"] = (
+                        retry_result.get("message", "")
+                        if isinstance(retry_result, dict)
+                        else ""
+                    )
+                    task["status"] = (
+                        "failed" if self._is_failed_response(retry_result) else "success"
+                    )
+                    return
+                except Exception as retry_error:
+                    message = str(retry_error)
             task["status"] = "failed"
-            task["error"] = str(error)
+            task["error"] = message
             task["message"] = _("任务执行失败！")
         finally:
             task["finished_at"] = self._now_text()
@@ -471,6 +539,305 @@ class APIServer(TikTok):
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"{key} must be string or null.")
 
+    @staticmethod
+    def _normalize_deleted_account_items(items: list[dict]) -> list[dict]:
+        results = []
+        if not isinstance(items, list):
+            return results
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            url = APIServer._normalize_string(item.get("url"))
+            if not url:
+                continue
+            results.append(
+                {
+                    "mark": APIServer._normalize_string(item.get("mark")),
+                    "url": url,
+                    "tab": APIServer._normalize_string(item.get("tab")) or "post",
+                    "earliest": APIServer._normalize_string(item.get("earliest")),
+                    "latest": APIServer._normalize_string(item.get("latest")),
+                    "enable": bool(item.get("enable", False)),
+                    "deleted_at": APIServer._normalize_string(item.get("deleted_at")),
+                    "reason": APIServer._normalize_string(item.get("reason")),
+                }
+            )
+        return results
+
+    @staticmethod
+    def _merge_deleted_accounts(current: list[dict], incoming: list[dict]) -> list[dict]:
+        merged = []
+        seen = set()
+        for item in [*current, *incoming]:
+            key = APIServer._normalize_string(item.get("url"))
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+        return merged
+
+    def _account_rows(self, tiktok: bool, deleted: bool = False) -> list[dict]:
+        if deleted:
+            return (
+                self.parameter.deleted_accounts_tiktok
+                if tiktok
+                else self.parameter.deleted_accounts
+            )
+        rows = (
+            self.parameter.accounts_urls_tiktok
+            if tiktok
+            else self.parameter.accounts_urls
+        )
+        return [vars(item) for item in rows]
+
+    def _set_account_rows(
+        self,
+        tiktok: bool,
+        rows: list[dict],
+        deleted: bool = False,
+    ) -> None:
+        if deleted:
+            if tiktok:
+                self.parameter.deleted_accounts_tiktok = self.parameter.check_deleted_accounts(
+                    rows
+                )
+            else:
+                self.parameter.deleted_accounts = self.parameter.check_deleted_accounts(rows)
+            return
+        checked = self.parameter.check_urls_params(rows)
+        if tiktok:
+            self.parameter.accounts_urls_tiktok = checked
+        else:
+            self.parameter.accounts_urls = checked
+
+    def _sync_account_payload_to_runtime(self, payload: dict) -> dict:
+        active_douyin = self._normalize_account_items(payload.get("accounts_urls", []))
+        active_tiktok = self._normalize_account_items(
+            payload.get("accounts_urls_tiktok", []),
+        )
+        deleted_douyin = self._normalize_deleted_account_items(
+            payload.get("deleted_accounts", []),
+        )
+        deleted_tiktok = self._normalize_deleted_account_items(
+            payload.get("deleted_accounts_tiktok", []),
+        )
+        self._set_account_rows(False, active_douyin)
+        self._set_account_rows(True, active_tiktok)
+        self._set_account_rows(False, deleted_douyin, deleted=True)
+        self._set_account_rows(True, deleted_tiktok, deleted=True)
+        self.parameter.settings.update(self.parameter.get_settings_data())
+        return {
+            "accounts_urls": self._account_rows(False),
+            "accounts_urls_tiktok": self._account_rows(True),
+            "deleted_accounts": self._account_rows(False, deleted=True),
+            "deleted_accounts_tiktok": self._account_rows(True, deleted=True),
+        }
+
+    def _settings_backup_dir(self) -> Path:
+        backup_dir = self.parameter.settings.path.parent.joinpath("backups")
+        backup_dir.mkdir(exist_ok=True)
+        return backup_dir
+
+    def _backup_settings_file(self, reason: str = "manual") -> str:
+        source = self.parameter.settings.path
+        if not source.exists():
+            self.parameter.settings.read()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f"settings_{timestamp}_{self._normalize_string(reason) or 'backup'}.json"
+        backup_path = self._settings_backup_dir().joinpath(name)
+        backup_path.write_text(
+            source.read_text(encoding=self.parameter.settings.encode),
+            encoding=self.parameter.settings.encode,
+        )
+        return str(backup_path)
+
+    @staticmethod
+    def _validate_ui_account_update_payload(payload: dict) -> None:
+        for key in (
+            "accounts_urls",
+            "accounts_urls_tiktok",
+            "deleted_accounts",
+            "deleted_accounts_tiktok",
+        ):
+            value = payload.get(key, [])
+            if not isinstance(value, list):
+                raise ValueError(f"{key} must be a list.")
+            if any(not isinstance(item, dict) for item in value):
+                raise ValueError(f"{key} only accepts object items.")
+
+    @staticmethod
+    def _validate_ui_account_verify_payload(payload: dict) -> None:
+        platform = payload.get("platform", "douyin")
+        if platform not in {"douyin", "tiktok"}:
+            raise ValueError("platform must be douyin or tiktok.")
+        use_settings = payload.get("use_settings", True)
+        if not isinstance(use_settings, bool):
+            raise ValueError("use_settings must be bool.")
+        items = payload.get("items", [])
+        if not isinstance(items, list):
+            raise ValueError("items must be a list.")
+        if any(not isinstance(item, dict) for item in items):
+            raise ValueError("items only accepts object items.")
+        move_deleted = payload.get("move_deleted", True)
+        if not isinstance(move_deleted, bool):
+            raise ValueError("move_deleted must be bool.")
+        for key in ("cookie", "proxy"):
+            value = payload.get(key)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{key} must be string or null.")
+
+    @staticmethod
+    def _validate_ui_schedule_payload(payload: dict) -> None:
+        platform = payload.get("platform", "douyin")
+        if platform not in {"douyin", "tiktok"}:
+            raise ValueError("platform must be douyin or tiktok.")
+        for key in ("hour", "minute"):
+            if key in payload and payload[key] not in {None, ""}:
+                try:
+                    int(payload[key])
+                except (TypeError, ValueError):
+                    raise ValueError(f"{key} must be integer.")
+        use_settings = payload.get("use_settings", True)
+        if not isinstance(use_settings, bool):
+            raise ValueError("use_settings must be bool.")
+        items = payload.get("items", [])
+        if not isinstance(items, list):
+            raise ValueError("items must be list.")
+        if any(not isinstance(item, dict) for item in items):
+            raise ValueError("items only accepts object items.")
+
+    def _schedule_public(self, schedule: dict) -> dict:
+        return {
+            key: value
+            for key, value in schedule.items()
+            if key not in {"_runner"}
+        }
+
+    def _normalize_schedule_payload(self, payload: dict) -> dict:
+        platform = self._normalize_string(payload.get("platform")) or "douyin"
+        if platform not in {"douyin", "tiktok"}:
+            platform = "douyin"
+        hour = self._normalize_optional_int(payload.get("hour"))
+        minute = self._normalize_optional_int(payload.get("minute"))
+        if hour is None or not 0 <= hour <= 23:
+            hour = 2
+        if minute is None or not 0 <= minute <= 59:
+            minute = 0
+        use_settings = bool(payload.get("use_settings", True))
+        items = (
+            self._normalize_account_items(payload.get("items", []))
+            if not use_settings
+            else []
+        )
+        now = self._now_text()
+        normalized = {
+            "schedule_id": self._normalize_string(payload.get("schedule_id")),
+            "name": self._normalize_string(payload.get("name"))
+            or f"每日下载-{platform}",
+            "platform": platform,
+            "hour": hour,
+            "minute": minute,
+            "enabled": bool(payload.get("enabled", True)),
+            "use_settings": use_settings,
+            "items": items,
+            "cookie": self._normalize_string(payload.get("cookie")),
+            "proxy": self._normalize_string(payload.get("proxy")),
+            "created_at": self._normalize_string(payload.get("created_at")) or now,
+            "updated_at": now,
+            "last_run_at": self._normalize_string(payload.get("last_run_at")),
+            "next_run_at": self._normalize_string(payload.get("next_run_at")),
+        }
+        if normalized["enabled"]:
+            normalized["next_run_at"] = normalized["next_run_at"] or self._next_run_text(
+                normalized["hour"],
+                normalized["minute"],
+            )
+        else:
+            normalized["next_run_at"] = ""
+        return normalized
+
+    @staticmethod
+    def _next_run_datetime(hour: int, minute: int) -> datetime:
+        now = datetime.now()
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        return target
+
+    def _next_run_text(self, hour: int, minute: int) -> str:
+        return self._next_run_datetime(hour, minute).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _schedule_task_payload(self, schedule: dict) -> tuple[str, dict]:
+        endpoint = (
+            "/workflow/tiktok/account_batch"
+            if schedule["platform"] == "tiktok"
+            else "/workflow/douyin/account_batch"
+        )
+        payload = {
+            "use_settings": schedule["use_settings"],
+            "items": schedule.get("items", []) if not schedule["use_settings"] else [],
+            "cookie": schedule.get("cookie", ""),
+            "proxy": schedule.get("proxy", ""),
+        }
+        return endpoint, payload
+
+    def _start_single_schedule_runner(self, schedule_id: str) -> None:
+        if schedule_id in self.ui_schedule_tasks:
+            return
+        if schedule_id not in self.ui_schedules:
+            return
+        self.ui_schedule_tasks[schedule_id] = create_task(
+            self._ui_schedule_runner(schedule_id),
+        )
+
+    async def _stop_single_schedule_runner(self, schedule_id: str) -> None:
+        task = self.ui_schedule_tasks.pop(schedule_id, None)
+        if task:
+            task.cancel()
+            await gather(task, return_exceptions=True)
+
+    async def _ui_schedule_runner(self, schedule_id: str) -> None:
+        while True:
+            schedule = self.ui_schedules.get(schedule_id)
+            if not schedule or not schedule.get("enabled", False):
+                break
+            next_run = self._next_run_datetime(schedule["hour"], schedule["minute"])
+            schedule["next_run_at"] = next_run.strftime("%Y-%m-%d %H:%M:%S")
+            delay = max(1.0, (next_run - datetime.now()).total_seconds())
+            try:
+                await sleep(delay)
+            except CancelledError:
+                break
+            schedule = self.ui_schedules.get(schedule_id)
+            if not schedule or not schedule.get("enabled", False):
+                continue
+            endpoint, payload = self._schedule_task_payload(schedule)
+            self._enqueue_ui_task(
+                endpoint=endpoint,
+                payload=loads(dumps(payload, ensure_ascii=False)),
+            )
+            schedule["last_run_at"] = self._now_text()
+            schedule["updated_at"] = self._now_text()
+            schedule["next_run_at"] = self._next_run_text(
+                schedule["hour"],
+                schedule["minute"],
+            )
+            self.parameter.ui_schedules = [
+                self._schedule_public(item) for item in self.ui_schedules.values()
+            ]
+            self.parameter.settings.update(self.parameter.get_settings_data())
+        self.ui_schedule_tasks.pop(schedule_id, None)
+
+    def _persist_ui_schedules(self) -> None:
+        self.parameter.ui_schedules = [
+            self._schedule_public(item)
+            for item in sorted(
+                self.ui_schedules.values(),
+                key=lambda item: item.get("schedule_id", ""),
+            )
+        ]
+        self.parameter.settings.update(self.parameter.get_settings_data())
+
     async def _run_ui_account_batch(
         self,
         payload: dict,
@@ -661,6 +1028,105 @@ class APIServer(TikTok):
             params=payload,
         )
 
+    async def _verify_accounts(
+        self,
+        payload: dict,
+    ) -> dict:
+        self._validate_ui_account_verify_payload(payload)
+        platform = payload.get("platform", "douyin")
+        tiktok = platform == "tiktok"
+        use_settings = payload.get("use_settings", True)
+        move_deleted = payload.get("move_deleted", True)
+        cookie = self._normalize_string(payload.get("cookie")) or None
+        proxy = self._normalize_string(payload.get("proxy")) or None
+        source_rows = (
+            self._account_rows(tiktok)
+            if use_settings
+            else self._normalize_account_items(payload.get("items", []))
+        )
+        rows = self._normalize_account_items(source_rows)
+
+        checked = []
+        missing_rows = []
+        valid_rows = []
+        for index, item in enumerate(rows, start=1):
+            url = item.get("url")
+            if not url:
+                continue
+            sec_user_id = await self.check_sec_user_id(url, tiktok)
+            if not sec_user_id:
+                result = {
+                    "index": index,
+                    "url": url,
+                    "exists": False,
+                    "reason": _("链接无法提取账号 ID"),
+                }
+                checked.append(result)
+                missing_rows.append(item | {"reason": result["reason"]})
+                continue
+            info = await self.get_user_info_data(
+                tiktok=tiktok,
+                cookie=cookie,
+                proxy=proxy,
+                sec_user_id=sec_user_id,
+            )
+            if not info:
+                result = {
+                    "index": index,
+                    "url": url,
+                    "exists": False,
+                    "reason": _("账号主页不可访问或不存在"),
+                }
+                checked.append(result)
+                missing_rows.append(item | {"reason": result["reason"]})
+                continue
+            checked.append(
+                {
+                    "index": index,
+                    "url": url,
+                    "exists": True,
+                    "reason": "",
+                }
+            )
+            valid_rows.append(item)
+
+        backup_path = ""
+        if move_deleted and use_settings and missing_rows:
+            backup_path = self._backup_settings_file(
+                reason=f"verify_{platform}",
+            )
+            deleted_current = self._account_rows(tiktok, deleted=True)
+            deleted_incoming = [
+                item
+                | {
+                    "deleted_at": self._now_text(),
+                    "reason": item.get("reason", ""),
+                    "enable": False,
+                }
+                for item in missing_rows
+            ]
+            merged_deleted = self._merge_deleted_accounts(
+                deleted_current,
+                deleted_incoming,
+            )
+            self._set_account_rows(tiktok, valid_rows)
+            self._set_account_rows(tiktok, merged_deleted, deleted=True)
+            self.parameter.settings.update(self.parameter.get_settings_data())
+
+        return {
+            "platform": platform,
+            "checked": len(checked),
+            "exists": sum(1 for item in checked if item["exists"]),
+            "missing": sum(1 for item in checked if not item["exists"]),
+            "items": checked,
+            "moved_to_deleted": len(missing_rows)
+            if (move_deleted and use_settings)
+            else 0,
+            "backup_path": backup_path,
+            "accounts": self._account_rows(tiktok),
+            "deleted_accounts": self._account_rows(tiktok, deleted=True),
+        }
+
     @staticmethod
     def _coerce_log_list(records: list | tuple | None) -> list[dict]:
         if not isinstance(records, (list, tuple)):
@@ -730,10 +1196,12 @@ class APIServer(TikTok):
         )
         server = Server(config)
         await self._start_ui_task_workers()
+        await self._start_ui_schedules()
         try:
             await server.serve()
         finally:
             await self._stop_ui_task_workers()
+            await self._stop_ui_schedules()
 
     def setup_routes(self):
         @self.server.get(
@@ -912,6 +1380,85 @@ class APIServer(TikTok):
                 "settings": self.parameter.get_settings_data(),
             }
 
+        @self.server.post(
+            "/ui/api/settings/backup",
+            summary="Web UI 备份 settings.json",
+            description="创建带时间戳的 settings.json 备份",
+            tags=[_("配置")],
+        )
+        async def webui_settings_backup(
+            body: dict = Body(default={}),
+            token: str = Depends(token_dependency),
+        ):
+            reason = self._normalize_string(body.get("reason")) or "manual"
+            backup_path = self._backup_settings_file(reason=reason)
+            return {
+                "message": _("配置备份成功！"),
+                "path": backup_path,
+            }
+
+        @self.server.get(
+            "/ui/api/accounts",
+            summary="Web UI 账号配置",
+            description="返回当前账号与回收站账号配置",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_get(
+            token: str = Depends(token_dependency),
+        ):
+            return {
+                "accounts_urls": self._account_rows(False),
+                "accounts_urls_tiktok": self._account_rows(True),
+                "deleted_accounts": self._account_rows(False, deleted=True),
+                "deleted_accounts_tiktok": self._account_rows(True, deleted=True),
+            }
+
+        @self.server.put(
+            "/ui/api/accounts",
+            summary="Web UI 保存账号配置",
+            description="保存账号与回收站配置，可选自动备份",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_update(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                self._validate_ui_account_update_payload(body)
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Payload validation failed: {error}",
+                )
+            backup_path = ""
+            if body.get("backup", True):
+                backup_path = self._backup_settings_file(reason="accounts_update")
+            data = self._sync_account_payload_to_runtime(body)
+            return {
+                "message": _("账号配置保存成功！"),
+                "backup_path": backup_path,
+                **data,
+            }
+
+        @self.server.post(
+            "/ui/api/accounts/verify",
+            summary="Web UI 批量检测账号存在性",
+            description="检测账号主页是否可访问，并可自动移入 deleted_accounts",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_verify(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                result = await self._verify_accounts(body)
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Payload validation failed: {error}",
+                )
+            return result
+
         @self.server.get(
             "/ui/api/logs",
             summary="Web UI 日志轮询",
@@ -1074,6 +1621,143 @@ class APIServer(TikTok):
                 retry_of=task_id,
             )
             return {"task": self._public_ui_task(new_task)}
+
+        @self.server.get(
+            "/ui/api/schedules",
+            summary="Web UI 定时任务列表",
+            description="返回账号批量下载定时任务配置",
+            tags=[_("项目")],
+        )
+        async def webui_list_schedules(
+            token: str = Depends(token_dependency),
+        ):
+            items = [
+                self._schedule_public(item)
+                for item in sorted(
+                    self.ui_schedules.values(),
+                    key=lambda item: item.get("schedule_id", ""),
+                    reverse=True,
+                )
+            ]
+            return {
+                "items": items,
+                "count": len(items),
+            }
+
+        @self.server.post(
+            "/ui/api/schedules",
+            summary="Web UI 创建定时任务",
+            description="创建每日账号批量下载定时任务",
+            tags=[_("项目")],
+        )
+        async def webui_create_schedule(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                self._validate_ui_schedule_payload(body)
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Payload validation failed: {error}",
+                )
+            schedule = self._normalize_schedule_payload(body)
+            schedule["schedule_id"] = self._new_schedule_id()
+            self.ui_schedules[schedule["schedule_id"]] = schedule
+            if schedule["enabled"]:
+                self._start_single_schedule_runner(schedule["schedule_id"])
+            self._persist_ui_schedules()
+            return {
+                "schedule": self._schedule_public(schedule),
+            }
+
+        @self.server.post(
+            "/ui/api/schedules/{schedule_id}/toggle",
+            summary="Web UI 切换定时任务状态",
+            description="启用或停用定时任务",
+            tags=[_("项目")],
+        )
+        async def webui_toggle_schedule(
+            schedule_id: str,
+            body: dict = Body(default={}),
+            token: str = Depends(token_dependency),
+        ):
+            schedule = self.ui_schedules.get(schedule_id)
+            if not schedule:
+                raise HTTPException(status_code=404, detail="Schedule not found.")
+            enabled = body.get("enabled")
+            if enabled is None:
+                enabled = not schedule.get("enabled", False)
+            if not isinstance(enabled, bool):
+                raise HTTPException(
+                    status_code=400,
+                    detail="enabled must be bool.",
+                )
+            schedule["enabled"] = enabled
+            schedule["updated_at"] = self._now_text()
+            if enabled:
+                schedule["next_run_at"] = self._next_run_text(
+                    schedule["hour"],
+                    schedule["minute"],
+                )
+                self._start_single_schedule_runner(schedule_id)
+            else:
+                schedule["next_run_at"] = ""
+                await self._stop_single_schedule_runner(schedule_id)
+            self._persist_ui_schedules()
+            return {
+                "schedule": self._schedule_public(schedule),
+            }
+
+        @self.server.post(
+            "/ui/api/schedules/{schedule_id}/run",
+            summary="Web UI 立即执行定时任务",
+            description="将定时任务立即加入队列执行",
+            tags=[_("项目")],
+        )
+        async def webui_run_schedule_now(
+            schedule_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            schedule = self.ui_schedules.get(schedule_id)
+            if not schedule:
+                raise HTTPException(status_code=404, detail="Schedule not found.")
+            endpoint, payload = self._schedule_task_payload(schedule)
+            task = self._enqueue_ui_task(
+                endpoint=endpoint,
+                payload=loads(dumps(payload, ensure_ascii=False)),
+            )
+            schedule["last_run_at"] = self._now_text()
+            schedule["updated_at"] = self._now_text()
+            schedule["next_run_at"] = self._next_run_text(
+                schedule["hour"],
+                schedule["minute"],
+            )
+            self._persist_ui_schedules()
+            return {
+                "schedule": self._schedule_public(schedule),
+                "task": self._public_ui_task(task),
+            }
+
+        @self.server.delete(
+            "/ui/api/schedules/{schedule_id}",
+            summary="Web UI 删除定时任务",
+            description="删除定时任务配置",
+            tags=[_("项目")],
+        )
+        async def webui_delete_schedule(
+            schedule_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            schedule = self.ui_schedules.pop(schedule_id, None)
+            if not schedule:
+                raise HTTPException(status_code=404, detail="Schedule not found.")
+            await self._stop_single_schedule_runner(schedule_id)
+            self._persist_ui_schedules()
+            return {
+                "message": _("删除定时任务成功！"),
+                "schedule_id": schedule_id,
+            }
 
         @self.server.websocket("/ui/ws/logs")
         async def webui_logs_ws(websocket: WebSocket):
