@@ -301,6 +301,19 @@ a {
   font-size: 12px;
   background: #09111d;
   border: 1px solid rgba(76, 141, 255, 0.3);
+  color: var(--text);
+  caret-color: #9bc0ff;
+  -webkit-text-fill-color: var(--text);
+}
+
+#settings-raw-editor::placeholder {
+  color: rgba(158, 178, 208, 0.82);
+}
+
+#settings-raw-editor:focus {
+  border-color: rgba(76, 141, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(76, 141, 255, 0.16);
+  outline: none;
 }
 
 .accounts-settings-block {
@@ -384,39 +397,42 @@ a {
 
 .account-table th:nth-child(1),
 .account-table td:nth-child(1) {
-  width: 64px;
+  width: 58px;
 }
 
 .account-table th:nth-child(2),
 .account-table td:nth-child(2) {
-  width: 74px;
+  width: 68px;
 }
 
 .account-table th:nth-child(3),
 .account-table td:nth-child(3) {
-  width: auto;
+  width: 120px;
 }
 
 .account-table th:nth-child(4),
 .account-table td:nth-child(4) {
-  width: 110px;
+  width: auto;
 }
 
 .account-table th:nth-child(5),
-.account-table td:nth-child(5),
+.account-table td:nth-child(5) {
+  width: 104px;
+}
+
 .account-table th:nth-child(6),
 .account-table td:nth-child(6) {
-  width: 124px;
+  width: 118px;
 }
 
 .account-table th:nth-child(7),
 .account-table td:nth-child(7) {
-  width: 124px;
+  width: 118px;
 }
 
 .account-table th:nth-child(8),
 .account-table td:nth-child(8) {
-  width: 138px;
+  width: 130px;
 }
 
 .account-table td input,
@@ -492,7 +508,7 @@ a {
 
 .deleted-table th:nth-child(2),
 .deleted-table td:nth-child(2) {
-  width: 120px;
+  width: 100px;
 }
 
 .deleted-table th:nth-child(3),
@@ -502,22 +518,22 @@ a {
 
 .deleted-table th:nth-child(4),
 .deleted-table td:nth-child(4) {
-  width: 100px;
+  width: 92px;
 }
 
 .deleted-table th:nth-child(5),
 .deleted-table td:nth-child(5) {
-  width: 150px;
+  width: 146px;
 }
 
 .deleted-table th:nth-child(6),
 .deleted-table td:nth-child(6) {
-  width: 160px;
+  width: 146px;
 }
 
 .deleted-table th:nth-child(7),
 .deleted-table td:nth-child(7) {
-  width: 132px;
+  width: 126px;
 }
 
 .account-table .btn {
