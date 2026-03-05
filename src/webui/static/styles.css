@@ -363,6 +363,15 @@ a {
   min-width: 180px;
 }
 
+.batch-field-select {
+  min-width: 120px;
+  flex: 0 0 132px;
+}
+
+.batch-value-input {
+  flex: 1 1 260px;
+}
+
 .account-table-wrap {
   overflow: auto;
   border: 1px solid var(--line);
