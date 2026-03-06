@@ -16,6 +16,7 @@
             <button class="tab-btn active" data-tab-target="workbench">下载工作台</button>
             <button class="tab-btn" data-tab-target="control">设置与日志</button>
             <button class="tab-btn" data-tab-target="files">文件浏览</button>
+            <button class="tab-btn" data-tab-target="profiles">账户看板</button>
           </div>
         </div>
         <div class="topbar-tools">
@@ -439,6 +440,39 @@
               <div class="empty-tip">选择文件后显示预览</div>
             </div>
           </div>
+        </section>
+
+        <section class="card profiles-card tab-panel" data-tab-panel="profiles">
+          <div class="card-head">
+            <h2>账户媒体看板</h2>
+            <div class="card-actions">
+              <button id="board-reload-btn" class="btn ghost">刷新看板</button>
+              <button id="board-pin-all-btn" class="btn primary">批量 Pin 当前页</button>
+            </div>
+          </div>
+          <div class="board-toolbar">
+            <label class="field compact">
+              <span>平台</span>
+              <select id="board-platform">
+                <option value="douyin">douyin / accounts_urls</option>
+                <option value="tiktok">tiktok / accounts_urls_tiktok</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>每页数量</span>
+              <select id="board-page-size">
+                <option value="12">12</option>
+                <option value="18">18</option>
+                <option value="24" selected>24</option>
+                <option value="36">36</option>
+              </select>
+            </label>
+            <button id="board-prev-btn" class="btn ghost">上一页</button>
+            <button id="board-next-btn" class="btn ghost">下一页</button>
+            <span id="board-meta" class="badge">第 1 / 1 页</span>
+          </div>
+          <div id="board-status" class="status-line">切换到该标签页后自动加载</div>
+          <div id="board-grid" class="profile-board"></div>
         </section>
 
         <section class="card tools-card tab-panel" data-tab-panel="workbench">

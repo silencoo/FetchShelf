@@ -3,8 +3,10 @@ from datetime import datetime, timedelta
 from json import JSONDecodeError, dumps, loads
 from mimetypes import guess_type
 from pathlib import Path
+from random import choice
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from fastapi import (
     Depends,
@@ -52,7 +54,14 @@ from ..models import (
 )
 from ..tools import create_client
 from ..translation import _
-from ..webui.files import ScopeType, relative_path, resolve_within_root, serialize_entry
+from ..webui.files import (
+    IMAGE_SUFFIXES,
+    ScopeType,
+    VIDEO_SUFFIXES,
+    relative_path,
+    resolve_within_root,
+    serialize_entry,
+)
 from .main_terminal import TikTok
 
 try:
@@ -631,6 +640,302 @@ class APIServer(TikTok):
             "accounts_urls_tiktok": self._account_rows(True),
             "deleted_accounts": self._account_rows(False, deleted=True),
             "deleted_accounts_tiktok": self._account_rows(True, deleted=True),
+        }
+
+    @staticmethod
+    def _normalize_board_platform(platform: str) -> str:
+        return "tiktok" if APIServer._normalize_string(platform).lower() == "tiktok" else "douyin"
+
+    @staticmethod
+    def _normalize_board_page(page: int) -> int:
+        try:
+            return max(int(page), 1)
+        except (TypeError, ValueError):
+            return 1
+
+    @staticmethod
+    def _normalize_board_page_size(page_size: int, default: int = 24) -> int:
+        try:
+            size = int(page_size)
+        except (TypeError, ValueError):
+            return default
+        return max(6, min(size, 80))
+
+    def _account_board_pin_file(self) -> Path:
+        return self.parameter.settings.path.parent.joinpath("account_profile_pins.json")
+
+    def _load_account_board_pins(self) -> dict[str, str]:
+        pin_file = self._account_board_pin_file()
+        if not pin_file.exists():
+            return {}
+        try:
+            payload = loads(pin_file.read_text(encoding=self.parameter.settings.encode))
+        except (JSONDecodeError, OSError, TypeError, ValueError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        source = payload.get("pins", payload)
+        if not isinstance(source, dict):
+            return {}
+        pins = {}
+        for key, value in source.items():
+            k = self._normalize_string(key)
+            v = self._normalize_string(value).replace("\\", "/").lstrip("/")
+            if k and v:
+                pins[k] = v
+        return pins
+
+    def _save_account_board_pins(self, pins: dict[str, str]) -> None:
+        pin_file = self._account_board_pin_file()
+        if not pin_file.parent.exists():
+            pin_file.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": 1,
+            "updated_at": self._now_text(),
+            "pins": pins,
+        }
+        pin_file.write_text(
+            dumps(payload, ensure_ascii=False, indent=2),
+            encoding=self.parameter.settings.encode,
+        )
+
+    @staticmethod
+    def _account_pin_key(platform: str, url: str) -> str:
+        normalized_platform = APIServer._normalize_board_platform(platform)
+        return f"{normalized_platform}::{APIServer._normalize_string(url)}"
+
+    @staticmethod
+    def _extract_account_tokens(url: str) -> list[str]:
+        value = APIServer._normalize_string(url).lower()
+        if not value:
+            return []
+        tokens = set()
+        try:
+            parsed = urlsplit(value)
+            for segment in [item for item in parsed.path.split("/") if item]:
+                token = segment.strip().split("?", 1)[0].split("#", 1)[0]
+                if token.startswith("@"):
+                    token = token[1:]
+                token = token.strip()
+                if len(token) >= 4 and token not in {"user", "post", "video", "favorite", "collection"}:
+                    tokens.add(token)
+        except ValueError:
+            pass
+        if "@" in value:
+            token = (
+                value.split("@", 1)[1]
+                .split("/", 1)[0]
+                .split("?", 1)[0]
+                .split("#", 1)[0]
+                .strip()
+            )
+            if len(token) >= 3:
+                tokens.add(token)
+        return sorted(tokens, key=len, reverse=True)
+
+    def _account_board_dirs(self, root: Path) -> list[Path]:
+        if not root.exists() or not root.is_dir():
+            return []
+        try:
+            return [
+                item
+                for item in root.iterdir()
+                if item.is_dir() and item.name.startswith("UID")
+            ]
+        except OSError:
+            return []
+
+    def _match_account_board_dir(
+        self,
+        mark: str,
+        url: str,
+        candidates: list[Path],
+    ) -> Path | None:
+        if not candidates:
+            return None
+        mark_token = self._normalize_string(mark).lower()
+        url_tokens = self._extract_account_tokens(url)
+        best_dir = None
+        best_score = 0
+        for folder in candidates:
+            name = folder.name.lower()
+            score = 0
+            if mark_token:
+                if f"_{mark_token}_" in name:
+                    score += 140
+                elif mark_token in name:
+                    score += 100
+            for token in url_tokens:
+                if token and token in name:
+                    score += 24
+            if score > best_score:
+                best_dir = folder
+                best_score = score
+        return best_dir if best_score > 0 else None
+
+    def _coerce_media_relpath(self, root: Path, path: str) -> str:
+        value = self._normalize_string(path).replace("\\", "/").lstrip("/")
+        if not value:
+            return ""
+        try:
+            target = resolve_within_root(root, value)
+        except ValueError:
+            return ""
+        if not target.exists() or not target.is_file():
+            return ""
+        suffix = target.suffix.lower()
+        if suffix not in IMAGE_SUFFIXES and suffix not in VIDEO_SUFFIXES:
+            return ""
+        return relative_path(root, target)
+
+    def _collect_media_relpaths(
+        self,
+        root: Path,
+        folder: Path | None,
+        cache: dict[str, tuple[list[str], list[str]]],
+    ) -> tuple[list[str], list[str]]:
+        if not folder:
+            return [], []
+        key = str(folder.resolve())
+        if key in cache:
+            return cache[key]
+        images = []
+        videos = []
+        if folder.exists() and folder.is_dir():
+            try:
+                for path in folder.rglob("*"):
+                    if not path.is_file():
+                        continue
+                    suffix = path.suffix.lower()
+                    if suffix in IMAGE_SUFFIXES:
+                        images.append(relative_path(root, path))
+                    elif suffix in VIDEO_SUFFIXES:
+                        videos.append(relative_path(root, path))
+                    if len(images) + len(videos) >= 1200:
+                        break
+            except OSError:
+                images = []
+                videos = []
+        cache[key] = (images, videos)
+        return images, videos
+
+    @staticmethod
+    def _media_kind_from_relpath(path: str) -> str:
+        suffix = Path(path).suffix.lower()
+        if suffix in IMAGE_SUFFIXES:
+            return "image"
+        if suffix in VIDEO_SUFFIXES:
+            return "video"
+        return "file"
+
+    def _pick_account_board_media(
+        self,
+        root: Path,
+        folder: Path | None,
+        cache: dict[str, tuple[list[str], list[str]]],
+        pinned_path: str = "",
+        exclude_path: str = "",
+        use_pinned: bool = True,
+    ) -> dict[str, Any]:
+        exclude_rel = self._coerce_media_relpath(root, exclude_path)
+        if use_pinned:
+            pinned_rel = self._coerce_media_relpath(root, pinned_path)
+            if pinned_rel and pinned_rel != exclude_rel:
+                return {
+                    "path": pinned_rel,
+                    "kind": self._media_kind_from_relpath(pinned_rel),
+                    "pinned": True,
+                }
+
+        images, videos = self._collect_media_relpaths(root, folder, cache)
+        pool = images if images else videos
+        if exclude_rel and len(pool) > 1:
+            pool = [item for item in pool if item != exclude_rel]
+        if not pool:
+            return {
+                "path": "",
+                "kind": "",
+                "pinned": False,
+            }
+        selected = choice(pool)
+        return {
+            "path": selected,
+            "kind": self._media_kind_from_relpath(selected),
+            "pinned": False,
+        }
+
+    def _active_account_rows(self, platform: str) -> list[dict]:
+        tiktok = self._normalize_board_platform(platform) == "tiktok"
+        rows = self._normalize_account_items(self._account_rows(tiktok))
+        return [item for item in rows if item.get("url")]
+
+    def _find_active_account_row(self, platform: str, url: str) -> dict | None:
+        target = self._normalize_string(url)
+        if not target:
+            return None
+        for item in self._active_account_rows(platform):
+            if self._normalize_string(item.get("url")) == target:
+                return item
+        return None
+
+    def _build_account_board_page(
+        self,
+        platform: str,
+        page: int,
+        page_size: int,
+    ) -> dict:
+        normalized_platform = self._normalize_board_platform(platform)
+        rows = self._active_account_rows(normalized_platform)
+        total = len(rows)
+        size = self._normalize_board_page_size(page_size)
+        pages = max(1, (total + size - 1) // size)
+        current = min(self._normalize_board_page(page), pages)
+        start = (current - 1) * size
+        end = start + size
+        page_rows = rows[start:end]
+
+        root = self._scope_root("download").expanduser().resolve()
+        candidates = self._account_board_dirs(root)
+        pins = self._load_account_board_pins()
+        media_cache: dict[str, tuple[list[str], list[str]]] = {}
+        items = []
+        for offset, row in enumerate(page_rows, start=start + 1):
+            folder = self._match_account_board_dir(
+                mark=row.get("mark", ""),
+                url=row.get("url", ""),
+                candidates=candidates,
+            )
+            pin_key = self._account_pin_key(normalized_platform, row.get("url", ""))
+            media = self._pick_account_board_media(
+                root=root,
+                folder=folder,
+                cache=media_cache,
+                pinned_path=pins.get(pin_key, ""),
+                use_pinned=True,
+            )
+            items.append(
+                {
+                    "index": offset,
+                    "platform": normalized_platform,
+                    "url": row.get("url", ""),
+                    "mark": row.get("mark", ""),
+                    "tab": row.get("tab", "post"),
+                    "enable": bool(row.get("enable", True)),
+                    "folder_path": relative_path(root, folder) if folder else "",
+                    "folder_name": folder.name if folder else "",
+                    "media_path": media.get("path", ""),
+                    "media_kind": media.get("kind", ""),
+                    "pinned": bool(media.get("pinned", False)),
+                }
+            )
+
+        return {
+            "platform": normalized_platform,
+            "page": current,
+            "page_size": size,
+            "pages": pages,
+            "total": total,
+            "items": items,
         }
 
     def _settings_backup_dir(self) -> Path:
@@ -1458,6 +1763,168 @@ class APIServer(TikTok):
                     detail=f"Payload validation failed: {error}",
                 )
             return result
+
+        @self.server.get(
+            "/ui/api/accounts/board",
+            summary="Web UI 账号媒体看板",
+            description="分页返回账号卡片及随机媒体预览（图片优先）",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_board(
+            platform: str = Query("douyin"),
+            page: int = Query(1, ge=1),
+            page_size: int = Query(24, ge=6, le=80),
+            token: str = Depends(token_dependency),
+        ):
+            return self._build_account_board_page(
+                platform=platform,
+                page=page,
+                page_size=page_size,
+            )
+
+        @self.server.post(
+            "/ui/api/accounts/board/random",
+            summary="Web UI 刷新账号卡片媒体",
+            description="为指定账号重新随机一张图片或一个视频",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_board_random(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            platform = self._normalize_board_platform(body.get("platform", "douyin"))
+            url = self._normalize_string(body.get("url"))
+            current_path = self._normalize_string(body.get("current_path"))
+            if not url:
+                raise HTTPException(
+                    status_code=400,
+                    detail="url is required.",
+                )
+            row = self._find_active_account_row(platform, url)
+            if not row:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Account row not found.",
+                )
+            root = self._scope_root("download").expanduser().resolve()
+            folder = self._match_account_board_dir(
+                mark=row.get("mark", ""),
+                url=url,
+                candidates=self._account_board_dirs(root),
+            )
+            if not folder:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Account media folder not found.",
+                )
+            media = self._pick_account_board_media(
+                root=root,
+                folder=folder,
+                cache={},
+                exclude_path=current_path,
+                use_pinned=False,
+            )
+            return {
+                "platform": platform,
+                "url": url,
+                "folder_path": relative_path(root, folder),
+                "media_path": media.get("path", ""),
+                "media_kind": media.get("kind", ""),
+                "pinned": False,
+            }
+
+        @self.server.post(
+            "/ui/api/accounts/board/pin",
+            summary="Web UI 固定账号卡片媒体",
+            description="将当前媒体固定为该账号的 Profile",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_board_pin(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            platform = self._normalize_board_platform(body.get("platform", "douyin"))
+            url = self._normalize_string(body.get("url"))
+            path = self._normalize_string(body.get("path"))
+            if not url:
+                raise HTTPException(
+                    status_code=400,
+                    detail="url is required.",
+                )
+            if not path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="path is required.",
+                )
+            root = self._scope_root("download").expanduser().resolve()
+            media_path = self._coerce_media_relpath(root, path)
+            if not media_path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid media path.",
+                )
+            pins = self._load_account_board_pins()
+            pins[self._account_pin_key(platform, url)] = media_path
+            try:
+                self._save_account_board_pins(pins)
+            except OSError as error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Save pin failed: {error}",
+                )
+            return {
+                "message": _("固定账号卡片成功！"),
+                "platform": platform,
+                "url": url,
+                "path": media_path,
+            }
+
+        @self.server.post(
+            "/ui/api/accounts/board/pin-all",
+            summary="Web UI 批量固定看板页媒体",
+            description="将当前页卡片媒体批量固定为账号 Profile",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_board_pin_all(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            platform = self._normalize_board_platform(body.get("platform", "douyin"))
+            raw_items = body.get("items", [])
+            if not isinstance(raw_items, list):
+                raise HTTPException(
+                    status_code=400,
+                    detail="items must be a list.",
+                )
+            root = self._scope_root("download").expanduser().resolve()
+            pins = self._load_account_board_pins()
+            updated = 0
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                url = self._normalize_string(item.get("url"))
+                path = self._normalize_string(item.get("path"))
+                if not url or not path:
+                    continue
+                media_path = self._coerce_media_relpath(root, path)
+                if not media_path:
+                    continue
+                pins[self._account_pin_key(platform, url)] = media_path
+                updated += 1
+            if updated:
+                try:
+                    self._save_account_board_pins(pins)
+                except OSError as error:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Save pin failed: {error}",
+                    )
+            return {
+                "message": _("批量固定账号卡片成功！"),
+                "platform": platform,
+                "updated": updated,
+                "requested": len(raw_items),
+            }
 
         @self.server.get(
             "/ui/api/logs",
