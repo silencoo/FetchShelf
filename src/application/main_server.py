@@ -1153,13 +1153,16 @@ class APIServer(TikTok):
         proxy = self._normalize_string(payload.get("proxy")) or None
         platform = "tiktok" if tiktok else "douyin"
 
-        if use_settings:
-            rows = [vars(item) for item in (
-                self.parameter.accounts_urls_tiktok if tiktok else self.parameter.accounts_urls
-            )]
-        else:
-            rows = payload.get("items", [])
+        settings_rows = (
+            self.parameter.accounts_urls_tiktok
+            if tiktok
+            else self.parameter.accounts_urls
+        ) if use_settings else []
+        rows = [vars(item) for item in settings_rows] if use_settings else payload.get("items", [])
         items = self._normalize_account_items(rows)
+        if use_settings:
+            for index, item in enumerate(items):
+                item["_settings_index"] = index
         queued_items = [item for item in items if item["url"] and item["enable"]]
 
         if not queued_items:
@@ -1181,6 +1184,7 @@ class APIServer(TikTok):
         success = 0
         failed = 0
         failures = []
+        auto_filled_mark = 0
         for index, item in enumerate(queued_items, start=1):
             if not (sec_user_id := await self.check_sec_user_id(item["url"], tiktok)):
                 failed += 1
@@ -1192,7 +1196,7 @@ class APIServer(TikTok):
                     }
                 )
                 continue
-            if await self.deal_account_detail(
+            result = await self.deal_account_detail(
                 index,
                 sec_user_id=sec_user_id,
                 mark=item["mark"],
@@ -1205,8 +1209,18 @@ class APIServer(TikTok):
                 cookie=cookie,
                 proxy=proxy,
                 tiktok=tiktok,
-            ):
+                return_context=True,
+            )
+            if result:
                 success += 1
+                if use_settings:
+                    row_index = item.get("_settings_index")
+                    if isinstance(row_index, int) and 0 <= row_index < len(settings_rows):
+                        if self._apply_missing_mark(
+                            settings_rows[row_index],
+                            result.get("mark", ""),
+                        ):
+                            auto_filled_mark += 1
                 continue
             failed += 1
             failures.append(
@@ -1223,6 +1237,7 @@ class APIServer(TikTok):
             message = _("账号批量下载任务完成，部分账号未成功。")
         else:
             message = _("账号批量下载任务完成！")
+        self._persist_mark_backfill(auto_filled_mark, tiktok)
         return DataResponse(
             message=message,
             data={
@@ -1233,6 +1248,7 @@ class APIServer(TikTok):
                 "success": success,
                 "failed": failed,
                 "skipped": skipped,
+                "mark_backfilled": auto_filled_mark,
                 "failures": failures,
             },
             params=payload,
