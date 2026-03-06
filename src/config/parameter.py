@@ -97,6 +97,7 @@ class Parameter:
         chunk: int,
         max_retry: int,
         max_pages: int,
+        auto_backfill_mark: bool,
         run_command: str,
         owner_url: dict,
         owner_url_tiktok: dict,
@@ -182,6 +183,7 @@ class Parameter:
         self.timeout = self.__check_timeout(timeout)
         self.max_retry = self.__check_max_retry(max_retry)
         self.max_pages = self.__check_max_pages(max_pages)
+        self.auto_backfill_mark = self.check_bool_true(auto_backfill_mark)
         self.run_command = self.__check_run_command(run_command)
         self.ffmpeg = self.__generate_ffmpeg_object(ffmpeg)
         self.live_qualities = self.__check_live_qualities(live_qualities)
@@ -252,6 +254,7 @@ class Parameter:
             "timeout": self.__check_timeout,
             "max_retry": self.__check_max_retry,
             "max_pages": self.__check_max_pages,
+            "auto_backfill_mark": self.check_bool_true,
             "run_command": self.__check_run_command,
             "ffmpeg": self.__generate_ffmpeg_object,
             "live_qualities": self.__check_live_qualities,
@@ -861,6 +864,7 @@ class Parameter:
             "chunk": self.chunk,
             "max_retry": self.max_retry,
             "max_pages": self.max_pages,
+            "auto_backfill_mark": self.auto_backfill_mark,
             "run_command": " ".join(self.run_command[::-1]),
             "ffmpeg": self.ffmpeg.path or "",
             "timeout": self.timeout,

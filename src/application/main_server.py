@@ -416,6 +416,52 @@ class APIServer(TikTok):
         }.get(scope, self.parameter.root)
 
     @staticmethod
+    def _human_size(value: int) -> str:
+        size = max(0, int(value or 0))
+        if size < 1024:
+            return f"{size} B"
+        units = ("KB", "MB", "GB", "TB")
+        number = size / 1024
+        unit = units[0]
+        for next_unit in units[1:]:
+            if number < 1024:
+                break
+            number /= 1024
+            unit = next_unit
+        return f"{number:.2f} {unit}"
+
+    def _collect_scope_stats(self, current: Path) -> dict[str, Any]:
+        folders = 0
+        files = 0
+        images = 0
+        videos = 0
+        total_size = 0
+        for path in current.rglob("*"):
+            try:
+                if path.is_dir():
+                    folders += 1
+                    continue
+                if not path.is_file():
+                    continue
+                files += 1
+                suffix = path.suffix.lower()
+                if suffix in IMAGE_SUFFIXES:
+                    images += 1
+                elif suffix in VIDEO_SUFFIXES:
+                    videos += 1
+                total_size += path.stat().st_size
+            except OSError:
+                continue
+        return {
+            "folders": folders,
+            "files": files,
+            "images": images,
+            "videos": videos,
+            "size": total_size,
+            "size_human": self._human_size(total_size),
+        }
+
+    @staticmethod
     def _supported_ui_task_endpoints() -> set[str]:
         return {
             "/douyin/detail",
@@ -828,6 +874,13 @@ class APIServer(TikTok):
             return "video"
         return "file"
 
+    @staticmethod
+    def _normalize_media_prefer_kind(value: Any) -> str:
+        kind = APIServer._normalize_string(value).lower()
+        if kind in {"image", "video"}:
+            return kind
+        return "auto"
+
     def _pick_account_board_media(
         self,
         root: Path,
@@ -836,6 +889,7 @@ class APIServer(TikTok):
         pinned_path: str = "",
         exclude_path: str = "",
         use_pinned: bool = True,
+        prefer_kind: str = "auto",
     ) -> dict[str, Any]:
         exclude_rel = self._coerce_media_relpath(root, exclude_path)
         if use_pinned:
@@ -848,16 +902,27 @@ class APIServer(TikTok):
                 }
 
         images, videos = self._collect_media_relpaths(root, folder, cache)
-        pool = images if images else videos
-        if exclude_rel and len(pool) > 1:
-            pool = [item for item in pool if item != exclude_rel]
-        if not pool:
+        media_order = [images, videos]
+        preferred = self._normalize_media_prefer_kind(prefer_kind)
+        if preferred == "video":
+            media_order = [videos, images]
+        elif preferred == "image":
+            media_order = [images, videos]
+
+        selected = ""
+        for pool in media_order:
+            candidates = pool
+            if exclude_rel and len(candidates) > 1:
+                candidates = [item for item in candidates if item != exclude_rel]
+            if candidates:
+                selected = choice(candidates)
+                break
+        if not selected:
             return {
                 "path": "",
                 "kind": "",
                 "pinned": False,
             }
-        selected = choice(pool)
         return {
             "path": selected,
             "kind": self._media_kind_from_relpath(selected),
@@ -1213,7 +1278,7 @@ class APIServer(TikTok):
             )
             if result:
                 success += 1
-                if use_settings:
+                if use_settings and getattr(self.parameter, "auto_backfill_mark", True):
                     row_index = item.get("_settings_index")
                     if isinstance(row_index, int) and 0 <= row_index < len(settings_rows):
                         if self._apply_missing_mark(
@@ -1635,6 +1700,44 @@ class APIServer(TikTok):
             return FileResponse(target, media_type=media_type)
 
         @self.server.get(
+            "/ui/api/files/stats",
+            summary="Web UI 文件统计",
+            description="统计目录下文件/图片/视频/文件夹数量和占用空间",
+            tags=[_("项目")],
+        )
+        async def webui_files_stats(
+            scope: ScopeType = Query("download"),
+            path: str = Query(""),
+            token: str = Depends(token_dependency),
+        ):
+            if scope not in {"project", "download"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid scope.",
+                )
+            root = self._scope_root(scope)
+            try:
+                current = resolve_within_root(root, path)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Path out of scope.",
+                )
+            if not current.exists() or not current.is_dir():
+                raise HTTPException(
+                    status_code=404,
+                    detail="Path does not exist or is not a directory.",
+                )
+            root_path = root.expanduser().resolve()
+            current_path = current.expanduser().resolve()
+            return {
+                "scope": scope,
+                "root": str(root_path),
+                "path": relative_path(root_path, current_path),
+                **self._collect_scope_stats(current_path),
+            }
+
+        @self.server.get(
             "/ui/api/settings/raw",
             summary="Web UI 原始 settings.json",
             description="返回 settings.json 原始文本，供 Web UI 编辑器使用",
@@ -1811,6 +1914,7 @@ class APIServer(TikTok):
             platform = self._normalize_board_platform(body.get("platform", "douyin"))
             url = self._normalize_string(body.get("url"))
             current_path = self._normalize_string(body.get("current_path"))
+            prefer_kind = self._normalize_media_prefer_kind(body.get("prefer_kind"))
             if not url:
                 raise HTTPException(
                     status_code=400,
@@ -1839,6 +1943,7 @@ class APIServer(TikTok):
                 cache={},
                 exclude_path=current_path,
                 use_pinned=False,
+                prefer_kind=prefer_kind,
             )
             return {
                 "platform": platform,
@@ -1847,6 +1952,7 @@ class APIServer(TikTok):
                 "media_path": media.get("path", ""),
                 "media_kind": media.get("kind", ""),
                 "pinned": False,
+                "prefer_kind": prefer_kind,
             }
 
         @self.server.post(

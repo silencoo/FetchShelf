@@ -93,6 +93,10 @@
               <input name="static_cover" type="checkbox" />
               <span>static_cover</span>
             </label>
+            <label class="toggle-field">
+              <input name="auto_backfill_mark" type="checkbox" />
+              <span>auto_backfill_mark</span>
+            </label>
           </form>
           <div id="accounts-settings-block" class="accounts-settings-block">
             <div class="card-head mini">
@@ -189,6 +193,7 @@
                     <tbody id="accounts-douyin-body"></tbody>
                   </table>
                 </div>
+                <div id="accounts-douyin-duplicate-status" class="status-line"></div>
                 <div class="card-head mini account-subhead">
                   <h3>Deleted Accounts（抖音）</h3>
                   <div class="card-actions">
@@ -314,6 +319,7 @@
                     <tbody id="accounts-tiktok-body"></tbody>
                   </table>
                 </div>
+                <div id="accounts-tiktok-duplicate-status" class="status-line"></div>
                 <div class="card-head mini account-subhead">
                   <h3>Deleted Accounts（TikTok）</h3>
                   <div class="card-actions">
@@ -433,10 +439,16 @@
               <span>path</span>
               <input id="files-path" type="text" placeholder="相对路径，留空为根目录" />
             </label>
+            <label class="field compact grow">
+              <span>search</span>
+              <input id="files-search" type="text" placeholder="按文件名过滤（当前目录）" />
+            </label>
             <button id="files-open-btn" class="btn">打开</button>
+            <button id="files-stats-refresh-btn" class="btn ghost">刷新统计</button>
           </div>
 
           <div id="files-meta" class="status-line">等待加载目录…</div>
+          <div id="files-stats" class="status-line">统计信息待加载…</div>
 
           <div class="gallery-layout">
             <div id="files-list" class="files-list"></div>
@@ -471,6 +483,19 @@
                 <option value="36">36</option>
               </select>
             </label>
+            <label class="field compact">
+              <span>刷新偏好</span>
+              <select id="board-refresh-kind">
+                <option value="auto">自动(优先图片)</option>
+                <option value="video">视频优先</option>
+                <option value="image">图片优先</option>
+              </select>
+            </label>
+            <label class="field compact board-density-control">
+              <span>卡片密度</span>
+              <input id="board-density" type="range" min="1" max="6" value="4" />
+            </label>
+            <span id="board-density-label" class="badge">4 列</span>
             <button id="board-prev-btn" class="btn ghost">上一页</button>
             <button id="board-next-btn" class="btn ghost">下一页</button>
             <span id="board-meta" class="badge">第 1 / 1 页</span>

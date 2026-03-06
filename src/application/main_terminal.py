@@ -339,6 +339,8 @@ class TikTok:
         updated: int,
         tiktok: bool,
     ) -> None:
+        if not getattr(self.parameter, "auto_backfill_mark", True):
+            return
         if updated <= 0:
             return
         self.settings.update(self.parameter.get_settings_data())
@@ -447,7 +449,10 @@ class TikTok:
             if not result:
                 count.failed += 1
                 continue
-            if self._apply_missing_mark(data, result.get("mark", "")):
+            if (
+                getattr(self.parameter, "auto_backfill_mark", True)
+                and self._apply_missing_mark(data, result.get("mark", ""))
+            ):
                 auto_filled_mark += 1
             # break  # 调试代码
             count.success += 1

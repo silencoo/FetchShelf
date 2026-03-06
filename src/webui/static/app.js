@@ -8,6 +8,8 @@ const state = {
   autoScroll: true,
   showDebugLogs: false,
   logRecords: [],
+  fileEntries: [],
+  fileSearch: "",
   currentScope: "download",
   currentPath: "",
   selectedFilePath: "",
@@ -38,6 +40,8 @@ const state = {
     pageSize: 24,
     pages: 1,
     total: 0,
+    columns: 4,
+    refreshKind: "auto",
   },
   accountBoardDirty: true,
 };
@@ -82,6 +86,7 @@ const refs = {
   accountsDouyinApplyBatchBtn: document.getElementById("accounts-douyin-apply-batch-btn"),
   accountsDouyinDeleteSelectedBtn: document.getElementById("accounts-douyin-delete-selected-btn"),
   accountsDouyinStatus: document.getElementById("accounts-douyin-status"),
+  accountsDouyinDuplicateStatus: document.getElementById("accounts-douyin-duplicate-status"),
   accountsTikTokSelectAllBtn: document.getElementById("accounts-tiktok-select-all-btn"),
   accountsTikTokClearSelectBtn: document.getElementById("accounts-tiktok-clear-select-btn"),
   accountsTikTokOpenSelectedBtn: document.getElementById("accounts-tiktok-open-selected-btn"),
@@ -90,6 +95,7 @@ const refs = {
   accountsTikTokApplyBatchBtn: document.getElementById("accounts-tiktok-apply-batch-btn"),
   accountsTikTokDeleteSelectedBtn: document.getElementById("accounts-tiktok-delete-selected-btn"),
   accountsTikTokStatus: document.getElementById("accounts-tiktok-status"),
+  accountsTikTokDuplicateStatus: document.getElementById("accounts-tiktok-duplicate-status"),
   deletedDouyinBody: document.getElementById("deleted-douyin-body"),
   deletedTikTokBody: document.getElementById("deleted-tiktok-body"),
   deletedDouyinSelectAllBtn: document.getElementById("deleted-douyin-select-all-btn"),
@@ -102,6 +108,9 @@ const refs = {
   deletedTikTokRestoreSelectedBtn: document.getElementById("deleted-tiktok-restore-selected-btn"),
   boardPlatform: document.getElementById("board-platform"),
   boardPageSize: document.getElementById("board-page-size"),
+  boardRefreshKind: document.getElementById("board-refresh-kind"),
+  boardDensity: document.getElementById("board-density"),
+  boardDensityLabel: document.getElementById("board-density-label"),
   boardPrevBtn: document.getElementById("board-prev-btn"),
   boardNextBtn: document.getElementById("board-next-btn"),
   boardReloadBtn: document.getElementById("board-reload-btn"),
@@ -118,10 +127,13 @@ const refs = {
 
   filesScope: document.getElementById("files-scope"),
   filesPath: document.getElementById("files-path"),
+  filesSearch: document.getElementById("files-search"),
   filesOpenBtn: document.getElementById("files-open-btn"),
   filesUpBtn: document.getElementById("files-up-btn"),
   filesRefreshBtn: document.getElementById("files-refresh-btn"),
+  filesStatsRefreshBtn: document.getElementById("files-stats-refresh-btn"),
   filesMeta: document.getElementById("files-meta"),
+  filesStats: document.getElementById("files-stats"),
   filesList: document.getElementById("files-list"),
   filePreview: document.getElementById("file-preview"),
 
@@ -287,6 +299,7 @@ const TASK_TEMPLATES = {
 const ACCOUNTS_COLLAPSE_STORAGE_KEY = "webui.accounts.collapsed";
 const ACTIVE_TAB_STORAGE_KEY = "webui.active.tab";
 const LOG_DEBUG_STORAGE_KEY = "webui.logs.debug";
+const BOARD_COLUMNS_STORAGE_KEY = "webui.board.columns";
 
 function setBadge(element, text, kind = "") {
   element.textContent = text;
@@ -636,6 +649,46 @@ function escapeAttr(value) {
     .replaceAll(">", "&gt;");
 }
 
+function duplicateUrlIndexes(platform) {
+  const key = accountRowsKey(platform);
+  const rows = state.accountRows[key] || [];
+  const map = new Map();
+  rows.forEach((item, index) => {
+    const normalized = normalizeUrl(item.url || "");
+    if (!normalized) {
+      return;
+    }
+    const bucket = map.get(normalized) || [];
+    bucket.push(index);
+    map.set(normalized, bucket);
+  });
+  const duplicates = new Set();
+  map.forEach((indexes) => {
+    if (indexes.length > 1) {
+      indexes.forEach((index) => duplicates.add(index));
+    }
+  });
+  return {
+    duplicates,
+    duplicateUrls: Array.from(map.values()).filter((indexes) => indexes.length > 1).length,
+  };
+}
+
+function setDuplicateStatus(platform, duplicateUrls = 0, duplicateRows = 0) {
+  const ref =
+    platform === "tiktok"
+      ? refs.accountsTikTokDuplicateStatus
+      : refs.accountsDouyinDuplicateStatus;
+  if (!ref) {
+    return;
+  }
+  if (!duplicateRows) {
+    ref.textContent = "未检测到重复 URL";
+    return;
+  }
+  ref.textContent = `检测到重复 URL: ${duplicateUrls} 组，共 ${duplicateRows} 行（建议先规则化 URL）`;
+}
+
 function renderAccountRows(platform) {
   const key = accountRowsKey(platform);
   const body = accountBodyRef(platform);
@@ -647,6 +700,8 @@ function renderAccountRows(platform) {
     "";
   const query = keyword.trim().toLowerCase();
   const rows = state.accountRows[key];
+  const { duplicates, duplicateUrls } = duplicateUrlIndexes(platform);
+  setDuplicateStatus(platform, duplicateUrls, duplicates.size);
   body.innerHTML = "";
   const fragment = document.createDocumentFragment();
   rows.forEach((item, index) => {
@@ -655,6 +710,8 @@ function renderAccountRows(platform) {
       return;
     }
     const tr = document.createElement("tr");
+    const duplicate = duplicates.has(index);
+    tr.classList.toggle("duplicate-row", duplicate);
     tr.dataset.platform = key;
     tr.dataset.index = String(index);
     tr.dataset.section = "active";
@@ -686,6 +743,7 @@ function renderAccountRows(platform) {
       <td>
         <button data-action="open-row" class="btn ghost" type="button">跳转</button>
         <button data-action="remove-row" class="btn ghost danger" type="button">删除</button>
+        ${duplicate ? '<span class="badge warn duplicate-tag">重复 URL</span>' : ""}
       </td>
     `;
     fragment.appendChild(tr);
@@ -1148,7 +1206,14 @@ function mapSettingsToForm(settings) {
     element.value = settings?.[name] ?? "";
   }
 
-  const boolFields = ["download", "folder_mode", "music", "dynamic_cover", "static_cover"];
+  const boolFields = [
+    "download",
+    "folder_mode",
+    "music",
+    "dynamic_cover",
+    "static_cover",
+    "auto_backfill_mark",
+  ];
   for (const name of boolFields) {
     const element = refs.settingsForm.elements.namedItem(name);
     if (!element) {
@@ -1177,6 +1242,7 @@ function collectSettingsPayload() {
     music: refs.settingsForm.elements.namedItem("music").checked,
     dynamic_cover: refs.settingsForm.elements.namedItem("dynamic_cover").checked,
     static_cover: refs.settingsForm.elements.namedItem("static_cover").checked,
+    auto_backfill_mark: refs.settingsForm.elements.namedItem("auto_backfill_mark").checked,
     accounts_urls: collectAccountRows("douyin"),
     accounts_urls_tiktok: collectAccountRows("tiktok"),
     deleted_accounts: collectDeletedRows("douyin"),
@@ -1439,10 +1505,26 @@ function renderFilePreview(entry) {
   refs.filePreview.appendChild(link);
 }
 
-function renderFiles(entries) {
+function filteredFileEntries() {
+  const query = String(state.fileSearch || "")
+    .trim()
+    .toLowerCase();
+  const entries = state.fileEntries || [];
+  if (!query) {
+    return entries;
+  }
+  return entries.filter((entry) => {
+    const text = `${entry.name || ""} ${entry.path || ""}`.toLowerCase();
+    return text.includes(query);
+  });
+}
+
+function renderFiles() {
+  const entries = filteredFileEntries();
   refs.filesList.innerHTML = "";
   if (!entries.length) {
-    refs.filesList.innerHTML = `<div class="file-row"><span class="file-name">目录为空</span></div>`;
+    const tip = state.fileSearch.trim() ? "无匹配文件" : "目录为空";
+    refs.filesList.innerHTML = `<div class="file-row"><span class="file-name">${tip}</span></div>`;
     return;
   }
 
@@ -1488,6 +1570,26 @@ function renderFiles(entries) {
   refs.filesList.appendChild(fragment);
 }
 
+async function loadFileStats() {
+  if (!refs.filesStats) {
+    return;
+  }
+  refs.filesStats.textContent = "正在统计目录信息…";
+  try {
+    const query = new URLSearchParams({
+      scope: state.currentScope,
+      path: state.currentPath || "",
+    });
+    const payload = await fetchJson(`/ui/api/files/stats?${query.toString()}`, {
+      method: "GET",
+      headers: headerOptions(false),
+    });
+    refs.filesStats.textContent = `目录统计：文件 ${payload.files} · 图片 ${payload.images} · 视频 ${payload.videos} · 文件夹 ${payload.folders} · 占用 ${payload.size_human}`;
+  } catch (error) {
+    refs.filesStats.textContent = `统计失败: ${error.message}`;
+  }
+}
+
 async function loadFiles() {
   refs.filesMeta.textContent = "正在加载目录…";
   refs.filePreview.innerHTML = '<div class="empty-tip">选择文件后显示预览</div>';
@@ -1501,14 +1603,21 @@ async function loadFiles() {
       headers: headerOptions(false),
     });
     const normalized = normalizeEntries(payload);
+    state.fileEntries = normalized.entries || [];
     state.currentPath = normalized.currentPath || state.currentPath || "";
     refs.filesPath.value = state.currentPath;
-    renderFiles(normalized.entries);
-    refs.filesMeta.textContent = `scope=${state.currentScope} · path=/${state.currentPath || ""} · ${normalized.total} 项`;
+    renderFiles();
+    const filteredCount = filteredFileEntries().length;
+    refs.filesMeta.textContent = `scope=${state.currentScope} · path=/${state.currentPath || ""} · ${filteredCount}/${normalized.total} 项`;
+    loadFileStats();
     setApiStatus("就绪", "ok");
   } catch (error) {
+    state.fileEntries = [];
     refs.filesList.innerHTML = "";
     refs.filesMeta.textContent = `加载失败: ${error.message}`;
+    if (refs.filesStats) {
+      refs.filesStats.textContent = "统计信息待加载…";
+    }
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -1526,6 +1635,40 @@ function boardMediaUrl(path) {
   return `/ui/api/file?scope=download&path=${encodeURIComponent(path || "")}`;
 }
 
+function boardColumnsCap() {
+  const width = window.innerWidth || 1280;
+  if (width <= 700) {
+    return 1;
+  }
+  if (width <= 980) {
+    return 2;
+  }
+  if (width <= 1200) {
+    return 3;
+  }
+  return 6;
+}
+
+function applyBoardColumns(persist = true) {
+  const inputColumns = Number(state.accountBoard.columns || 4);
+  const next = Math.max(1, Math.min(inputColumns, boardColumnsCap()));
+  state.accountBoard.columns = next;
+  if (refs.boardDensity) {
+    refs.boardDensity.value = String(next);
+  }
+  if (refs.boardDensityLabel) {
+    refs.boardDensityLabel.textContent = `${next} 列`;
+  }
+  if (refs.boardGrid) {
+    refs.boardGrid.style.setProperty("--board-columns", String(next));
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(BOARD_COLUMNS_STORAGE_KEY, String(next));
+    } catch {}
+  }
+}
+
 function updateBoardMeta() {
   refs.boardMeta.textContent = `第 ${state.accountBoard.page} / ${state.accountBoard.pages} 页 · 共 ${state.accountBoard.total} 账号`;
 }
@@ -1538,6 +1681,7 @@ function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
   const mediaWrap = card.querySelector(".profile-media-wrap");
   const pinBtn = card.querySelector('[data-action="board-pin-media"]');
   const refreshBtn = card.querySelector('[data-action="board-refresh-media"]');
+  const refreshVideoBtn = card.querySelector('[data-action="board-refresh-video"]');
   const pinBadge = card.querySelector(".profile-pin-badge");
 
   card.dataset.mediaPath = mediaPath || "";
@@ -1554,6 +1698,9 @@ function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
   }
   if (refreshBtn) {
     refreshBtn.disabled = !card.dataset.folderPath;
+  }
+  if (refreshVideoBtn) {
+    refreshVideoBtn.disabled = !card.dataset.folderPath;
   }
 
   if (!mediaWrap) {
@@ -1654,6 +1801,7 @@ function renderAccountBoard(items) {
     actions.innerHTML = `
       <button class="btn ghost" type="button" data-action="board-open-account">打开主页</button>
       <button class="btn ghost" type="button" data-action="board-refresh-media">刷新媒体</button>
+      <button class="btn ghost" type="button" data-action="board-refresh-video">刷视频</button>
       <button class="btn ghost" type="button" data-action="board-pin-media">Pin</button>
     `;
 
@@ -1710,7 +1858,7 @@ async function loadAccountBoard(resetPage = false) {
   }
 }
 
-async function refreshBoardCard(card) {
+async function refreshBoardCard(card, preferKind = "auto") {
   const platform = card.dataset.platform || state.accountBoard.platform;
   const url = card.dataset.url || "";
   if (!url) {
@@ -1726,6 +1874,7 @@ async function refreshBoardCard(card) {
         platform,
         url,
         current_path: card.dataset.mediaPath || "",
+        prefer_kind: preferKind,
       }),
     });
     setBoardCardMedia(
@@ -1734,7 +1883,14 @@ async function refreshBoardCard(card) {
       payload.media_kind || "",
       false,
     );
-    setBoardStatus("已刷新卡片媒体");
+    const usedKind = String(payload.media_kind || "").trim();
+    const preferText =
+      preferKind === "video"
+        ? "视频优先"
+        : preferKind === "image"
+          ? "图片优先"
+          : "自动";
+    setBoardStatus(`已刷新卡片媒体（${preferText}，当前: ${usedKind || "无"}）`);
     setApiStatus("就绪", "ok");
   } catch (error) {
     setBoardStatus(`刷新失败: ${error.message}`);
@@ -2415,6 +2571,22 @@ function bindEvents() {
       );
     });
 
+    body.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) {
+        return;
+      }
+      const row = target.closest("tr");
+      if (!row) {
+        return;
+      }
+      const platform = row.dataset.platform || "douyin";
+      const field = target.dataset.field || "";
+      if (section === "active" && field === "url") {
+        renderAccountRows(platform);
+      }
+    });
+
     body.addEventListener("click", async (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) {
@@ -2630,6 +2802,15 @@ function bindEvents() {
     loadAccountBoard(true);
   });
 
+  refs.boardRefreshKind.addEventListener("change", () => {
+    state.accountBoard.refreshKind = refs.boardRefreshKind.value || "auto";
+  });
+
+  refs.boardDensity.addEventListener("input", () => {
+    state.accountBoard.columns = Number(refs.boardDensity.value || "4");
+    applyBoardColumns(true);
+  });
+
   refs.boardPageSize.addEventListener("change", () => {
     state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
     state.accountBoard.page = 1;
@@ -2673,7 +2854,11 @@ function bindEvents() {
       return;
     }
     if (action === "board-refresh-media") {
-      refreshBoardCard(card);
+      refreshBoardCard(card, state.accountBoard.refreshKind || "auto");
+      return;
+    }
+    if (action === "board-refresh-video") {
+      refreshBoardCard(card, "video");
       return;
     }
     if (action === "board-pin-media") {
@@ -2686,6 +2871,14 @@ function bindEvents() {
     state.currentPath = "";
     refs.filesPath.value = "";
     loadFiles();
+  });
+
+  refs.filesSearch.addEventListener("input", () => {
+    state.fileSearch = refs.filesSearch.value || "";
+    renderFiles();
+    refs.filesMeta.textContent = `scope=${state.currentScope} · path=/${state.currentPath || ""} · ${
+      filteredFileEntries().length
+    }/${state.fileEntries.length} 项`;
   });
 
   refs.filesOpenBtn.addEventListener("click", () => {
@@ -2701,6 +2894,10 @@ function bindEvents() {
 
   refs.filesRefreshBtn.addEventListener("click", () => {
     loadFiles();
+  });
+
+  refs.filesStatsRefreshBtn.addEventListener("click", () => {
+    loadFileStats();
   });
 
   refs.shareResolveBtn.addEventListener("click", () => {
@@ -2746,6 +2943,10 @@ function bindEvents() {
   refs.taskQueueRefreshBtn.addEventListener("click", () => {
     loadTaskList();
   });
+
+  window.addEventListener("resize", () => {
+    applyBoardColumns(false);
+  });
 }
 
 function startLogFallbackPolling() {
@@ -2774,8 +2975,16 @@ function bootstrap() {
   syncBatchValuePlaceholder("tiktok");
   state.accountBoard.platform = refs.boardPlatform.value || "douyin";
   state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
+  state.accountBoard.refreshKind = refs.boardRefreshKind.value || "auto";
+  try {
+    state.accountBoard.columns = Number(localStorage.getItem(BOARD_COLUMNS_STORAGE_KEY) || "4");
+  } catch {
+    state.accountBoard.columns = 4;
+  }
+  applyBoardColumns(false);
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
+  state.fileSearch = refs.filesSearch?.value || "";
   try {
     state.showDebugLogs = localStorage.getItem(LOG_DEBUG_STORAGE_KEY) === "1";
   } catch {
