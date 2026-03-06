@@ -87,6 +87,7 @@ class Settings:
         "timeout": 10,
         "max_retry": 5,  # 重试最大次数
         "max_pages": 0,
+        "auto_backfill_mark": True,
         "run_command": "",
         "ffmpeg": "",
         "live_qualities": "",
