@@ -98,6 +98,14 @@ class APIServer(TikTok):
         "webui",
         "static",
     )
+    DELETED_ACCOUNT_HINTS = (
+        "已注销",
+        "注销账号",
+        "账号已注销",
+        "account not found",
+        "user not found",
+        "account has been deleted",
+    )
 
     def __init__(
         self,
@@ -1056,6 +1064,56 @@ class APIServer(TikTok):
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"{key} must be string or null.")
 
+    def _extract_verified_user_info(self, info: dict, tiktok: bool) -> dict:
+        if not isinstance(info, dict):
+            return {}
+        if tiktok:
+            user = info.get("user")
+            if isinstance(user, dict):
+                return {
+                    "nickname": self._normalize_string(user.get("nickname")),
+                    "sec_uid": self._normalize_string(user.get("secUid")),
+                    "uid": self._normalize_string(user.get("id")),
+                }
+            return {
+                "nickname": self._normalize_string(info.get("nickname")),
+                "sec_uid": self._normalize_string(info.get("secUid")),
+                "uid": self._normalize_string(info.get("id")),
+            }
+        return {
+            "nickname": self._normalize_string(info.get("nickname")),
+            "sec_uid": self._normalize_string(info.get("sec_uid")),
+            "uid": self._normalize_string(info.get("uid")),
+        }
+
+    def _is_deleted_nickname(self, nickname: str) -> bool:
+        value = self._normalize_string(nickname).lower()
+        if not value:
+            return False
+        return any(hint in value for hint in self.DELETED_ACCOUNT_HINTS)
+
+    def _verify_user_info_state(
+        self,
+        info: dict,
+        sec_user_id: str,
+        tiktok: bool,
+    ) -> tuple[bool, str]:
+        user = self._extract_verified_user_info(info, tiktok)
+        if not user:
+            return False, _("账号主页信息为空")
+        if not user.get("sec_uid"):
+            return False, _("账号信息缺少 sec_uid")
+        if not user.get("uid"):
+            return False, _("账号信息缺少 uid")
+        if not user.get("nickname"):
+            return False, _("账号昵称为空")
+        target_sec_uid = self._normalize_string(sec_user_id)
+        if target_sec_uid and user["sec_uid"] != target_sec_uid:
+            return False, _("账号 sec_uid 校验不一致")
+        if self._is_deleted_nickname(user["nickname"]):
+            return False, _("账号已注销或不可访问")
+        return True, ""
+
     @staticmethod
     def _validate_ui_schedule_payload(payload: dict) -> None:
         platform = payload.get("platform", "douyin")
@@ -1456,12 +1514,17 @@ class APIServer(TikTok):
                 proxy=proxy,
                 sec_user_id=sec_user_id,
             )
-            if not info:
+            exists, reason = self._verify_user_info_state(
+                info,
+                sec_user_id,
+                tiktok,
+            )
+            if not exists:
                 result = {
                     "index": index,
                     "url": url,
                     "exists": False,
-                    "reason": _("账号主页不可访问或不存在"),
+                    "reason": reason or _("账号主页不可访问或不存在"),
                 }
                 checked.append(result)
                 missing_rows.append(item | {"reason": result["reason"]})
