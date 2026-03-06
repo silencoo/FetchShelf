@@ -314,6 +314,42 @@ class TikTok:
             )
         )
 
+    @staticmethod
+    def _apply_missing_mark(
+        item: SimpleNamespace | dict,
+        mark: str,
+    ) -> bool:
+        next_mark = str(mark or "").strip()
+        if not next_mark:
+            return False
+        if isinstance(item, dict):
+            current = str(item.get("mark", "") or "").strip()
+            if current:
+                return False
+            item["mark"] = next_mark
+            return True
+        current = str(getattr(item, "mark", "") or "").strip()
+        if current:
+            return False
+        setattr(item, "mark", next_mark)
+        return True
+
+    def _persist_mark_backfill(
+        self,
+        updated: int,
+        tiktok: bool,
+    ) -> None:
+        if updated <= 0:
+            return
+        self.settings.update(self.parameter.get_settings_data())
+        platform = "TikTok" if tiktok else _("抖音")
+        self.logger.info(
+            _("已自动回填 {platform} 账号 mark 共 {count} 条，并写回 settings.json").format(
+                platform=platform,
+                count=updated,
+            )
+        )
+
     async def account_acquisition_interactive(
         self,
         select="",
@@ -378,6 +414,7 @@ class TikTok:
         tiktok: bool,
     ) -> None:
         count = SimpleNamespace(time=time(), success=0, failed=0)
+        auto_filled_mark = 0
         self.logger.info(
             _("共有 {count} 个账号的作品等待下载").format(count=len(accounts))
         )
@@ -401,17 +438,22 @@ class TikTok:
                 )
                 count.failed += 1
                 continue
-            if not await self.deal_account_detail(
+            result = await self.deal_account_detail(
                 index,
                 **vars(data) | {"sec_user_id": sec_user_id},
                 tiktok=tiktok,
-            ):
+                return_context=True,
+            )
+            if not result:
                 count.failed += 1
                 continue
+            if self._apply_missing_mark(data, result.get("mark", "")):
+                auto_filled_mark += 1
             # break  # 调试代码
             count.success += 1
             if index != len(accounts):
                 await suspend(index, self.console)
+        self._persist_mark_backfill(auto_filled_mark, tiktok)
         self.__summarize_results(
             count,
             _("账号"),
@@ -551,6 +593,7 @@ class TikTok:
         cookie: str = None,
         proxy: str = None,
         tiktok=False,
+        return_context: bool = False,
         *args,
         **kwargs,
     ):
@@ -614,6 +657,7 @@ class TikTok:
             tiktok=tiktok,
             mode=tab,
             info=info,
+            return_context=return_context,
         )
 
     async def _get_account_data(
@@ -728,6 +772,7 @@ class TikTok:
         mix_title: str = "",
         collect_id: str = "",
         collect_name: str = "",
+        return_context: bool = False,
     ):
         self.logger.info(_("开始提取作品数据"))
         id_, name, mark = self.extractor.preprocessing_data(
@@ -802,6 +847,12 @@ class TikTok:
             collect_id=collect_id,
             collect_name=collect_name,
         )
+        if return_context:
+            return {
+                "id": id_,
+                "name": name,
+                "mark": mark,
+            }
         return True
 
     @staticmethod

@@ -6,6 +6,8 @@ const state = {
   wsActive: false,
   wsConnecting: false,
   autoScroll: true,
+  showDebugLogs: false,
+  logRecords: [],
   currentScope: "download",
   currentPath: "",
   selectedFilePath: "",
@@ -110,6 +112,7 @@ const refs = {
 
   logStream: document.getElementById("log-stream"),
   logsAutoscroll: document.getElementById("logs-autoscroll"),
+  logsDebugToggle: document.getElementById("logs-debug-toggle"),
   logsClearBtn: document.getElementById("logs-clear-btn"),
   logCount: document.getElementById("log-count"),
 
@@ -283,6 +286,7 @@ const TASK_TEMPLATES = {
 
 const ACCOUNTS_COLLAPSE_STORAGE_KEY = "webui.accounts.collapsed";
 const ACTIVE_TAB_STORAGE_KEY = "webui.active.tab";
+const LOG_DEBUG_STORAGE_KEY = "webui.logs.debug";
 
 function setBadge(element, text, kind = "") {
   element.textContent = text;
@@ -360,7 +364,7 @@ function updateLogCount() {
 
 function shouldRenderLog(item) {
   const level = String(item?.level || "INFO").toUpperCase();
-  if (level === "DEBUG") {
+  if (!state.showDebugLogs && level === "DEBUG") {
     return false;
   }
   const message = String(item?.message || "").trim();
@@ -377,7 +381,40 @@ function shouldRenderLog(item) {
     "Response Code:",
     "Response Headers:",
   ];
+  if (state.showDebugLogs) {
+    return true;
+  }
   return !noisyPrefixes.some((prefix) => message.startsWith(prefix));
+}
+
+function buildLogRow(item) {
+  if (!shouldRenderLog(item)) {
+    return null;
+  }
+  const row = document.createElement("p");
+  const level = String(item.level || "INFO").toUpperCase();
+  row.className = "log-row";
+  row.dataset.level = level;
+  row.textContent = `[${item.timestamp || "--"}] [${level}] ${item.message || ""}`;
+  state.logCount += 1;
+  return row;
+}
+
+function rerenderLogs() {
+  refs.logStream.innerHTML = "";
+  state.logCount = 0;
+  const fragment = document.createDocumentFragment();
+  for (const item of state.logRecords) {
+    const row = buildLogRow(item);
+    if (row) {
+      fragment.appendChild(row);
+    }
+  }
+  refs.logStream.appendChild(fragment);
+  updateLogCount();
+  if (state.autoScroll) {
+    refs.logStream.scrollTop = refs.logStream.scrollHeight;
+  }
 }
 
 function appendLogs(logs) {
@@ -390,16 +427,20 @@ function appendLogs(logs) {
     if (id > state.logAfterId) {
       state.logAfterId = id;
     }
-    if (!shouldRenderLog(item)) {
-      continue;
+    state.logRecords.push(item);
+    const row = buildLogRow(item);
+    if (row) {
+      fragment.appendChild(row);
     }
-    const row = document.createElement("p");
-    const level = String(item.level || "INFO").toUpperCase();
-    row.className = "log-row";
-    row.dataset.level = level;
-    row.textContent = `[${item.timestamp || "--"}] [${level}] ${item.message || ""}`;
-    fragment.appendChild(row);
-    state.logCount += 1;
+  }
+  let trimmed = false;
+  if (state.logRecords.length > 5000) {
+    state.logRecords.splice(0, state.logRecords.length - 5000);
+    trimmed = true;
+  }
+  if (trimmed) {
+    rerenderLogs();
+    return;
   }
   if (!fragment.childNodes.length) {
     return;
@@ -412,6 +453,7 @@ function appendLogs(logs) {
 }
 
 function clearLogs() {
+  state.logRecords = [];
   refs.logStream.innerHTML = "";
   state.logCount = 0;
   updateLogCount();
@@ -2286,6 +2328,17 @@ function bindEvents() {
     state.autoScroll = Boolean(event.target.checked);
   });
 
+  refs.logsDebugToggle.addEventListener("change", (event) => {
+    state.showDebugLogs = Boolean(event.target.checked);
+    try {
+      localStorage.setItem(
+        LOG_DEBUG_STORAGE_KEY,
+        state.showDebugLogs ? "1" : "0",
+      );
+    } catch {}
+    rerenderLogs();
+  });
+
   refs.logsClearBtn.addEventListener("click", () => {
     clearLogs();
   });
@@ -2723,6 +2776,14 @@ function bootstrap() {
   state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
+  try {
+    state.showDebugLogs = localStorage.getItem(LOG_DEBUG_STORAGE_KEY) === "1";
+  } catch {
+    state.showDebugLogs = false;
+  }
+  if (refs.logsDebugToggle) {
+    refs.logsDebugToggle.checked = state.showDebugLogs;
+  }
   let activeTab = "workbench";
   try {
     activeTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY) || "workbench";
