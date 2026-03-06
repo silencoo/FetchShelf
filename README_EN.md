@@ -187,14 +187,12 @@ demo()
 <li>Method 2: Pull the image using the command <code>docker pull joeanamier/tiktok-downloader</code>.</li>
 <li>Method 3: Pull the image using the command <code>docker pull ghcr.io/joeanamier/tiktok-downloader</code>.</li>
 </ul>
-<li>Create the container: <code>docker run --name ContainerName(optional) -p HostPort:5555 -v tiktok_downloader_settings:/app/settings -it &lt;image name&gt;</code>.</li>
-<br><b>Note:</b> The <code>&lt;image name&gt;</code> here must be consistent with the image name you used in the first step (<code>joeanamier/tiktok-downloader</code> or <code>ghcr.io/joeanamier/tiktok-downloader</code>)
-<li>Run the container
-<ul>
-<li>Start the container: <code>docker start -i container name/container ID</code>.</li>
-<li>Restart the container: <code>docker restart -i container name/container ID</code>.</li>
-</ul>
+<li><b>Recommended: start WebUI directly in background (default command is WebUI)</b><br>
+<code>docker run -d --name douk-webui -p 5555:5555 -v tiktok_downloader_settings:/app/settings -v tiktok_downloader_downloads:/app/downloads &lt;image name&gt;</code>
 </li>
+<li>View logs: <code>docker logs -f douk-webui</code></li>
+<li>Stop container: <code>docker stop douk-webui</code></li>
+<li>If you need terminal interactive mode, override command: <code>docker run -it --rm &lt;image name&gt; python main.py</code></li>
 </ol>
 <p>Docker containers cannot directly access the host machine's file system, and some features may be unavailable, for example: <code>Get Cookie from Browser</code>; if there are any other issues, please report!</p>
 <hr>
