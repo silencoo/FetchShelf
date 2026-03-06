@@ -1479,6 +1479,7 @@ class APIServer(TikTok):
         self._validate_ui_account_verify_payload(payload)
         platform = payload.get("platform", "douyin")
         tiktok = platform == "tiktok"
+        platform_name = "TikTok" if tiktok else "抖音"
         use_settings = payload.get("use_settings", True)
         move_deleted = payload.get("move_deleted", True)
         cookie = self._normalize_string(payload.get("cookie")) or None
@@ -1489,23 +1490,50 @@ class APIServer(TikTok):
             else self._normalize_account_items(payload.get("items", []))
         )
         rows = self._normalize_account_items(source_rows)
+        total_targets = sum(1 for item in rows if item.get("url"))
+        self.logger.info(
+            _(
+                "开始检测账号有效性（{platform}）：配置 {rows} 行，待检测 {targets} 条"
+            ).format(
+                platform=platform_name,
+                rows=len(rows),
+                targets=total_targets,
+            )
+        )
 
         checked = []
         missing_rows = []
         valid_rows = []
+        processed = 0
         for index, item in enumerate(rows, start=1):
             url = item.get("url")
             if not url:
                 continue
+            processed += 1
+            target_name = item.get("mark") or url
+            self.logger.info(
+                _("账号检测 {current}/{total}: {target}").format(
+                    current=processed,
+                    total=total_targets,
+                    target=target_name,
+                )
+            )
             sec_user_id = await self.check_sec_user_id(url, tiktok)
             if not sec_user_id:
+                reason = _("链接无法提取账号 ID")
                 result = {
                     "index": index,
                     "url": url,
                     "exists": False,
-                    "reason": _("链接无法提取账号 ID"),
+                    "reason": reason,
                 }
                 checked.append(result)
+                self.logger.warning(
+                    _("账号失效: {target}（{reason}）").format(
+                        target=target_name,
+                        reason=reason,
+                    )
+                )
                 missing_rows.append(item | {"reason": result["reason"]})
                 continue
             info = await self.get_user_info_data(
@@ -1527,6 +1555,12 @@ class APIServer(TikTok):
                     "reason": reason or _("账号主页不可访问或不存在"),
                 }
                 checked.append(result)
+                self.logger.warning(
+                    _("账号失效: {target}（{reason}）").format(
+                        target=target_name,
+                        reason=result["reason"],
+                    )
+                )
                 missing_rows.append(item | {"reason": result["reason"]})
                 continue
             checked.append(
@@ -1536,6 +1570,9 @@ class APIServer(TikTok):
                     "exists": True,
                     "reason": "",
                 }
+            )
+            self.logger.info(
+                _("账号有效: {target}").format(target=target_name)
             )
             valid_rows.append(item)
 
@@ -1561,16 +1598,46 @@ class APIServer(TikTok):
             self._set_account_rows(tiktok, valid_rows)
             self._set_account_rows(tiktok, merged_deleted, deleted=True)
             self.parameter.settings.update(self.parameter.get_settings_data())
+            self.logger.info(
+                _("已将 {count} 条失效账号移入回收站，备份文件: {path}").format(
+                    count=len(missing_rows),
+                    path=backup_path,
+                )
+            )
+        elif missing_rows:
+            self.logger.info(
+                _("检测到 {count} 条失效账号（未自动转移）").format(
+                    count=len(missing_rows),
+                )
+            )
+
+        checked_count = len(checked)
+        exists_count = sum(1 for item in checked if item["exists"])
+        missing_count = checked_count - exists_count
+        moved_count = (
+            len(missing_rows)
+            if (move_deleted and use_settings)
+            else 0
+        )
+        self.logger.info(
+            _(
+                "账号检测完成（{platform}）：检测 {checked} 条，有效 {exists}，失效 {missing}，转移 {moved}"
+            ).format(
+                platform=platform_name,
+                checked=checked_count,
+                exists=exists_count,
+                missing=missing_count,
+                moved=moved_count,
+            )
+        )
 
         return {
             "platform": platform,
-            "checked": len(checked),
-            "exists": sum(1 for item in checked if item["exists"]),
-            "missing": sum(1 for item in checked if not item["exists"]),
+            "checked": checked_count,
+            "exists": exists_count,
+            "missing": missing_count,
             "items": checked,
-            "moved_to_deleted": len(missing_rows)
-            if (move_deleted and use_settings)
-            else 0,
+            "moved_to_deleted": moved_count,
             "backup_path": backup_path,
             "accounts": self._account_rows(tiktok),
             "deleted_accounts": self._account_rows(tiktok, deleted=True),
