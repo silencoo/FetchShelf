@@ -30,6 +30,14 @@ const state = {
       tiktok: null,
     },
   },
+  accountBoard: {
+    platform: "douyin",
+    page: 1,
+    pageSize: 24,
+    pages: 1,
+    total: 0,
+  },
+  accountBoardDirty: true,
 };
 
 const refs = {
@@ -90,6 +98,15 @@ const refs = {
   deletedTikTokClearSelectBtn: document.getElementById("deleted-tiktok-clear-select-btn"),
   deletedTikTokOpenSelectedBtn: document.getElementById("deleted-tiktok-open-selected-btn"),
   deletedTikTokRestoreSelectedBtn: document.getElementById("deleted-tiktok-restore-selected-btn"),
+  boardPlatform: document.getElementById("board-platform"),
+  boardPageSize: document.getElementById("board-page-size"),
+  boardPrevBtn: document.getElementById("board-prev-btn"),
+  boardNextBtn: document.getElementById("board-next-btn"),
+  boardReloadBtn: document.getElementById("board-reload-btn"),
+  boardPinAllBtn: document.getElementById("board-pin-all-btn"),
+  boardMeta: document.getElementById("board-meta"),
+  boardStatus: document.getElementById("board-status"),
+  boardGrid: document.getElementById("board-grid"),
 
   logStream: document.getElementById("log-stream"),
   logsAutoscroll: document.getElementById("logs-autoscroll"),
@@ -488,6 +505,9 @@ function switchTab(tab) {
   try {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab);
   } catch {}
+  if (tab === "profiles" && state.accountBoardDirty) {
+    loadAccountBoard(true);
+  }
 }
 
 function defaultAccountRow() {
@@ -685,6 +705,7 @@ function renderDeletedRows(platform) {
 function setAccountRows(platform, rows) {
   const key = accountRowsKey(platform);
   state.accountRows[key] = normalizeAccountRows(rows);
+  state.accountBoardDirty = true;
   renderAccountRows(platform);
 }
 
@@ -1457,6 +1478,288 @@ function parentPath(path) {
   const items = path.split("/").filter(Boolean);
   items.pop();
   return items.join("/");
+}
+
+function boardMediaUrl(path) {
+  return `/ui/api/file?scope=download&path=${encodeURIComponent(path || "")}`;
+}
+
+function updateBoardMeta() {
+  refs.boardMeta.textContent = `第 ${state.accountBoard.page} / ${state.accountBoard.pages} 页 · 共 ${state.accountBoard.total} 账号`;
+}
+
+function setBoardStatus(text) {
+  refs.boardStatus.textContent = text;
+}
+
+function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
+  const mediaWrap = card.querySelector(".profile-media-wrap");
+  const pinBtn = card.querySelector('[data-action="board-pin-media"]');
+  const refreshBtn = card.querySelector('[data-action="board-refresh-media"]');
+  const pinBadge = card.querySelector(".profile-pin-badge");
+
+  card.dataset.mediaPath = mediaPath || "";
+  card.dataset.mediaKind = mediaKind || "";
+  card.dataset.pinned = pinned ? "1" : "0";
+
+  if (pinBadge) {
+    pinBadge.textContent = pinned ? "已 Pin" : "未 Pin";
+    pinBadge.classList.toggle("ok", pinned);
+  }
+  if (pinBtn) {
+    pinBtn.textContent = pinned ? "已 Pin" : "Pin";
+    pinBtn.disabled = !mediaPath;
+  }
+  if (refreshBtn) {
+    refreshBtn.disabled = !card.dataset.folderPath;
+  }
+
+  if (!mediaWrap) {
+    return;
+  }
+  mediaWrap.innerHTML = "";
+  if (!mediaPath || !mediaKind) {
+    const empty = document.createElement("div");
+    empty.className = "profile-empty";
+    empty.textContent = card.dataset.folderPath
+      ? "目录存在，但未找到图片/视频"
+      : "未匹配到账户目录";
+    mediaWrap.appendChild(empty);
+    return;
+  }
+  const src = boardMediaUrl(mediaPath);
+  if (mediaKind === "image") {
+    const image = document.createElement("img");
+    image.src = src;
+    image.alt = card.dataset.mark || "profile";
+    image.loading = "lazy";
+    mediaWrap.appendChild(image);
+    return;
+  }
+  if (mediaKind === "video") {
+    const video = document.createElement("video");
+    video.src = src;
+    video.controls = true;
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    mediaWrap.appendChild(video);
+    return;
+  }
+  const empty = document.createElement("div");
+  empty.className = "profile-empty";
+  empty.textContent = "媒体类型暂不支持预览";
+  mediaWrap.appendChild(empty);
+}
+
+function renderAccountBoard(items) {
+  refs.boardGrid.innerHTML = "";
+  if (!Array.isArray(items) || !items.length) {
+    refs.boardGrid.innerHTML = '<div class="empty-tip">当前页没有可展示账号</div>';
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const item of items) {
+    const card = document.createElement("article");
+    card.className = "profile-card";
+    card.dataset.platform = item.platform || state.accountBoard.platform;
+    card.dataset.url = item.url || "";
+    card.dataset.mark = item.mark || "";
+    card.dataset.folderPath = item.folder_path || "";
+    card.dataset.mediaPath = item.media_path || "";
+    card.dataset.mediaKind = item.media_kind || "";
+    card.dataset.pinned = item.pinned ? "1" : "0";
+
+    const mediaWrap = document.createElement("div");
+    mediaWrap.className = "profile-media-wrap";
+
+    const body = document.createElement("div");
+    body.className = "profile-body";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "profile-title";
+
+    const name = document.createElement("div");
+    name.className = "profile-name";
+    name.textContent = item.mark || "未设置 mark";
+
+    const badges = document.createElement("div");
+    badges.className = "card-actions";
+    const enableBadge = document.createElement("span");
+    enableBadge.className = `badge ${item.enable ? "ok" : "warn"}`;
+    enableBadge.textContent = item.enable ? "启用" : "停用";
+    const pinBadge = document.createElement("span");
+    pinBadge.className = `badge profile-pin-badge ${item.pinned ? "ok" : ""}`;
+    pinBadge.textContent = item.pinned ? "已 Pin" : "未 Pin";
+    badges.appendChild(enableBadge);
+    badges.appendChild(pinBadge);
+
+    titleRow.appendChild(name);
+    titleRow.appendChild(badges);
+
+    const url = document.createElement("div");
+    url.className = "profile-url";
+    url.textContent = item.url || "-";
+
+    const folder = document.createElement("div");
+    folder.className = "profile-folder";
+    folder.textContent = item.folder_path
+      ? `目录: ${item.folder_path}`
+      : "目录: (未匹配)";
+
+    const actions = document.createElement("div");
+    actions.className = "profile-actions";
+    actions.innerHTML = `
+      <button class="btn ghost" type="button" data-action="board-open-account">打开主页</button>
+      <button class="btn ghost" type="button" data-action="board-refresh-media">刷新媒体</button>
+      <button class="btn ghost" type="button" data-action="board-pin-media">Pin</button>
+    `;
+
+    body.appendChild(titleRow);
+    body.appendChild(url);
+    body.appendChild(folder);
+    body.appendChild(actions);
+
+    card.appendChild(mediaWrap);
+    card.appendChild(body);
+    setBoardCardMedia(card, item.media_path || "", item.media_kind || "", Boolean(item.pinned));
+    fragment.appendChild(card);
+  }
+  refs.boardGrid.appendChild(fragment);
+}
+
+async function loadAccountBoard(resetPage = false) {
+  if (!refs.boardPlatform || !refs.boardPageSize) {
+    return;
+  }
+  if (resetPage) {
+    state.accountBoard.page = 1;
+  }
+  state.accountBoard.platform = refs.boardPlatform.value || "douyin";
+  state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
+  setBoardStatus("正在加载账户媒体看板…");
+  try {
+    const query = new URLSearchParams({
+      platform: state.accountBoard.platform,
+      page: String(state.accountBoard.page),
+      page_size: String(state.accountBoard.pageSize),
+    });
+    const payload = await fetchJson(`/ui/api/accounts/board?${query.toString()}`, {
+      method: "GET",
+      headers: headerOptions(false),
+    });
+    state.accountBoard.page = Number(payload.page || 1);
+    state.accountBoard.pageSize = Number(payload.page_size || state.accountBoard.pageSize);
+    state.accountBoard.pages = Number(payload.pages || 1);
+    state.accountBoard.total = Number(payload.total || 0);
+    refs.boardPrevBtn.disabled = state.accountBoard.page <= 1;
+    refs.boardNextBtn.disabled = state.accountBoard.page >= state.accountBoard.pages;
+    updateBoardMeta();
+    renderAccountBoard(payload.items || []);
+    setBoardStatus(
+      `已加载 ${state.accountBoard.platform} · 第 ${state.accountBoard.page}/${state.accountBoard.pages} 页`,
+    );
+    state.accountBoardDirty = false;
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.boardGrid.innerHTML = "";
+    setBoardStatus(`加载失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function refreshBoardCard(card) {
+  const platform = card.dataset.platform || state.accountBoard.platform;
+  const url = card.dataset.url || "";
+  if (!url) {
+    setBoardStatus("当前卡片缺少账号 URL，无法刷新");
+    return;
+  }
+  setBoardStatus("正在刷新卡片媒体…");
+  try {
+    const payload = await fetchJson("/ui/api/accounts/board/random", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        platform,
+        url,
+        current_path: card.dataset.mediaPath || "",
+      }),
+    });
+    setBoardCardMedia(
+      card,
+      payload.media_path || "",
+      payload.media_kind || "",
+      false,
+    );
+    setBoardStatus("已刷新卡片媒体");
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setBoardStatus(`刷新失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function pinBoardCard(card) {
+  const platform = card.dataset.platform || state.accountBoard.platform;
+  const url = card.dataset.url || "";
+  const path = card.dataset.mediaPath || "";
+  if (!url || !path) {
+    setBoardStatus("当前卡片无可 Pin 的媒体");
+    return;
+  }
+  try {
+    await fetchJson("/ui/api/accounts/board/pin", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        platform,
+        url,
+        path,
+      }),
+    });
+    setBoardCardMedia(card, path, card.dataset.mediaKind || "", true);
+    setBoardStatus("已固定该账号 Profile 媒体");
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setBoardStatus(`固定失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function pinCurrentBoardPage() {
+  const cards = Array.from(refs.boardGrid.querySelectorAll(".profile-card"));
+  const items = cards
+    .map((card) => ({
+      url: card.dataset.url || "",
+      path: card.dataset.mediaPath || "",
+    }))
+    .filter((item) => item.url && item.path);
+  if (!items.length) {
+    setBoardStatus("当前页没有可批量 Pin 的媒体");
+    return;
+  }
+  try {
+    const result = await fetchJson("/ui/api/accounts/board/pin-all", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        platform: state.accountBoard.platform,
+        items,
+      }),
+    });
+    for (const card of cards) {
+      if (!card.dataset.mediaPath) {
+        continue;
+      }
+      setBoardCardMedia(card, card.dataset.mediaPath, card.dataset.mediaKind || "", true);
+    }
+    setBoardStatus(`批量固定完成：${result.updated || 0} / ${result.requested || items.length}`);
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setBoardStatus(`批量固定失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
 }
 
 async function resolveShareLink() {
@@ -2268,6 +2571,63 @@ function bindEvents() {
     setAccountStatus("tiktok", `批量撤销已保存: ${result.backup_path || "-"}`);
   });
 
+  refs.boardPlatform.addEventListener("change", () => {
+    state.accountBoard.platform = refs.boardPlatform.value || "douyin";
+    state.accountBoard.page = 1;
+    loadAccountBoard(true);
+  });
+
+  refs.boardPageSize.addEventListener("change", () => {
+    state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
+    state.accountBoard.page = 1;
+    loadAccountBoard(true);
+  });
+
+  refs.boardPrevBtn.addEventListener("click", () => {
+    state.accountBoard.page = Math.max(1, state.accountBoard.page - 1);
+    loadAccountBoard(false);
+  });
+
+  refs.boardNextBtn.addEventListener("click", () => {
+    state.accountBoard.page = Math.min(state.accountBoard.pages, state.accountBoard.page + 1);
+    loadAccountBoard(false);
+  });
+
+  refs.boardReloadBtn.addEventListener("click", () => {
+    loadAccountBoard(false);
+  });
+
+  refs.boardPinAllBtn.addEventListener("click", () => {
+    pinCurrentBoardPage();
+  });
+
+  refs.boardGrid.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const actionButton = target.closest("button[data-action]");
+    if (!(actionButton instanceof HTMLButtonElement)) {
+      return;
+    }
+    const card = actionButton.closest(".profile-card");
+    if (!(card instanceof HTMLElement)) {
+      return;
+    }
+    const action = actionButton.dataset.action || "";
+    if (action === "board-open-account") {
+      openUrls([card.dataset.url || ""]);
+      return;
+    }
+    if (action === "board-refresh-media") {
+      refreshBoardCard(card);
+      return;
+    }
+    if (action === "board-pin-media") {
+      pinBoardCard(card);
+    }
+  });
+
   refs.filesScope.addEventListener("change", () => {
     state.currentScope = refs.filesScope.value;
     state.currentPath = "";
@@ -2359,6 +2719,8 @@ function bootstrap() {
   bindEvents();
   syncBatchValuePlaceholder("douyin");
   syncBatchValuePlaceholder("tiktok");
+  state.accountBoard.platform = refs.boardPlatform.value || "douyin";
+  state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
   let activeTab = "workbench";
