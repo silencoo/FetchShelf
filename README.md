@@ -185,15 +185,12 @@ demo()
 <li>方式二：使用 <code>docker pull joeanamier/tiktok-downloader</code> 命令拉取镜像</li>
 <li>方式三：使用 <code>docker pull ghcr.io/joeanamier/tiktok-downloader</code> 命令拉取镜像</li>
 </ul>
-<li>创建容器：<code>docker run --name 容器名称(可选) -p 主机端口号:5555 -v tiktok_downloader_settings:/app/settings -it &lt;镜像名称&gt;</code>
+<li><b>推荐：后台直接启动 WebUI（默认命令已是 WebUI）</b><br>
+<code>docker run -d --name douk-webui -p 5555:5555 -v tiktok_downloader_settings:/app/settings -v tiktok_downloader_downloads:/app/downloads &lt;镜像名称&gt;</code>
 </li>
-<br><b>注意：</b>此处的 <code>&lt;镜像名称&gt;</code> 需与您在第一步中使用的镜像名称保持一致（例如 <code>joeanamier/tiktok-downloader</code> 或 <code>ghcr.io/joeanamier/tiktok-downloader</code>）
-<li>运行容器
-<ul>
-<li>启动容器：<code>docker start -i 容器名称/容器 ID</code></li>
-<li>重启容器：<code>docker restart -i 容器名称/容器 ID</code></li>
-</ul>
-</li>
+<li>查看日志：<code>docker logs -f douk-webui</code></li>
+<li>停止容器：<code>docker stop douk-webui</code></li>
+<li>如需进入终端交互菜单模式，可覆盖启动命令：<code>docker run -it --rm &lt;镜像名称&gt; python main.py</code></li>
 </ol>
 <p>Docker 容器无法直接访问宿主机的文件系统，部分功能不可用，例如：<code>从浏览器读取 Cookie</code>；其他功能如有异常请反馈！</p>
 <hr>

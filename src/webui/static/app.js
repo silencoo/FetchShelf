@@ -341,23 +341,51 @@ function updateLogCount() {
   refs.logCount.textContent = `${state.logCount} 条日志`;
 }
 
+function shouldRenderLog(item) {
+  const level = String(item?.level || "INFO").toUpperCase();
+  if (level === "DEBUG") {
+    return false;
+  }
+  const message = String(item?.message || "").trim();
+  if (!message) {
+    return false;
+  }
+  const noisyPrefixes = [
+    "URL:",
+    "Params:",
+    "Data:",
+    "Headers:",
+    "Other:",
+    "Response URL:",
+    "Response Code:",
+    "Response Headers:",
+  ];
+  return !noisyPrefixes.some((prefix) => message.startsWith(prefix));
+}
+
 function appendLogs(logs) {
   if (!logs.length) {
     return;
   }
   const fragment = document.createDocumentFragment();
   for (const item of logs) {
+    const id = Number(item.id || 0);
+    if (id > state.logAfterId) {
+      state.logAfterId = id;
+    }
+    if (!shouldRenderLog(item)) {
+      continue;
+    }
     const row = document.createElement("p");
     const level = String(item.level || "INFO").toUpperCase();
     row.className = "log-row";
     row.dataset.level = level;
     row.textContent = `[${item.timestamp || "--"}] [${level}] ${item.message || ""}`;
     fragment.appendChild(row);
-    const id = Number(item.id || 0);
-    if (id > state.logAfterId) {
-      state.logAfterId = id;
-    }
     state.logCount += 1;
+  }
+  if (!fragment.childNodes.length) {
+    return;
   }
   refs.logStream.appendChild(fragment);
   updateLogCount();

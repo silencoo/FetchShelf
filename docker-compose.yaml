@@ -5,8 +5,8 @@ services:
     container_name: douyin-download
 
     working_dir: /app
-    entrypoint: ["sleep"]
-    command: ["infinity"]
+    command: ["python", "main_webui.py"]
+    restart: unless-stopped
 
     environment:
       TZ: America/Los_Angeles

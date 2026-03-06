@@ -36,6 +36,7 @@ COPY locale /app/locale
 COPY static /app/static
 COPY license /app/license
 COPY main.py /app/main.py
+COPY main_webui.py /app/main_webui.py
 
 # 暴露端口
 EXPOSE 5555
@@ -43,5 +44,5 @@ EXPOSE 5555
 # 创建挂载点
 VOLUME /app/settings
 
-# 设置容器启动命令
-CMD ["python", "main.py"]
+# 设置容器启动命令（默认直接启动 WebUI 服务）
+CMD ["python", "main_webui.py"]
