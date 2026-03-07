@@ -16,7 +16,7 @@ dependencies = [
     "gmssl>=3.2.2",
     "httpx[socks]>=0.28.1",
     "lxml>=6.0.2",
-    "mediapipe>=0.10.32",
+    "mediapipe>=0.10.32; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'darwin' and platform_machine == 'arm64') or (sys_platform == 'win32' and platform_machine == 'AMD64')",
     "openpyxl>=3.1.5",
     "pillow>=12.1.1",
     "pydantic>=2.12.5",
