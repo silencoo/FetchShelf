@@ -1055,14 +1055,28 @@ class Parameter:
     async def set_proxy(self, proxy: str | None, proxy_tiktok: str | None):
         current_proxy = self.proxy
         current_proxy_tiktok = self.proxy_tiktok
+        new_proxy = current_proxy
+        new_proxy_tiktok = current_proxy_tiktok
         if isinstance(proxy, str):
-            self.proxy: str | None = self.__check_proxy(
+            new_proxy = self.__check_proxy(
                 proxy,
                 remark=_("抖音"),
                 enable=self.douyin_platform,
             )
         if isinstance(proxy_tiktok, str):
-            self.proxy_tiktok: str | None = self.__check_proxy_tiktok(proxy_tiktok)
+            new_proxy_tiktok = self.__check_proxy_tiktok(proxy_tiktok)
+        self.proxy = new_proxy
+        self.proxy_tiktok = new_proxy_tiktok
+        should_refresh_client = any(
+            (
+                new_proxy != current_proxy,
+                new_proxy_tiktok != current_proxy_tiktok,
+                bool(getattr(self.client, "is_closed", False)),
+                bool(getattr(self.client_tiktok, "is_closed", False)),
+            )
+        )
+        if not should_refresh_client:
+            return
         try:
             new_client = create_client(
                 timeout=self.timeout,
