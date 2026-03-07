@@ -589,6 +589,7 @@ function defaultAccountRow() {
     earliest: "",
     latest: "",
     enable: true,
+    auto_update_earliest: false,
     selected: false,
   };
 }
@@ -606,6 +607,7 @@ function normalizeAccountRows(rows) {
       earliest: String(item.earliest || "").trim(),
       latest: String(item.latest || "").trim(),
       enable: Boolean(item.enable ?? true),
+      auto_update_earliest: Boolean(item.auto_update_earliest ?? false),
       selected: Boolean(item.selected ?? false),
     }));
   return normalized.length ? normalized : [defaultAccountRow()];
@@ -619,6 +621,7 @@ function defaultDeletedRow() {
     earliest: "",
     latest: "",
     enable: false,
+    auto_update_earliest: false,
     deleted_at: "",
     reason: "",
     selected: false,
@@ -638,6 +641,7 @@ function normalizeDeletedRows(rows) {
       earliest: String(item.earliest || "").trim(),
       latest: String(item.latest || "").trim(),
       enable: Boolean(item.enable ?? false),
+      auto_update_earliest: Boolean(item.auto_update_earliest ?? false),
       deleted_at: String(item.deleted_at || "").trim(),
       reason: String(item.reason || "").trim(),
       selected: Boolean(item.selected ?? false),
@@ -742,6 +746,19 @@ function renderAccountRows(platform) {
         </label>
       </td>
       <td>
+        <label class="switch">
+          <input
+            data-field="auto_update_earliest"
+            type="checkbox"
+            title="下载该账号成功后，自动回写 earliest=今天-回溯天数"
+            ${
+            item.auto_update_earliest ? "checked" : ""
+          }
+          />
+          <span class="switch-slider"></span>
+        </label>
+      </td>
+      <td>
         <input data-field="mark" type="text" value="${escapeAttr(item.mark)}" placeholder="可选标识" />
       </td>
       <td>
@@ -766,7 +783,7 @@ function renderAccountRows(platform) {
   });
   if (!fragment.childNodes.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="8"><span class="empty-tip">无匹配结果</span></td>`;
+    tr.innerHTML = `<td colspan="9"><span class="empty-tip">无匹配结果</span></td>`;
     fragment.appendChild(tr);
   }
   body.appendChild(fragment);
@@ -886,6 +903,7 @@ function restoreDeletedRow(platform, index) {
       earliest: row.earliest || "",
       latest: row.latest || "",
       enable: true,
+      auto_update_earliest: Boolean(row.auto_update_earliest ?? false),
       selected: false,
     });
   }
@@ -985,7 +1003,7 @@ function openUrls(urls) {
   urls.filter(Boolean).forEach((url) => window.open(url, "_blank", "noopener,noreferrer"));
 }
 
-function parseBatchEnableValue(value) {
+function parseBatchBoolValue(value) {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
@@ -1001,7 +1019,7 @@ function parseBatchEnableValue(value) {
 }
 
 function batchValuePlaceholder(field) {
-  if (field === "enable") {
+  if (field === "enable" || field === "auto_update_earliest") {
     return "批量值：true / false / 启用 / 禁用";
   }
   if (field === "url") {
@@ -1030,15 +1048,26 @@ function applyBatchField(platform, field, rawValue) {
   if (!indexes.length) {
     return { updated: 0, error: "请先勾选至少一行再批量替换" };
   }
-  const editableFields = new Set(["mark", "url", "tab", "earliest", "latest", "enable"]);
+  const editableFields = new Set([
+    "mark",
+    "url",
+    "tab",
+    "earliest",
+    "latest",
+    "enable",
+    "auto_update_earliest",
+  ]);
   if (!editableFields.has(field)) {
     return { updated: 0, error: `不支持字段: ${field}` };
   }
   let nextValue = rawValue;
-  if (field === "enable") {
-    const parsed = parseBatchEnableValue(rawValue);
+  if (field === "enable" || field === "auto_update_earliest") {
+    const parsed = parseBatchBoolValue(rawValue);
     if (parsed === null) {
-      return { updated: 0, error: "enable 只支持 true/false/1/0/启用/禁用" };
+      return {
+        updated: 0,
+        error: `${field} 只支持 true/false/1/0/启用/禁用`,
+      };
     }
     nextValue = parsed;
   }
@@ -1047,7 +1076,10 @@ function applyBatchField(platform, field, rawValue) {
     if (!row) {
       return;
     }
-    row[field] = field === "enable" ? Boolean(nextValue) : String(nextValue ?? "");
+    row[field] =
+      field === "enable" || field === "auto_update_earliest"
+        ? Boolean(nextValue)
+        : String(nextValue ?? "");
   });
   renderAccountRows(platform);
   return { updated: indexes.length, field };
@@ -1062,6 +1094,7 @@ function collectAccountRows(platform) {
     earliest: String(item.earliest || "").trim(),
     latest: String(item.latest || "").trim(),
     enable: Boolean(item.enable),
+    auto_update_earliest: Boolean(item.auto_update_earliest),
   }));
 }
 
@@ -1074,6 +1107,7 @@ function collectDeletedRows(platform) {
     earliest: String(item.earliest || "").trim(),
     latest: String(item.latest || "").trim(),
     enable: false,
+    auto_update_earliest: Boolean(item.auto_update_earliest),
     deleted_at: String(item.deleted_at || "").trim(),
     reason: String(item.reason || "").trim(),
   }));
@@ -1210,6 +1244,7 @@ function mapSettingsToForm(settings) {
     "root",
     "folder_name",
     "profile_avatar_folder",
+    "earliest_update_days",
     "storage_format",
     "proxy",
     "proxy_tiktok",
@@ -1247,10 +1282,13 @@ function mapSettingsToForm(settings) {
 
 function collectSettingsPayload() {
   const formData = new FormData(refs.settingsForm);
+  const rawDays = Number(formData.get("earliest_update_days"));
+  const earliestUpdateDays = Number.isFinite(rawDays) ? Math.max(0, Math.trunc(rawDays)) : 0;
   const payload = {
     root: String(formData.get("root") || "").trim(),
     folder_name: String(formData.get("folder_name") || "").trim(),
     profile_avatar_folder: String(formData.get("profile_avatar_folder") || "").trim(),
+    earliest_update_days: earliestUpdateDays,
     storage_format: String(formData.get("storage_format") || "").trim(),
     proxy: String(formData.get("proxy") || "").trim(),
     proxy_tiktok: String(formData.get("proxy_tiktok") || "").trim(),
@@ -2565,6 +2603,41 @@ async function deleteSchedule(scheduleId) {
   }
 }
 
+function formatWorkflowAccountSummary(task) {
+  const endpoint = String(task?.endpoint || "");
+  if (!endpoint.endsWith("/account_batch")) {
+    return "";
+  }
+  const result = task?.result;
+  const data = result && typeof result === "object" ? result.data : null;
+  if (!data || typeof data !== "object") {
+    return `${task?.status || "-"} · ${endpoint}`;
+  }
+  const parts = [task?.status || "-"];
+  const numericFields = [
+    ["total", "total"],
+    ["queued", "queued"],
+    ["success", "success"],
+    ["failed", "failed"],
+    ["skipped", "skipped"],
+  ];
+  for (const [key, label] of numericFields) {
+    const value = Number(data[key]);
+    if (Number.isFinite(value) && value >= 0) {
+      parts.push(`${label} ${value}`);
+    }
+  }
+  const markBackfilled = Number(data.mark_backfilled);
+  if (Number.isFinite(markBackfilled) && markBackfilled > 0) {
+    parts.push(`mark回填 ${markBackfilled}`);
+  }
+  const earliestUpdated = Number(data.earliest_updated);
+  if (Number.isFinite(earliestUpdated) && earliestUpdated > 0) {
+    parts.push(`earliest更新 ${earliestUpdated}`);
+  }
+  return parts.join(" · ");
+}
+
 function renderTaskResult(task) {
   if (!task) {
     return;
@@ -2575,6 +2648,13 @@ function renderTaskResult(task) {
   }`;
   refs.taskStatus.textContent =
     task.message || task.error || `任务状态: ${task.status || "-"}`;
+  const workflowSummary = formatWorkflowAccountSummary(task);
+  if (workflowSummary && refs.workflowAccountSummary) {
+    refs.workflowAccountSummary.textContent = workflowSummary;
+  }
+  if (workflowSummary && refs.workflowAccountStatus && task.message) {
+    refs.workflowAccountStatus.textContent = task.message;
+  }
   if (typeof task.result !== "undefined" && task.result !== null) {
     refs.taskResult.textContent = JSON.stringify(task.result, null, 2);
     return;
@@ -2815,7 +2895,7 @@ function bindEvents() {
       if (!field) {
         return;
       }
-      const checkedFields = new Set(["enable", "selected"]);
+      const checkedFields = new Set(["enable", "auto_update_earliest", "selected"]);
       updateAccountRow(
         platform,
         index,

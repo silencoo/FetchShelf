@@ -57,6 +57,16 @@
               />
             </label>
             <label class="field">
+              <span>earliest_update_days</span>
+              <input
+                name="earliest_update_days"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="自动更新 earliest 回溯天数"
+              />
+            </label>
+            <label class="field">
               <span>storage_format</span>
               <select name="storage_format">
                 <option value="">关闭</option>
@@ -166,6 +176,7 @@
                     <option value="mark">mark</option>
                     <option value="url">url</option>
                     <option value="enable">enable</option>
+                    <option value="auto_update_earliest">auto_update_earliest</option>
                   </select>
                   <input
                     id="accounts-douyin-batch-value"
@@ -190,6 +201,7 @@
                       <tr>
                         <th>选中</th>
                         <th>启用</th>
+                        <th>自动更新 earliest</th>
                         <th>mark</th>
                         <th>url</th>
                         <th>tab</th>
@@ -292,6 +304,7 @@
                     <option value="mark">mark</option>
                     <option value="url">url</option>
                     <option value="enable">enable</option>
+                    <option value="auto_update_earliest">auto_update_earliest</option>
                   </select>
                   <input
                     id="accounts-tiktok-batch-value"
@@ -316,6 +329,7 @@
                       <tr>
                         <th>选中</th>
                         <th>启用</th>
+                        <th>自动更新 earliest</th>
                         <th>mark</th>
                         <th>url</th>
                         <th>tab</th>

@@ -562,6 +562,9 @@ class APIServer(TikTok):
             enable = item.get("enable", True)
             if not isinstance(enable, bool):
                 enable = bool(enable)
+            auto_update_earliest = item.get("auto_update_earliest", False)
+            if not isinstance(auto_update_earliest, bool):
+                auto_update_earliest = bool(auto_update_earliest)
             results.append(
                 {
                     "mark": APIServer._normalize_string(item.get("mark")),
@@ -570,6 +573,7 @@ class APIServer(TikTok):
                     "earliest": APIServer._normalize_string(item.get("earliest")),
                     "latest": APIServer._normalize_string(item.get("latest")),
                     "enable": enable,
+                    "auto_update_earliest": auto_update_earliest,
                     "pages": APIServer._normalize_optional_int(item.get("pages")),
                 }
             )
@@ -640,6 +644,9 @@ class APIServer(TikTok):
                     "earliest": APIServer._normalize_string(item.get("earliest")),
                     "latest": APIServer._normalize_string(item.get("latest")),
                     "enable": bool(item.get("enable", False)),
+                    "auto_update_earliest": bool(
+                        item.get("auto_update_earliest", False)
+                    ),
                     "deleted_at": APIServer._normalize_string(item.get("deleted_at")),
                     "reason": APIServer._normalize_string(item.get("reason")),
                 }
@@ -1454,6 +1461,10 @@ class APIServer(TikTok):
         failed = 0
         failures = []
         auto_filled_mark = 0
+        auto_updated_earliest = 0
+        earliest_days = self._normalize_earliest_update_days(
+            getattr(self.parameter, "earliest_update_days", 0)
+        )
         for index, item in enumerate(queued_items, start=1):
             if not (sec_user_id := await self.check_sec_user_id(item["url"], tiktok)):
                 failed += 1
@@ -1482,14 +1493,30 @@ class APIServer(TikTok):
             )
             if result:
                 success += 1
-                if use_settings and getattr(self.parameter, "auto_backfill_mark", True):
+                if use_settings:
                     row_index = item.get("_settings_index")
                     if isinstance(row_index, int) and 0 <= row_index < len(settings_rows):
-                        if self._apply_missing_mark(
-                            settings_rows[row_index],
-                            result.get("mark", ""),
+                        if (
+                            getattr(self.parameter, "auto_backfill_mark", True)
+                            and self._apply_missing_mark(
+                                settings_rows[row_index],
+                                result.get("mark", ""),
+                            )
                         ):
                             auto_filled_mark += 1
+                        earliest_updated, earliest_target = self._apply_auto_update_earliest(
+                            settings_rows[row_index],
+                            earliest_days,
+                        )
+                        if earliest_updated:
+                            auto_updated_earliest += 1
+                            self.logger.info(
+                                _("已更新账号 earliest: {target} -> {date}").format(
+                                    target=getattr(settings_rows[row_index], "mark", "")
+                                    or item["url"],
+                                    date=earliest_target,
+                                )
+                            )
                 continue
             failed += 1
             failures.append(
@@ -1506,7 +1533,11 @@ class APIServer(TikTok):
             message = _("账号批量下载任务完成，部分账号未成功。")
         else:
             message = _("账号批量下载任务完成！")
-        self._persist_mark_backfill(auto_filled_mark, tiktok)
+        self._persist_account_runtime_updates(
+            mark_updated=auto_filled_mark,
+            earliest_updated=auto_updated_earliest,
+            tiktok=tiktok,
+        )
         return DataResponse(
             message=message,
             data={
@@ -1518,6 +1549,7 @@ class APIServer(TikTok):
                 "failed": failed,
                 "skipped": skipped,
                 "mark_backfilled": auto_filled_mark,
+                "earliest_updated": auto_updated_earliest,
                 "failures": failures,
             },
             params=payload,
