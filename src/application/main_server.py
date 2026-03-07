@@ -1504,6 +1504,7 @@ class APIServer(TikTok):
                             )
                         ):
                             auto_filled_mark += 1
+                            self._persist_settings_on_mark_backfill(tiktok)
                         earliest_updated, earliest_target = self._apply_auto_update_earliest(
                             settings_rows[row_index],
                             earliest_days,
