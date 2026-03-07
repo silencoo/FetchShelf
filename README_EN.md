@@ -95,6 +95,10 @@
 
 > **After starting this mode, open `http://127.0.0.1:5555/ui` to use the card-based Web UI (real-time logs, settings editor, file gallery, and share-link tools).**
 
+- Account rows support `auto_update_earliest`. After a successful account batch run, `earliest` is auto-written as `today - earliest_update_days`.
+- `earliest_update_days` is a global backtrack days value (default `3`, supports `0`) and only applies to rows with `auto_update_earliest=true`.
+- If auto update is off and `earliest` is empty, crawler pagination falls back to `2016/09/20`, then local download records filter duplicates. This causes more historical requests.
+
 ## Web API mode
 
 ![WebAPI模式截图](docs/screenshot/WebAPI模式截图EN1.png)

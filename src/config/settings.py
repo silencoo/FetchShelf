@@ -27,6 +27,7 @@ class Settings:
                 "earliest": "",
                 "latest": "",
                 "enable": True,
+                "auto_update_earliest": False,
             },
         ],
         "accounts_urls_tiktok": [
@@ -37,6 +38,7 @@ class Settings:
                 "earliest": "",
                 "latest": "",
                 "enable": True,
+                "auto_update_earliest": False,
             },
         ],
         "deleted_accounts": [],
@@ -66,6 +68,7 @@ class Settings:
         "root": "",
         "folder_name": "downloads",
         "profile_avatar_folder": "profile_avatars",
+        "earliest_update_days": 3,
         "name_format": "create_time type nickname desc",
         "desc_length": 64,
         "name_length": 128,

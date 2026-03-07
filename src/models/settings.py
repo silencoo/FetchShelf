@@ -10,6 +10,7 @@ class AccountUrl(BaseModel):
     earliest: str | int | float = ""
     latest: str | int | float = ""
     enable: bool = True
+    auto_update_earliest: bool = False
 
 
 class DeletedAccountUrl(AccountUrl):
@@ -79,6 +80,7 @@ class Settings(BaseModel):
     root: str | None = None
     folder_name: str | None = None
     profile_avatar_folder: str | None = None
+    earliest_update_days: int | None = None
     name_format: str | None = None
     desc_length: int | None = None
     name_length: int | None = None

@@ -79,6 +79,7 @@ class Parameter:
         mix_urls_tiktok: list[dict],
         folder_name: str,
         profile_avatar_folder: str,
+        earliest_update_days: int,
         name_format: str,
         desc_length: int,
         name_length: int,
@@ -169,6 +170,9 @@ class Parameter:
         self.profile_avatar_folder = self.__check_profile_avatar_folder(
             profile_avatar_folder
         )
+        self.earliest_update_days = self.__check_earliest_update_days(
+            earliest_update_days
+        )
         self.name_format = self.__check_name_format(name_format)
         self.desc_length = self.__check_desc_length(desc_length)
         self.name_length = self.__check_name_length(name_length)
@@ -241,6 +245,7 @@ class Parameter:
             "root": self.__check_root,
             "folder_name": self.__check_folder_name,
             "profile_avatar_folder": self.__check_profile_avatar_folder,
+            "earliest_update_days": self.__check_earliest_update_days,
             "name_format": self.__check_name_format,
             "desc_length": self.__check_desc_length,
             "name_length": self.__check_name_length,
@@ -432,6 +437,26 @@ class Parameter:
             ).format(folder_name=folder_name),
         )
         return "profile_avatars"
+
+    def __check_earliest_update_days(self, value: int | str) -> int:
+        try:
+            days = int(value)
+        except (TypeError, ValueError):
+            self.logger.warning(
+                _("earliest_update_days 参数 {value} 无效，程序将使用默认值：3").format(
+                    value=value
+                ),
+            )
+            return 3
+        if days < 0:
+            self.logger.warning(
+                _("earliest_update_days 参数 {value} 不能小于 0，程序将使用默认值：3").format(
+                    value=value
+                ),
+            )
+            return 3
+        self.logger.info(f"earliest_update_days 参数已设置为 {days}", False)
+        return days
 
     def __check_name_format(self, name_format: str) -> list[str]:
         name_keys = name_format.strip().split(" ")
@@ -866,6 +891,7 @@ class Parameter:
             "root": str(self.root.resolve()),
             "folder_name": self.folder_name,
             "profile_avatar_folder": self.profile_avatar_folder,
+            "earliest_update_days": self.earliest_update_days,
             "name_format": " ".join(self.name_format),
             "desc_length": self.desc_length,
             "name_length": self.name_length,
@@ -961,6 +987,10 @@ class Parameter:
                 continue
             if not isinstance(item.get("enable"), bool):
                 item["enable"] = bool(item.get("enable", True))
+            if not isinstance(item.get("auto_update_earliest"), bool):
+                item["auto_update_earliest"] = bool(
+                    item.get("auto_update_earliest", False)
+                )
             if not isinstance(item.get("mark"), str):
                 item["mark"] = ""
             items.append(item)
@@ -989,6 +1019,9 @@ class Parameter:
                     "earliest": str(item.get("earliest", "") or "").strip(),
                     "latest": str(item.get("latest", "") or "").strip(),
                     "enable": bool(item.get("enable", False)),
+                    "auto_update_earliest": bool(
+                        item.get("auto_update_earliest", False)
+                    ),
                     "deleted_at": item.get("deleted_at", "")
                     if isinstance(item.get("deleted_at"), str)
                     else "",

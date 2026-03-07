@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from platform import system
 from time import time
@@ -334,22 +334,107 @@ class TikTok:
         setattr(item, "mark", next_mark)
         return True
 
+    @staticmethod
+    def _normalize_earliest_update_days(days: Any) -> int:
+        try:
+            value = int(days)
+        except (TypeError, ValueError):
+            return 0
+        return max(0, value)
+
+    @classmethod
+    def _auto_earliest_date_text(cls, days: Any) -> str:
+        n = cls._normalize_earliest_update_days(days)
+        return (date.today() - timedelta(days=n)).strftime("%Y/%m/%d")
+
+    @classmethod
+    def _apply_auto_update_earliest(
+        cls,
+        item: SimpleNamespace | dict,
+        days: Any,
+    ) -> tuple[bool, str]:
+        if isinstance(item, dict):
+            enabled = bool(item.get("auto_update_earliest", False))
+            if not enabled:
+                return False, ""
+            target = cls._auto_earliest_date_text(days)
+            current = str(item.get("earliest", "") or "").strip()
+            if current == target:
+                return False, target
+            item["earliest"] = target
+            return True, target
+        enabled = bool(getattr(item, "auto_update_earliest", False))
+        if not enabled:
+            return False, ""
+        target = cls._auto_earliest_date_text(days)
+        current = str(getattr(item, "earliest", "") or "").strip()
+        if current == target:
+            return False, target
+        setattr(item, "earliest", target)
+        return True, target
+
+    def _persist_account_updates(
+        self,
+        mark_updated: int,
+        earliest_updated: int,
+        tiktok: bool,
+    ) -> None:
+        if mark_updated <= 0 and earliest_updated <= 0:
+            return
+        self.settings.update(self.parameter.get_settings_data())
+        platform = "TikTok" if tiktok else _("抖音")
+        if mark_updated > 0:
+            self.logger.info(
+                _("已自动回填 {platform} 账号 mark 共 {count} 条，并写回 settings.json").format(
+                    platform=platform,
+                    count=mark_updated,
+                )
+            )
+        if earliest_updated > 0:
+            self.logger.info(
+                _(
+                    "已自动更新 {platform} 账号 earliest 共 {count} 条（回溯天数: {days}），并写回 settings.json"
+                ).format(
+                    platform=platform,
+                    count=earliest_updated,
+                    days=self._normalize_earliest_update_days(
+                        getattr(self.parameter, "earliest_update_days", 0)
+                    ),
+                )
+            )
+
     def _persist_mark_backfill(
         self,
         updated: int,
         tiktok: bool,
     ) -> None:
-        if not getattr(self.parameter, "auto_backfill_mark", True):
-            return
-        if updated <= 0:
-            return
-        self.settings.update(self.parameter.get_settings_data())
-        platform = "TikTok" if tiktok else _("抖音")
-        self.logger.info(
-            _("已自动回填 {platform} 账号 mark 共 {count} 条，并写回 settings.json").format(
-                platform=platform,
-                count=updated,
-            )
+        self._persist_account_updates(
+            mark_updated=updated,
+            earliest_updated=0,
+            tiktok=tiktok,
+        )
+
+    def _persist_auto_earliest_update(
+        self,
+        updated: int,
+        tiktok: bool,
+    ) -> None:
+        self._persist_account_updates(
+            mark_updated=0,
+            earliest_updated=updated,
+            tiktok=tiktok,
+        )
+
+    def _persist_account_runtime_updates(
+        self,
+        mark_updated: int,
+        earliest_updated: int,
+        tiktok: bool,
+    ) -> None:
+        self._persist_account_updates(
+            mark_updated=mark_updated,
+            earliest_updated=earliest_updated,
+            tiktok=tiktok,
         )
 
     async def account_acquisition_interactive(
@@ -417,6 +502,10 @@ class TikTok:
     ) -> None:
         count = SimpleNamespace(time=time(), success=0, failed=0)
         auto_filled_mark = 0
+        auto_updated_earliest = 0
+        earliest_days = self._normalize_earliest_update_days(
+            getattr(self.parameter, "earliest_update_days", 0)
+        )
         self.logger.info(
             _("共有 {count} 个账号的作品等待下载").format(count=len(accounts))
         )
@@ -454,11 +543,29 @@ class TikTok:
                 and self._apply_missing_mark(data, result.get("mark", ""))
             ):
                 auto_filled_mark += 1
+            earliest_updated, earliest_target = self._apply_auto_update_earliest(
+                data,
+                earliest_days,
+            )
+            if earliest_updated:
+                auto_updated_earliest += 1
+                self.logger.info(
+                    _(
+                        "已更新账号 earliest: {target} -> {date}"
+                    ).format(
+                        target=getattr(data, "mark", "") or data.url,
+                        date=earliest_target,
+                    )
+                )
             # break  # 调试代码
             count.success += 1
             if index != len(accounts):
                 await suspend(index, self.console)
-        self._persist_mark_backfill(auto_filled_mark, tiktok)
+        self._persist_account_runtime_updates(
+            mark_updated=auto_filled_mark,
+            earliest_updated=auto_updated_earliest,
+            tiktok=tiktok,
+        )
         self.__summarize_results(
             count,
             _("账号"),
