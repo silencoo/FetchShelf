@@ -5,7 +5,7 @@ services:
     container_name: douyin-download
 
     working_dir: /app
-    command: ["python", "main_webui.py"]
+    command: ["uv", "run", "--no-sync", "main_webui.py"]
     restart: unless-stopped
 
     environment:
