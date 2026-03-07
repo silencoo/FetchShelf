@@ -63,12 +63,26 @@ def _detect_faces(rgb_array, min_confidence: float) -> list[dict[str, Any]]:
             "(如 libglib2.0-0、libx11-6、libxcb1、libgl1)。"
         ) from error
 
+    face_detection = getattr(getattr(mp, "solutions", None), "face_detection", None)
+    if not face_detection:
+        try:
+            from mediapipe.python.solutions import (  # type: ignore[attr-defined]
+                face_detection as mp_face_detection,
+            )
+        except Exception as error:
+            version = getattr(mp, "__version__", "unknown")
+            raise RuntimeError(
+                "不支持当前的人脸检测 API："
+                f"mediapipe=={version} 未提供 solutions.face_detection。"
+            ) from error
+        face_detection = mp_face_detection
+
     height, width = rgb_array.shape[:2]
     if width <= 1 or height <= 1:
         return []
 
     boxes = []
-    with mp.solutions.face_detection.FaceDetection(
+    with face_detection.FaceDetection(
         model_selection=1,
         min_detection_confidence=min_confidence,
     ) as detector:
