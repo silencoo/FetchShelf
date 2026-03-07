@@ -31,7 +31,10 @@ LABEL name="DouK-Downloader" authors="JoeanAmier" repository="https://github.com
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:${PATH}"
 
-RUN pip install --no-cache-dir uv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir uv
 COPY --from=builder /opt/venv /opt/venv
 
 # 复制你的应用程序代码和相关文件
