@@ -33,6 +33,13 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libx11-6 \
+    libxcb1 \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir uv
 COPY --from=builder /opt/venv /opt/venv

@@ -56,8 +56,11 @@ def _detect_faces(rgb_array, min_confidence: float) -> list[dict[str, Any]]:
     try:
         import mediapipe as mp
     except ImportError as error:
+        detail = str(error).strip() or error.__class__.__name__
         raise RuntimeError(
-            "缺少 mediapipe 依赖，请安装后再使用自动头像（例如：uv add mediapipe）。"
+            "导入 mediapipe/cv2 失败："
+            f"{detail}。请确认已安装 mediapipe，并在容器中安装运行时库 "
+            "(如 libglib2.0-0、libx11-6、libxcb1、libgl1)。"
         ) from error
 
     height, width = rgb_array.shape[:2]
