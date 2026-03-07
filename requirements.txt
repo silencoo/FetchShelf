@@ -14,7 +14,7 @@ httpx[socks]==0.28.1
     # via douk-downloader (pyproject.toml)
 lxml==6.0.2
     # via douk-downloader (pyproject.toml)
-mediapipe==0.10.32
+mediapipe==0.10.32 ; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'darwin' and platform_machine == 'arm64') or (sys_platform == 'win32' and platform_machine == 'AMD64')
     # via douk-downloader (pyproject.toml)
 openpyxl==3.1.5
     # via douk-downloader (pyproject.toml)
