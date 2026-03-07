@@ -78,6 +78,7 @@ class Parameter:
         mix_urls: list[dict],
         mix_urls_tiktok: list[dict],
         folder_name: str,
+        profile_avatar_folder: str,
         name_format: str,
         desc_length: int,
         name_length: int,
@@ -165,6 +166,9 @@ class Parameter:
 
         self.root = self.__check_root(root)
         self.folder_name = self.__check_folder_name(folder_name)
+        self.profile_avatar_folder = self.__check_profile_avatar_folder(
+            profile_avatar_folder
+        )
         self.name_format = self.__check_name_format(name_format)
         self.desc_length = self.__check_desc_length(desc_length)
         self.name_length = self.__check_name_length(name_length)
@@ -236,6 +240,7 @@ class Parameter:
         self.__CHECK = {
             "root": self.__check_root,
             "folder_name": self.__check_folder_name,
+            "profile_avatar_folder": self.__check_profile_avatar_folder,
             "name_format": self.__check_name_format,
             "desc_length": self.__check_desc_length,
             "name_length": self.__check_name_length,
@@ -410,6 +415,23 @@ class Parameter:
             ).format(folder_name=folder_name),
         )
         return "Download"
+
+    def __check_profile_avatar_folder(self, folder_name: str) -> str:
+        if value := self.CLEANER.filter_name(
+            folder_name,
+            "profile_avatars",
+        ):
+            self.logger.info(
+                f"profile_avatar_folder 参数已设置为 {value}",
+                False,
+            )
+            return value
+        self.logger.warning(
+            _(
+                "profile_avatar_folder 参数 {folder_name} 无效，程序将使用默认值：profile_avatars"
+            ).format(folder_name=folder_name),
+        )
+        return "profile_avatars"
 
     def __check_name_format(self, name_format: str) -> list[str]:
         name_keys = name_format.strip().split(" ")
@@ -843,6 +865,7 @@ class Parameter:
             "owner_url_tiktok": self.owner_url_tiktok,
             "root": str(self.root.resolve()),
             "folder_name": self.folder_name,
+            "profile_avatar_folder": self.profile_avatar_folder,
             "name_format": " ".join(self.name_format),
             "desc_length": self.desc_length,
             "name_length": self.name_length,

@@ -13,6 +13,11 @@ const state = {
   currentScope: "download",
   currentPath: "",
   selectedFilePath: "",
+  fileAccountContext: {
+    platform: "",
+    url: "",
+    mark: "",
+  },
   selectedTaskId: "",
   settingsData: {},
   accountRows: {
@@ -42,6 +47,7 @@ const state = {
     total: 0,
     columns: 4,
     refreshKind: "auto",
+    viewMode: "avatar",
   },
   accountBoardDirty: true,
 };
@@ -109,6 +115,7 @@ const refs = {
   boardPlatform: document.getElementById("board-platform"),
   boardPageSize: document.getElementById("board-page-size"),
   boardRefreshKind: document.getElementById("board-refresh-kind"),
+  boardViewMode: document.getElementById("board-view-mode"),
   boardDensity: document.getElementById("board-density"),
   boardDensityLabel: document.getElementById("board-density-label"),
   boardPrevBtn: document.getElementById("board-prev-btn"),
@@ -134,6 +141,11 @@ const refs = {
   filesStatsRefreshBtn: document.getElementById("files-stats-refresh-btn"),
   filesMeta: document.getElementById("files-meta"),
   filesStats: document.getElementById("files-stats"),
+  filesAccountContext: document.getElementById("files-account-context"),
+  filesBackToBoardBtn: document.getElementById("files-back-to-board-btn"),
+  filesPinProfileBtn: document.getElementById("files-pin-profile-btn"),
+  filesGenerateAvatarBtn: document.getElementById("files-generate-avatar-btn"),
+  filesPinAvatarBtn: document.getElementById("files-pin-avatar-btn"),
   filesList: document.getElementById("files-list"),
   filePreview: document.getElementById("file-preview"),
 
@@ -300,6 +312,7 @@ const ACCOUNTS_COLLAPSE_STORAGE_KEY = "webui.accounts.collapsed";
 const ACTIVE_TAB_STORAGE_KEY = "webui.active.tab";
 const LOG_DEBUG_STORAGE_KEY = "webui.logs.debug";
 const BOARD_COLUMNS_STORAGE_KEY = "webui.board.columns";
+const BOARD_VIEW_MODE_STORAGE_KEY = "webui.board.view_mode";
 
 function setBadge(element, text, kind = "") {
   element.textContent = text;
@@ -562,6 +575,9 @@ function switchTab(tab) {
   } catch {}
   if (tab === "profiles" && state.accountBoardDirty) {
     loadAccountBoard(true);
+  }
+  if (tab === "files") {
+    updateFilesAccountContext();
   }
 }
 
@@ -1193,6 +1209,7 @@ function mapSettingsToForm(settings) {
   const fields = [
     "root",
     "folder_name",
+    "profile_avatar_folder",
     "storage_format",
     "proxy",
     "proxy_tiktok",
@@ -1233,6 +1250,7 @@ function collectSettingsPayload() {
   const payload = {
     root: String(formData.get("root") || "").trim(),
     folder_name: String(formData.get("folder_name") || "").trim(),
+    profile_avatar_folder: String(formData.get("profile_avatar_folder") || "").trim(),
     storage_format: String(formData.get("storage_format") || "").trim(),
     proxy: String(formData.get("proxy") || "").trim(),
     proxy_tiktok: String(formData.get("proxy_tiktok") || "").trim(),
@@ -1555,10 +1573,13 @@ function renderFiles() {
       }
       row.classList.add("active");
       state.selectedFilePath = entry.path || "";
+      updateFilesAccountContext();
 
       if (entry.is_dir || entry.kind === "dir") {
         state.currentPath = entry.path || "";
         refs.filesPath.value = state.currentPath;
+        state.selectedFilePath = "";
+        updateFilesAccountContext();
         loadFiles();
       } else {
         renderFilePreview(entry);
@@ -1568,6 +1589,189 @@ function renderFiles() {
     fragment.appendChild(row);
   }
   refs.filesList.appendChild(fragment);
+}
+
+function updateFilesAccountContext() {
+  const context = state.fileAccountContext || {};
+  const hasAccount = Boolean(context.url);
+  const selected = state.fileEntries.find((item) => item.path === state.selectedFilePath);
+  const fileLabel = selected?.name || selected?.path || "";
+  const selectedHint = fileLabel ? ` · 已选文件: ${fileLabel}` : " · 未选择文件";
+  if (refs.filesAccountContext) {
+    refs.filesAccountContext.textContent = hasAccount
+      ? `账户上下文：${context.mark || "(未设置 mark)"} · ${context.url}${selectedHint}`
+      : "账户上下文：未从看板选择账户";
+  }
+  const mediaSelected = Boolean(
+    hasAccount &&
+      selected &&
+      !selected.is_dir &&
+      (selected.kind === "image" || selected.kind === "video"),
+  );
+  const imageSelected = Boolean(
+    hasAccount &&
+      selected &&
+      !selected.is_dir &&
+      selected.kind === "image",
+  );
+  if (refs.filesPinProfileBtn) {
+    refs.filesPinProfileBtn.disabled = !mediaSelected || state.currentScope !== "download";
+  }
+  if (refs.filesGenerateAvatarBtn) {
+    refs.filesGenerateAvatarBtn.disabled = !mediaSelected;
+  }
+  if (refs.filesPinAvatarBtn) {
+    refs.filesPinAvatarBtn.disabled = !imageSelected;
+  }
+}
+
+function openBoardFolderInFiles(card) {
+  const folderPath = card?.dataset?.folderPath || "";
+  const url = card?.dataset?.url || "";
+  if (!folderPath || !url) {
+    setBoardStatus("当前卡片无目录或 URL，无法跳转文件浏览");
+    return;
+  }
+  state.fileAccountContext = {
+    platform: card.dataset.platform || state.accountBoard.platform,
+    url,
+    mark: card.dataset.mark || "",
+  };
+  state.currentScope = "download";
+  state.currentPath = folderPath;
+  state.selectedFilePath = "";
+  if (refs.filesScope) {
+    refs.filesScope.value = "download";
+  }
+  if (refs.filesPath) {
+    refs.filesPath.value = folderPath;
+  }
+  switchTab("files");
+  loadFiles();
+  updateFilesAccountContext();
+}
+
+async function generateBoardCardAvatar(card) {
+  const url = card?.dataset?.url || "";
+  const path = card?.dataset?.mediaPath || "";
+  const platform = card?.dataset?.platform || state.accountBoard.platform;
+  if (!url || !path) {
+    setBoardStatus("当前卡片没有可用于识别的人脸媒体");
+    return;
+  }
+  setBoardStatus("正在生成人脸头像…");
+  try {
+    const payload = await fetchJson("/ui/api/accounts/board/avatar/generate", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        platform,
+        url,
+        scope: "download",
+        path,
+      }),
+    });
+    card.dataset.avatarPath = payload.avatar_path || "";
+    card.dataset.avatarScope = payload.avatar_scope || "project";
+    renderBoardCardPreview(card);
+    const faces = payload?.details?.faces_detected || 0;
+    setBoardStatus(`头像生成成功（识别 ${faces} 张人脸）`);
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setBoardStatus(`头像生成失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function pinFromFileBrowser() {
+  const context = state.fileAccountContext || {};
+  const selected = state.fileEntries.find((item) => item.path === state.selectedFilePath);
+  if (!context.url) {
+    setBoardStatus("请先从账户看板进入文件浏览");
+    return;
+  }
+  if (!selected || selected.is_dir || (selected.kind !== "image" && selected.kind !== "video")) {
+    setBoardStatus("请选择图片或视频文件后再执行 Profile Pin");
+    return;
+  }
+  try {
+    await fetchJson("/ui/api/accounts/board/pin", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        platform: context.platform || "douyin",
+        url: context.url,
+        path: selected.path,
+      }),
+    });
+    setBoardStatus("已将当前文件设为该账号 Profile Pin");
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setBoardStatus(`Profile Pin 失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function generateAvatarFromFileBrowser() {
+  const context = state.fileAccountContext || {};
+  const selected = state.fileEntries.find((item) => item.path === state.selectedFilePath);
+  if (!context.url) {
+    setBoardStatus("请先从账户看板进入文件浏览");
+    return;
+  }
+  if (!selected || selected.is_dir || (selected.kind !== "image" && selected.kind !== "video")) {
+    setBoardStatus("请选择图片或视频文件后再执行头像生成");
+    return;
+  }
+  setBoardStatus("正在基于当前文件生成人脸头像…");
+  try {
+    const payload = await fetchJson("/ui/api/accounts/board/avatar/generate", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        platform: context.platform || "douyin",
+        url: context.url,
+        scope: state.currentScope,
+        path: selected.path,
+      }),
+    });
+    const faces = payload?.details?.faces_detected || 0;
+    setBoardStatus(`头像生成成功（识别 ${faces} 张人脸）`);
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setBoardStatus(`头像生成失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function pinAvatarFromFileBrowser() {
+  const context = state.fileAccountContext || {};
+  const selected = state.fileEntries.find((item) => item.path === state.selectedFilePath);
+  if (!context.url) {
+    setBoardStatus("请先从账户看板进入文件浏览");
+    return;
+  }
+  if (!selected || selected.is_dir || selected.kind !== "image") {
+    setBoardStatus("手动设头像仅支持图片文件");
+    return;
+  }
+  try {
+    await fetchJson("/ui/api/accounts/board/avatar/pin", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        platform: context.platform || "douyin",
+        url: context.url,
+        scope: state.currentScope,
+        path: selected.path,
+      }),
+    });
+    setBoardStatus("已将当前图片手动设为账号头像");
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setBoardStatus(`手动设头像失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
 }
 
 async function loadFileStats() {
@@ -1607,17 +1811,20 @@ async function loadFiles() {
     state.currentPath = normalized.currentPath || state.currentPath || "";
     refs.filesPath.value = state.currentPath;
     renderFiles();
+    updateFilesAccountContext();
     const filteredCount = filteredFileEntries().length;
     refs.filesMeta.textContent = `scope=${state.currentScope} · path=/${state.currentPath || ""} · ${filteredCount}/${normalized.total} 项`;
     loadFileStats();
     setApiStatus("就绪", "ok");
   } catch (error) {
     state.fileEntries = [];
+    state.selectedFilePath = "";
     refs.filesList.innerHTML = "";
     refs.filesMeta.textContent = `加载失败: ${error.message}`;
     if (refs.filesStats) {
       refs.filesStats.textContent = "统计信息待加载…";
     }
+    updateFilesAccountContext();
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -1631,22 +1838,23 @@ function parentPath(path) {
   return items.join("/");
 }
 
-function boardMediaUrl(path) {
-  return `/ui/api/file?scope=download&path=${encodeURIComponent(path || "")}`;
+function boardAssetUrl(path, scope = "download") {
+  return `/ui/api/file?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path || "")}`;
 }
 
 function boardColumnsCap() {
   const width = window.innerWidth || 1280;
+  const compactMode = state.accountBoard.viewMode === "avatar";
   if (width <= 700) {
-    return 1;
+    return compactMode ? 2 : 1;
   }
   if (width <= 980) {
-    return 2;
+    return compactMode ? 4 : 2;
   }
   if (width <= 1200) {
-    return 3;
+    return compactMode ? 6 : 3;
   }
-  return 6;
+  return compactMode ? 8 : 6;
 }
 
 function applyBoardColumns(persist = true) {
@@ -1661,6 +1869,7 @@ function applyBoardColumns(persist = true) {
   }
   if (refs.boardGrid) {
     refs.boardGrid.style.setProperty("--board-columns", String(next));
+    refs.boardGrid.classList.toggle("profile-board-compact", state.accountBoard.viewMode === "avatar");
   }
   if (persist) {
     try {
@@ -1677,24 +1886,52 @@ function setBoardStatus(text) {
   refs.boardStatus.textContent = text;
 }
 
-function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
+function selectedBoardPreview(card) {
+  if (!card) {
+    return {
+      path: "",
+      kind: "",
+      scope: "download",
+      pinned: false,
+    };
+  }
+  if (state.accountBoard.viewMode === "avatar" && card.dataset.avatarPath) {
+    return {
+      path: card.dataset.avatarPath || "",
+      kind: "image",
+      scope: card.dataset.avatarScope || "project",
+      pinned: true,
+    };
+  }
+  return {
+    path: card.dataset.mediaPath || "",
+    kind: card.dataset.mediaKind || "",
+    scope: "download",
+    pinned: card.dataset.pinned === "1",
+  };
+}
+
+function renderBoardCardPreview(card) {
   const mediaWrap = card.querySelector(".profile-media-wrap");
   const pinBtn = card.querySelector('[data-action="board-pin-media"]');
   const refreshBtn = card.querySelector('[data-action="board-refresh-media"]');
   const refreshVideoBtn = card.querySelector('[data-action="board-refresh-video"]');
   const pinBadge = card.querySelector(".profile-pin-badge");
-
-  card.dataset.mediaPath = mediaPath || "";
-  card.dataset.mediaKind = mediaKind || "";
-  card.dataset.pinned = pinned ? "1" : "0";
+  const avatarBadge = card.querySelector(".profile-avatar-badge");
+  const avatarBtn = card.querySelector('[data-action="board-generate-avatar"]');
+  const preview = selectedBoardPreview(card);
 
   if (pinBadge) {
-    pinBadge.textContent = pinned ? "已 Pin" : "未 Pin";
-    pinBadge.classList.toggle("ok", pinned);
+    pinBadge.textContent = card.dataset.pinned === "1" ? "已 Pin" : "未 Pin";
+    pinBadge.classList.toggle("ok", card.dataset.pinned === "1");
+  }
+  if (avatarBadge) {
+    avatarBadge.textContent = card.dataset.avatarPath ? "有头像" : "无头像";
+    avatarBadge.classList.toggle("ok", Boolean(card.dataset.avatarPath));
   }
   if (pinBtn) {
-    pinBtn.textContent = pinned ? "已 Pin" : "Pin";
-    pinBtn.disabled = !mediaPath;
+    pinBtn.textContent = card.dataset.pinned === "1" ? "已 Pin" : "Pin";
+    pinBtn.disabled = !card.dataset.mediaPath;
   }
   if (refreshBtn) {
     refreshBtn.disabled = !card.dataset.folderPath;
@@ -1702,22 +1939,24 @@ function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
   if (refreshVideoBtn) {
     refreshVideoBtn.disabled = !card.dataset.folderPath;
   }
-
+  if (avatarBtn) {
+    avatarBtn.disabled = !card.dataset.mediaPath;
+  }
   if (!mediaWrap) {
     return;
   }
   mediaWrap.innerHTML = "";
-  if (!mediaPath || !mediaKind) {
+  if (!preview.path || !preview.kind) {
     const empty = document.createElement("div");
     empty.className = "profile-empty";
     empty.textContent = card.dataset.folderPath
-      ? "目录存在，但未找到图片/视频"
+      ? "目录存在，但未找到可预览媒体"
       : "未匹配到账户目录";
     mediaWrap.appendChild(empty);
     return;
   }
-  const src = boardMediaUrl(mediaPath);
-  if (mediaKind === "image") {
+  const src = boardAssetUrl(preview.path, preview.scope || "download");
+  if (preview.kind === "image") {
     const image = document.createElement("img");
     image.src = src;
     image.alt = card.dataset.mark || "profile";
@@ -1725,7 +1964,7 @@ function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
     mediaWrap.appendChild(image);
     return;
   }
-  if (mediaKind === "video") {
+  if (preview.kind === "video") {
     const video = document.createElement("video");
     video.src = src;
     video.controls = true;
@@ -1739,6 +1978,13 @@ function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
   empty.className = "profile-empty";
   empty.textContent = "媒体类型暂不支持预览";
   mediaWrap.appendChild(empty);
+}
+
+function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
+  card.dataset.mediaPath = mediaPath || "";
+  card.dataset.mediaKind = mediaKind || "";
+  card.dataset.pinned = pinned ? "1" : "0";
+  renderBoardCardPreview(card);
 }
 
 function renderAccountBoard(items) {
@@ -1758,6 +2004,8 @@ function renderAccountBoard(items) {
     card.dataset.mediaPath = item.media_path || "";
     card.dataset.mediaKind = item.media_kind || "";
     card.dataset.pinned = item.pinned ? "1" : "0";
+    card.dataset.avatarPath = item.avatar_path || "";
+    card.dataset.avatarScope = item.avatar_scope || "";
 
     const mediaWrap = document.createElement("div");
     mediaWrap.className = "profile-media-wrap";
@@ -1780,8 +2028,12 @@ function renderAccountBoard(items) {
     const pinBadge = document.createElement("span");
     pinBadge.className = `badge profile-pin-badge ${item.pinned ? "ok" : ""}`;
     pinBadge.textContent = item.pinned ? "已 Pin" : "未 Pin";
+    const avatarBadge = document.createElement("span");
+    avatarBadge.className = `badge profile-avatar-badge ${item.avatar_path ? "ok" : ""}`;
+    avatarBadge.textContent = item.avatar_path ? "有头像" : "无头像";
     badges.appendChild(enableBadge);
     badges.appendChild(pinBadge);
+    badges.appendChild(avatarBadge);
 
     titleRow.appendChild(name);
     titleRow.appendChild(badges);
@@ -1800,8 +2052,10 @@ function renderAccountBoard(items) {
     actions.className = "profile-actions";
     actions.innerHTML = `
       <button class="btn ghost" type="button" data-action="board-open-account">打开主页</button>
+      <button class="btn ghost" type="button" data-action="board-open-files">文件浏览</button>
       <button class="btn ghost" type="button" data-action="board-refresh-media">刷新媒体</button>
       <button class="btn ghost" type="button" data-action="board-refresh-video">刷视频</button>
+      <button class="btn ghost" type="button" data-action="board-generate-avatar">AI 头像</button>
       <button class="btn ghost" type="button" data-action="board-pin-media">Pin</button>
     `;
 
@@ -2806,6 +3060,17 @@ function bindEvents() {
     state.accountBoard.refreshKind = refs.boardRefreshKind.value || "auto";
   });
 
+  refs.boardViewMode.addEventListener("change", () => {
+    state.accountBoard.viewMode = refs.boardViewMode.value || "avatar";
+    try {
+      localStorage.setItem(BOARD_VIEW_MODE_STORAGE_KEY, state.accountBoard.viewMode);
+    } catch {}
+    applyBoardColumns(true);
+    for (const card of refs.boardGrid.querySelectorAll(".profile-card")) {
+      renderBoardCardPreview(card);
+    }
+  });
+
   refs.boardDensity.addEventListener("input", () => {
     state.accountBoard.columns = Number(refs.boardDensity.value || "4");
     applyBoardColumns(true);
@@ -2853,6 +3118,10 @@ function bindEvents() {
       openUrls([card.dataset.url || ""]);
       return;
     }
+    if (action === "board-open-files") {
+      openBoardFolderInFiles(card);
+      return;
+    }
     if (action === "board-refresh-media") {
       refreshBoardCard(card, state.accountBoard.refreshKind || "auto");
       return;
@@ -2861,9 +3130,29 @@ function bindEvents() {
       refreshBoardCard(card, "video");
       return;
     }
+    if (action === "board-generate-avatar") {
+      generateBoardCardAvatar(card);
+      return;
+    }
     if (action === "board-pin-media") {
       pinBoardCard(card);
     }
+  });
+
+  refs.filesBackToBoardBtn.addEventListener("click", () => {
+    switchTab("profiles");
+  });
+
+  refs.filesPinProfileBtn.addEventListener("click", () => {
+    pinFromFileBrowser();
+  });
+
+  refs.filesGenerateAvatarBtn.addEventListener("click", () => {
+    generateAvatarFromFileBrowser();
+  });
+
+  refs.filesPinAvatarBtn.addEventListener("click", () => {
+    pinAvatarFromFileBrowser();
   });
 
   refs.filesScope.addEventListener("change", () => {
@@ -2876,6 +3165,7 @@ function bindEvents() {
   refs.filesSearch.addEventListener("input", () => {
     state.fileSearch = refs.filesSearch.value || "";
     renderFiles();
+    updateFilesAccountContext();
     refs.filesMeta.textContent = `scope=${state.currentScope} · path=/${state.currentPath || ""} · ${
       filteredFileEntries().length
     }/${state.fileEntries.length} 项`;
@@ -2976,15 +3266,26 @@ function bootstrap() {
   state.accountBoard.platform = refs.boardPlatform.value || "douyin";
   state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
   state.accountBoard.refreshKind = refs.boardRefreshKind.value || "auto";
+  state.accountBoard.viewMode = refs.boardViewMode?.value || "avatar";
   try {
     state.accountBoard.columns = Number(localStorage.getItem(BOARD_COLUMNS_STORAGE_KEY) || "4");
   } catch {
     state.accountBoard.columns = 4;
   }
+  try {
+    state.accountBoard.viewMode =
+      localStorage.getItem(BOARD_VIEW_MODE_STORAGE_KEY) ||
+      state.accountBoard.viewMode ||
+      "avatar";
+  } catch {}
+  if (refs.boardViewMode) {
+    refs.boardViewMode.value = state.accountBoard.viewMode;
+  }
   applyBoardColumns(false);
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
   state.fileSearch = refs.filesSearch?.value || "";
+  updateFilesAccountContext();
   try {
     state.showDebugLogs = localStorage.getItem(LOG_DEBUG_STORAGE_KEY) === "1";
   } catch {

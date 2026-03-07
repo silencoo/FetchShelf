@@ -1,9 +1,11 @@
 from asyncio import Queue, CancelledError, create_task, gather, sleep
 from datetime import datetime, timedelta
+from hashlib import md5
 from json import JSONDecodeError, dumps, loads
 from mimetypes import guess_type
 from pathlib import Path
 from random import choice
+from shutil import copy2
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -62,6 +64,7 @@ from ..webui.files import (
     resolve_within_root,
     serialize_entry,
 )
+from ..webui.profile_avatar import generate_face_avatar
 from .main_terminal import TikTok
 
 try:
@@ -769,10 +772,133 @@ class APIServer(TikTok):
             encoding=self.parameter.settings.encode,
         )
 
+    def _account_board_avatar_file(self) -> Path:
+        return self.parameter.settings.path.parent.joinpath("account_profile_avatars.json")
+
+    def _load_account_board_avatars(self) -> dict[str, str]:
+        avatar_file = self._account_board_avatar_file()
+        if not avatar_file.exists():
+            return {}
+        try:
+            payload = loads(avatar_file.read_text(encoding=self.parameter.settings.encode))
+        except (JSONDecodeError, OSError, TypeError, ValueError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        source = payload.get("avatars", payload)
+        if not isinstance(source, dict):
+            return {}
+        avatars = {}
+        for key, value in source.items():
+            account_key = self._normalize_string(key)
+            if not account_key:
+                continue
+            if isinstance(value, dict):
+                raw_path = self._normalize_string(value.get("path"))
+            else:
+                raw_path = self._normalize_string(value)
+            avatar_path = self._coerce_project_image_relpath(raw_path)
+            if avatar_path:
+                avatars[account_key] = avatar_path
+        return avatars
+
+    def _save_account_board_avatars(self, avatars: dict[str, str]) -> None:
+        avatar_file = self._account_board_avatar_file()
+        if not avatar_file.parent.exists():
+            avatar_file.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": 1,
+            "updated_at": self._now_text(),
+            "folder": self.parameter.profile_avatar_folder,
+            "avatars": avatars,
+        }
+        avatar_file.write_text(
+            dumps(payload, ensure_ascii=False, indent=2),
+            encoding=self.parameter.settings.encode,
+        )
+
     @staticmethod
     def _account_pin_key(platform: str, url: str) -> str:
         normalized_platform = APIServer._normalize_board_platform(platform)
         return f"{normalized_platform}::{APIServer._normalize_string(url)}"
+
+    def _profile_avatar_root(self) -> Path:
+        folder_name = self.parameter.CLEANER.filter_name(
+            self._normalize_string(
+                getattr(self.parameter, "profile_avatar_folder", "profile_avatars")
+            ),
+            "profile_avatars",
+        )
+        root = self.parameter.settings.path.parent.joinpath(folder_name)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _coerce_project_image_relpath(self, path: str) -> str:
+        value = self._normalize_string(path).replace("\\", "/").lstrip("/")
+        if not value:
+            return ""
+        try:
+            target = resolve_within_root(PROJECT_ROOT, value)
+        except ValueError:
+            return ""
+        if not target.exists() or not target.is_file():
+            return ""
+        if target.suffix.lower() not in IMAGE_SUFFIXES:
+            return ""
+        return relative_path(PROJECT_ROOT, target)
+
+    def _coerce_scope_media_relpath(
+        self,
+        scope: ScopeType,
+        path: str,
+        allow_video: bool = True,
+    ) -> str:
+        value = self._normalize_string(path).replace("\\", "/").lstrip("/")
+        if not value:
+            return ""
+        root = self._scope_root(scope).expanduser().resolve()
+        try:
+            target = resolve_within_root(root, value)
+        except ValueError:
+            return ""
+        if not target.exists() or not target.is_file():
+            return ""
+        suffix = target.suffix.lower()
+        allowed = IMAGE_SUFFIXES | VIDEO_SUFFIXES if allow_video else IMAGE_SUFFIXES
+        if suffix not in allowed:
+            return ""
+        return relative_path(root, target)
+
+    def _account_avatar_output_path(
+        self,
+        platform: str,
+        url: str,
+        mark: str = "",
+        extension: str = ".jpg",
+    ) -> Path:
+        token = ""
+        if mark:
+            token = self.parameter.CLEANER.filter_name(mark, "")
+        if not token:
+            tokens = self._extract_account_tokens(url)
+            if tokens:
+                token = self.parameter.CLEANER.filter_name(tokens[0], "")
+        if not token:
+            token = "account"
+        digest = md5(f"{platform}:{url}".encode("utf-8")).hexdigest()[:12]
+        filename = f"{token}_{digest}{extension}"
+        root = self._profile_avatar_root().joinpath(platform)
+        root.mkdir(parents=True, exist_ok=True)
+        return root.joinpath(filename)
+
+    def _set_account_avatar_path(self, platform: str, url: str, path: str) -> str:
+        avatar_rel = self._coerce_project_image_relpath(path)
+        if not avatar_rel:
+            return ""
+        avatars = self._load_account_board_avatars()
+        avatars[self._account_pin_key(platform, url)] = avatar_rel
+        self._save_account_board_avatars(avatars)
+        return avatar_rel
 
     @staticmethod
     def _extract_account_tokens(url: str) -> list[str]:
@@ -986,6 +1112,7 @@ class APIServer(TikTok):
         root = self._scope_root("download").expanduser().resolve()
         candidates = self._account_board_dirs(root)
         pins = self._load_account_board_pins()
+        avatars = self._load_account_board_avatars()
         media_cache: dict[str, tuple[list[str], list[str]]] = {}
         items = []
         for offset, row in enumerate(page_rows, start=start + 1):
@@ -1002,6 +1129,7 @@ class APIServer(TikTok):
                 pinned_path=pins.get(pin_key, ""),
                 use_pinned=True,
             )
+            avatar_path = self._coerce_project_image_relpath(avatars.get(pin_key, ""))
             items.append(
                 {
                     "index": offset,
@@ -1015,6 +1143,8 @@ class APIServer(TikTok):
                     "media_path": media.get("path", ""),
                     "media_kind": media.get("kind", ""),
                     "pinned": bool(media.get("pinned", False)),
+                    "avatar_path": avatar_path,
+                    "avatar_scope": "project" if avatar_path else "",
                 }
             )
 
@@ -2193,6 +2323,181 @@ class APIServer(TikTok):
                 "platform": platform,
                 "updated": updated,
                 "requested": len(raw_items),
+            }
+
+        @self.server.post(
+            "/ui/api/accounts/board/avatar/generate",
+            summary="Web UI 自动生成人脸头像",
+            description="使用 Mediapipe 从账号媒体中识别并生成人脸头像",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_board_avatar_generate(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            platform = self._normalize_board_platform(body.get("platform", "douyin"))
+            url = self._normalize_string(body.get("url"))
+            scope: ScopeType = body.get("scope", "download")
+            path = self._normalize_string(body.get("path"))
+            if scope not in {"project", "download"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid scope.",
+                )
+            if not url:
+                raise HTTPException(
+                    status_code=400,
+                    detail="url is required.",
+                )
+            if not path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="path is required.",
+                )
+            row = self._find_active_account_row(platform, url)
+            mark = row.get("mark", "") if isinstance(row, dict) else ""
+            source_rel = self._coerce_scope_media_relpath(
+                scope,
+                path,
+                allow_video=True,
+            )
+            if not source_rel:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid media path.",
+                )
+            source_root = self._scope_root(scope).expanduser().resolve()
+            source_path = resolve_within_root(source_root, source_rel)
+            output_path = self._account_avatar_output_path(
+                platform=platform,
+                url=url,
+                mark=mark,
+                extension=".jpg",
+            )
+            try:
+                details = generate_face_avatar(
+                    source_path,
+                    output_path,
+                )
+            except RuntimeError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=str(error),
+                )
+            except OSError as error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Generate avatar failed: {error}",
+                )
+            try:
+                avatar_rel = self._set_account_avatar_path(
+                    platform,
+                    url,
+                    relative_path(PROJECT_ROOT, output_path),
+                )
+            except OSError as error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Save avatar map failed: {error}",
+                )
+            self.logger.info(
+                _("已生成人脸头像: {url} -> {path}").format(
+                    url=url,
+                    path=avatar_rel or output_path.name,
+                )
+            )
+            return {
+                "message": _("头像生成成功！"),
+                "platform": platform,
+                "url": url,
+                "source_scope": scope,
+                "source_path": source_rel,
+                "avatar_scope": "project",
+                "avatar_path": avatar_rel,
+                "details": details,
+            }
+
+        @self.server.post(
+            "/ui/api/accounts/board/avatar/pin",
+            summary="Web UI 手动设置账号头像",
+            description="将指定图片文件设置为账号头像（会复制到头像目录）",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_board_avatar_pin(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            platform = self._normalize_board_platform(body.get("platform", "douyin"))
+            url = self._normalize_string(body.get("url"))
+            scope: ScopeType = body.get("scope", "download")
+            path = self._normalize_string(body.get("path"))
+            if scope not in {"project", "download"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid scope.",
+                )
+            if not url:
+                raise HTTPException(
+                    status_code=400,
+                    detail="url is required.",
+                )
+            if not path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="path is required.",
+                )
+            row = self._find_active_account_row(platform, url)
+            mark = row.get("mark", "") if isinstance(row, dict) else ""
+            source_rel = self._coerce_scope_media_relpath(
+                scope,
+                path,
+                allow_video=False,
+            )
+            if not source_rel:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid image path.",
+                )
+            source_root = self._scope_root(scope).expanduser().resolve()
+            source_path = resolve_within_root(source_root, source_rel)
+            extension = source_path.suffix.lower() if source_path.suffix else ".jpg"
+            output_path = self._account_avatar_output_path(
+                platform=platform,
+                url=url,
+                mark=mark,
+                extension=extension if extension in IMAGE_SUFFIXES else ".jpg",
+            )
+            try:
+                if source_path.resolve() != output_path.resolve():
+                    copy2(source_path, output_path)
+            except OSError as error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Copy avatar failed: {error}",
+                )
+            try:
+                avatar_rel = self._set_account_avatar_path(
+                    platform,
+                    url,
+                    relative_path(PROJECT_ROOT, output_path),
+                )
+            except OSError as error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Save avatar map failed: {error}",
+                )
+            self.logger.info(
+                _("已手动设置账号头像: {url} -> {path}").format(
+                    url=url,
+                    path=avatar_rel or output_path.name,
+                )
+            )
+            return {
+                "message": _("头像设置成功！"),
+                "platform": platform,
+                "url": url,
+                "avatar_scope": "project",
+                "avatar_path": avatar_rel,
             }
 
         @self.server.get(

@@ -65,6 +65,7 @@ class Settings:
         "owner_url_tiktok": None,
         "root": "",
         "folder_name": "downloads",
+        "profile_avatar_folder": "profile_avatars",
         "name_format": "create_time type nickname desc",
         "desc_length": 64,
         "name_length": 128,
