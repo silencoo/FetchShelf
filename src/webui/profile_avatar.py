@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from shutil import which
 from subprocess import DEVNULL, CalledProcessError, run
@@ -7,6 +8,19 @@ from typing import Any
 from .files import VIDEO_SUFFIXES
 
 __all__ = ["generate_face_avatar"]
+
+_MEDIAPIPE_FACE_MODEL_ENV_KEYS = (
+    "TIKTOKDOWNLOADER_FACE_DETECTOR_MODEL",
+    "MEDIAPIPE_FACE_DETECTOR_MODEL",
+)
+_MEDIAPIPE_FACE_MODEL_CANDIDATES = (
+    "detector.tflite",
+    "face_detector.tflite",
+    "models/detector.tflite",
+    "models/face_detector.tflite",
+    "static/models/detector.tflite",
+    "static/models/face_detector.tflite",
+)
 
 
 def _load_rgb_array(path: Path):
@@ -52,13 +66,147 @@ def _extract_video_frame(path: Path) -> Path:
     return frame_path
 
 
-def _detect_faces(rgb_array, min_confidence: float) -> list[dict[str, Any]]:
+def _resolve_mediapipe_face_model_path() -> Path | None:
+    roots = [Path.cwd(), Path(__file__).resolve().parents[2]]
+    unique_roots = []
+    for root in roots:
+        resolved = root.resolve()
+        if resolved not in unique_roots:
+            unique_roots.append(resolved)
+
+    for env_key in _MEDIAPIPE_FACE_MODEL_ENV_KEYS:
+        raw = os.environ.get(env_key, "").strip()
+        if not raw:
+            continue
+        candidate = Path(raw).expanduser()
+        if candidate.is_absolute():
+            absolute_candidates = [candidate.resolve()]
+        else:
+            absolute_candidates = [
+                (root / candidate).resolve() for root in unique_roots
+            ]
+        for item in absolute_candidates:
+            if item.exists() and item.is_file():
+                return item
+
+    for root in unique_roots:
+        for relative in _MEDIAPIPE_FACE_MODEL_CANDIDATES:
+            candidate = (root / relative).resolve()
+            if candidate.exists() and candidate.is_file():
+                return candidate
+    return None
+
+
+def _detect_faces_with_mediapipe_tasks(
+    rgb_array,
+    min_confidence: float,
+) -> list[dict[str, Any]]:
     try:
         import mediapipe as mp
     except ImportError as error:
         detail = str(error).strip() or error.__class__.__name__
         raise RuntimeError(
-            "导入 mediapipe/cv2 失败："
+            "导入 mediapipe 失败："
+            f"{detail}。请确认已安装 mediapipe，并在容器中安装运行时库 "
+            "(如 libglib2.0-0、libx11-6、libxcb1、libgl1)。"
+        ) from error
+
+    try:
+        from mediapipe.tasks import python as mp_python
+        from mediapipe.tasks.python import vision as mp_vision
+    except Exception as error:
+        version = getattr(mp, "__version__", "unknown")
+        detail = str(error).strip() or error.__class__.__name__
+        raise RuntimeError(
+            "不支持当前的 mediapipe tasks API："
+            f"mediapipe=={version} 无法导入 FaceDetector（{detail}）。"
+        ) from error
+
+    model_path = _resolve_mediapipe_face_model_path()
+    if not model_path:
+        env_names = " / ".join(_MEDIAPIPE_FACE_MODEL_ENV_KEYS)
+        candidates = ", ".join(_MEDIAPIPE_FACE_MODEL_CANDIDATES[:2])
+        raise RuntimeError(
+            "mediapipe tasks FaceDetector 需要模型文件（例如 detector.tflite）。"
+            f"未找到可用模型，请设置环境变量 {env_names} "
+            f"或在项目目录放置 {candidates}。"
+        )
+
+    detector_options = mp_vision.FaceDetectorOptions(
+        base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
+        min_detection_confidence=min_confidence,
+    )
+    try:
+        detector = mp_vision.FaceDetector.create_from_options(detector_options)
+    except Exception as error:
+        detail = str(error).strip() or error.__class__.__name__
+        raise RuntimeError(
+            f"mediapipe tasks FaceDetector 初始化失败：{detail}。"
+        ) from error
+
+    try:
+        mp_image = mp.Image(
+            image_format=mp.ImageFormat.SRGB,
+            data=rgb_array,
+        )
+        results = detector.detect(mp_image)
+    except Exception as error:
+        detail = str(error).strip() or error.__class__.__name__
+        raise RuntimeError(
+            f"mediapipe tasks FaceDetector 识别失败：{detail}。"
+        ) from error
+    finally:
+        detector.close()
+
+    height, width = rgb_array.shape[:2]
+    if width <= 1 or height <= 1:
+        return []
+
+    boxes = []
+    detections = list(getattr(results, "detections", []) or [])
+    for item in detections:
+        bounding_box = getattr(item, "bounding_box", None)
+        if not bounding_box:
+            continue
+        x1 = max(0, int(getattr(bounding_box, "origin_x", 0)))
+        y1 = max(0, int(getattr(bounding_box, "origin_y", 0)))
+        box_w = int(getattr(bounding_box, "width", 0))
+        box_h = int(getattr(bounding_box, "height", 0))
+        if box_w <= 2 or box_h <= 2:
+            continue
+        x2 = min(width, x1 + box_w)
+        y2 = min(height, y1 + box_h)
+        if x2 - x1 <= 2 or y2 - y1 <= 2:
+            continue
+        score = 0.0
+        categories = list(getattr(item, "categories", []) or [])
+        if categories:
+            score = float(getattr(categories[0], "score", 0.0) or 0.0)
+        boxes.append(
+            {
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+                "width": x2 - x1,
+                "height": y2 - y1,
+                "area": (x2 - x1) * (y2 - y1),
+                "score": score,
+            }
+        )
+    return sorted(boxes, key=lambda item: item["area"], reverse=True)
+
+
+def _detect_faces_with_mediapipe_legacy(
+    rgb_array,
+    min_confidence: float,
+) -> list[dict[str, Any]]:
+    try:
+        import mediapipe as mp
+    except ImportError as error:
+        detail = str(error).strip() or error.__class__.__name__
+        raise RuntimeError(
+            "导入 mediapipe 失败："
             f"{detail}。请确认已安装 mediapipe，并在容器中安装运行时库 "
             "(如 libglib2.0-0、libx11-6、libxcb1、libgl1)。"
         ) from error
@@ -116,6 +264,92 @@ def _detect_faces(rgb_array, min_confidence: float) -> list[dict[str, Any]]:
             }
         )
     return sorted(boxes, key=lambda item: item["area"], reverse=True)
+
+
+def _detect_faces_with_opencv(rgb_array, min_confidence: float) -> list[dict[str, Any]]:
+    try:
+        import cv2
+    except ImportError as error:
+        detail = str(error).strip() or error.__class__.__name__
+        raise RuntimeError(f"导入 OpenCV 失败：{detail}。") from error
+
+    cascade_root = Path(getattr(getattr(cv2, "data", None), "haarcascades", ""))
+    cascade_path = cascade_root / "haarcascade_frontalface_default.xml"
+    if not cascade_path.exists():
+        raise RuntimeError(
+            "OpenCV 未提供人脸检测模型 haarcascade_frontalface_default.xml。"
+        )
+
+    detector = cv2.CascadeClassifier(str(cascade_path))
+    if detector.empty():
+        raise RuntimeError("OpenCV 人脸检测模型加载失败。")
+
+    gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
+    if gray.size <= 0:
+        return []
+
+    min_neighbors = 3 if min_confidence < 0.45 else 4 if min_confidence < 0.7 else 5
+    detections = detector.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=min_neighbors,
+        minSize=(24, 24),
+    )
+    boxes = []
+    for x, y, box_w, box_h in detections:
+        x1 = max(0, int(x))
+        y1 = max(0, int(y))
+        x2 = x1 + int(box_w)
+        y2 = y1 + int(box_h)
+        if x2 - x1 <= 2 or y2 - y1 <= 2:
+            continue
+        boxes.append(
+            {
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+                "width": x2 - x1,
+                "height": y2 - y1,
+                "area": (x2 - x1) * (y2 - y1),
+                "score": 0.0,
+            }
+        )
+    return sorted(boxes, key=lambda item: item["area"], reverse=True)
+
+
+def _detect_faces_with_mediapipe(
+    rgb_array,
+    min_confidence: float,
+) -> list[dict[str, Any]]:
+    errors = []
+    for detector in (
+        _detect_faces_with_mediapipe_tasks,
+        _detect_faces_with_mediapipe_legacy,
+    ):
+        try:
+            return detector(rgb_array, min_confidence=min_confidence)
+        except RuntimeError as error:
+            errors.append(str(error))
+    raise RuntimeError("；".join(errors))
+
+
+def _detect_faces(rgb_array, min_confidence: float) -> list[dict[str, Any]]:
+    try:
+        return _detect_faces_with_mediapipe(
+            rgb_array,
+            min_confidence=min_confidence,
+        )
+    except RuntimeError as mediapipe_error:
+        try:
+            return _detect_faces_with_opencv(
+                rgb_array,
+                min_confidence=min_confidence,
+            )
+        except RuntimeError as opencv_error:
+            raise RuntimeError(
+                f"{mediapipe_error}；OpenCV 回退也失败：{opencv_error}"
+            ) from opencv_error
 
 
 def _save_face_crop(
