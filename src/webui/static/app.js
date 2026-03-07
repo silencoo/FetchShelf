@@ -1892,14 +1892,19 @@ function boardColumnsCap() {
   if (width <= 1200) {
     return compactMode ? 6 : 3;
   }
-  return compactMode ? 8 : 6;
+  if (compactMode) {
+    return Math.max(6, Math.min(12, Math.floor(width / 170)));
+  }
+  return Math.max(4, Math.min(8, Math.floor(width / 260)));
 }
 
 function applyBoardColumns(persist = true) {
+  const cap = boardColumnsCap();
   const inputColumns = Number(state.accountBoard.columns || 4);
-  const next = Math.max(1, Math.min(inputColumns, boardColumnsCap()));
+  const next = Math.max(1, Math.min(inputColumns, cap));
   state.accountBoard.columns = next;
   if (refs.boardDensity) {
+    refs.boardDensity.max = String(cap);
     refs.boardDensity.value = String(next);
   }
   if (refs.boardDensityLabel) {
@@ -1908,6 +1913,10 @@ function applyBoardColumns(persist = true) {
   if (refs.boardGrid) {
     refs.boardGrid.style.setProperty("--board-columns", String(next));
     refs.boardGrid.classList.toggle("profile-board-compact", state.accountBoard.viewMode === "avatar");
+    refs.boardGrid.classList.toggle(
+      "profile-board-ultra",
+      state.accountBoard.viewMode === "avatar" && next >= 9,
+    );
   }
   if (persist) {
     try {
