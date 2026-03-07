@@ -50,6 +50,7 @@ const state = {
     viewMode: "avatar",
   },
   accountBoardDirty: true,
+  boardAvatarBatchRunning: false,
 };
 
 const refs = {
@@ -121,6 +122,8 @@ const refs = {
   boardPrevBtn: document.getElementById("board-prev-btn"),
   boardNextBtn: document.getElementById("board-next-btn"),
   boardReloadBtn: document.getElementById("board-reload-btn"),
+  boardAvatarPageBtn: document.getElementById("board-avatar-page-btn"),
+  boardAvatarAllBtn: document.getElementById("board-avatar-all-btn"),
   boardPinAllBtn: document.getElementById("board-pin-all-btn"),
   boardMeta: document.getElementById("board-meta"),
   boardStatus: document.getElementById("board-status"),
@@ -1689,35 +1692,236 @@ function openBoardFolderInFiles(card) {
   updateFilesAccountContext();
 }
 
-async function generateBoardCardAvatar(card) {
+function collectBoardCards() {
+  return Array.from(refs.boardGrid?.querySelectorAll(".profile-card") || []);
+}
+
+function setBoardAvatarBatchBusy(busy) {
+  state.boardAvatarBatchRunning = Boolean(busy);
+  if (refs.boardAvatarPageBtn) {
+    refs.boardAvatarPageBtn.disabled = state.boardAvatarBatchRunning;
+  }
+  if (refs.boardAvatarAllBtn) {
+    refs.boardAvatarAllBtn.disabled = state.boardAvatarBatchRunning;
+  }
+}
+
+async function requestBoardAvatarGenerate(platform, url, path) {
+  return fetchJson("/ui/api/accounts/board/avatar/generate", {
+    method: "POST",
+    headers: headerOptions(true),
+    body: JSON.stringify({
+      platform,
+      url,
+      scope: "download",
+      path,
+    }),
+  });
+}
+
+async function generateBoardCardAvatar(card, options = {}) {
+  const { silent = false, skipIfAvatarExists = false } = options;
   const url = card?.dataset?.url || "";
   const path = card?.dataset?.mediaPath || "";
   const platform = card?.dataset?.platform || state.accountBoard.platform;
-  if (!url || !path) {
-    setBoardStatus("当前卡片没有可用于识别的人脸媒体");
-    return;
+  if (skipIfAvatarExists && card?.dataset?.avatarPath) {
+    return {
+      status: "skipped_existing_avatar",
+    };
   }
-  setBoardStatus("正在生成人脸头像…");
+  if (!url || !path) {
+    if (!silent) {
+      setBoardStatus("当前卡片没有可用于识别的人脸媒体");
+    }
+    return {
+      status: "skipped_no_media",
+    };
+  }
+  if (!silent) {
+    setBoardStatus("正在生成人脸头像…");
+  }
   try {
-    const payload = await fetchJson("/ui/api/accounts/board/avatar/generate", {
-      method: "POST",
-      headers: headerOptions(true),
-      body: JSON.stringify({
-        platform,
-        url,
-        scope: "download",
-        path,
-      }),
-    });
+    const payload = await requestBoardAvatarGenerate(platform, url, path);
     card.dataset.avatarPath = payload.avatar_path || "";
     card.dataset.avatarScope = payload.avatar_scope || "project";
+    card.dataset.previewMode = "avatar";
     renderBoardCardPreview(card);
     const faces = payload?.details?.faces_detected || 0;
-    setBoardStatus(`头像生成成功（识别 ${faces} 张人脸）`);
-    setApiStatus("就绪", "ok");
+    if (!silent) {
+      setBoardStatus(`头像生成成功（识别 ${faces} 张人脸）`);
+      setApiStatus("就绪", "ok");
+    }
+    return {
+      status: "ok",
+      faces,
+      payload,
+    };
   } catch (error) {
-    setBoardStatus(`头像生成失败: ${error.message}`);
+    if (!silent) {
+      setBoardStatus(`头像生成失败: ${error.message}`);
+      setApiStatus(`异常: ${error.message}`, "error");
+    }
+    return {
+      status: "error",
+      error,
+    };
+  }
+}
+
+async function generateBoardAvatarCurrentPage() {
+  if (state.boardAvatarBatchRunning) {
+    setBoardStatus("已有批量 AI 头像任务在运行");
+    return;
+  }
+  const cards = collectBoardCards();
+  if (!cards.length) {
+    setBoardStatus("当前页没有可处理的账号卡片");
+    return;
+  }
+  setBoardAvatarBatchBusy(true);
+  const stats = {
+    success: 0,
+    skippedExisting: 0,
+    skippedNoMedia: 0,
+    failed: 0,
+  };
+  try {
+    for (let index = 0; index < cards.length; index += 1) {
+      const card = cards[index];
+      setBoardStatus(`AI 头像批量生成（当前页）${index + 1}/${cards.length}…`);
+      const result = await generateBoardCardAvatar(card, {
+        silent: true,
+        skipIfAvatarExists: true,
+      });
+      if (result.status === "ok") {
+        stats.success += 1;
+      } else if (result.status === "skipped_existing_avatar") {
+        stats.skippedExisting += 1;
+      } else if (result.status === "skipped_no_media") {
+        stats.skippedNoMedia += 1;
+      } else {
+        stats.failed += 1;
+      }
+    }
+    setBoardStatus(
+      `当前页 AI 头像完成：成功 ${stats.success}，跳过已有头像 ${stats.skippedExisting}，无媒体 ${stats.skippedNoMedia}，失败 ${stats.failed}`,
+    );
+    setApiStatus("就绪", stats.failed ? "warn" : "ok");
+  } finally {
+    setBoardAvatarBatchBusy(false);
+  }
+}
+
+async function fetchBoardPage(platform, page, pageSize = 80) {
+  const query = new URLSearchParams({
+    platform,
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  return fetchJson(`/ui/api/accounts/board?${query.toString()}`, {
+    method: "GET",
+    headers: headerOptions(false),
+  });
+}
+
+async function generateBoardAvatarAllUnpinned() {
+  if (state.boardAvatarBatchRunning) {
+    setBoardStatus("已有批量 AI 头像任务在运行");
+    return;
+  }
+  setBoardAvatarBatchBusy(true);
+  const platform = state.accountBoard.platform || "douyin";
+  const currentCards = collectBoardCards();
+  const cardByUrl = new Map(
+    currentCards.map((card) => [card.dataset.url || "", card]).filter((item) => item[0]),
+  );
+  const stats = {
+    total: 0,
+    success: 0,
+    skippedPinned: 0,
+    skippedExisting: 0,
+    skippedNoMedia: 0,
+    failed: 0,
+  };
+  try {
+    setBoardStatus("正在读取全部账号（用于批量 AI 头像）…");
+    const firstPage = await fetchBoardPage(platform, 1, 80);
+    const pages = Number(firstPage?.pages || 1);
+    const allItems = Array.isArray(firstPage?.items) ? [...firstPage.items] : [];
+    for (let page = 2; page <= pages; page += 1) {
+      const payload = await fetchBoardPage(platform, page, 80);
+      if (Array.isArray(payload?.items)) {
+        allItems.push(...payload.items);
+      }
+    }
+    const candidates = allItems.filter((item) => item && item.url);
+    stats.total = candidates.length;
+    for (let index = 0; index < candidates.length; index += 1) {
+      const item = candidates[index];
+      const url = String(item.url || "");
+      if (!url) {
+        continue;
+      }
+      setBoardStatus(`AI 头像批量生成（全部未 Pin）${index + 1}/${candidates.length}…`);
+      if (item.pinned) {
+        stats.skippedPinned += 1;
+        continue;
+      }
+      if (item.avatar_path) {
+        stats.skippedExisting += 1;
+        continue;
+      }
+      let mediaPath = String(item.media_path || "");
+      let mediaKind = String(item.media_kind || "");
+      if (!mediaPath) {
+        try {
+          const randomMedia = await fetchJson("/ui/api/accounts/board/random", {
+            method: "POST",
+            headers: headerOptions(true),
+            body: JSON.stringify({
+              platform,
+              url,
+              current_path: "",
+              prefer_kind: state.accountBoard.refreshKind || "auto",
+            }),
+          });
+          mediaPath = String(randomMedia.media_path || "");
+          mediaKind = String(randomMedia.media_kind || "");
+        } catch {}
+      }
+      if (!mediaPath) {
+        stats.skippedNoMedia += 1;
+        continue;
+      }
+      const payload = await requestBoardAvatarGenerate(platform, url, mediaPath).catch((error) => {
+        return {
+          __error: error,
+        };
+      });
+      if (payload?.__error) {
+        stats.failed += 1;
+        continue;
+      }
+      stats.success += 1;
+      const card = cardByUrl.get(url);
+      if (card) {
+        card.dataset.mediaPath = mediaPath;
+        card.dataset.mediaKind = mediaKind;
+        card.dataset.avatarPath = payload.avatar_path || "";
+        card.dataset.avatarScope = payload.avatar_scope || "project";
+        card.dataset.previewMode = "avatar";
+        renderBoardCardPreview(card);
+      }
+    }
+    setBoardStatus(
+      `全部未 Pin AI 头像完成：总账号 ${stats.total}，成功 ${stats.success}，跳过已 Pin ${stats.skippedPinned}，跳过已有头像 ${stats.skippedExisting}，无媒体 ${stats.skippedNoMedia}，失败 ${stats.failed}`,
+    );
+    setApiStatus("就绪", stats.failed ? "warn" : "ok");
+  } catch (error) {
+    setBoardStatus(`批量 AI 头像失败: ${error.message}`);
     setApiStatus(`异常: ${error.message}`, "error");
+  } finally {
+    setBoardAvatarBatchBusy(false);
   }
 }
 
@@ -1942,20 +2146,39 @@ function selectedBoardPreview(card) {
       pinned: false,
     };
   }
-  if (state.accountBoard.viewMode === "avatar" && card.dataset.avatarPath) {
-    return {
-      path: card.dataset.avatarPath || "",
-      kind: "image",
-      scope: card.dataset.avatarScope || "project",
-      pinned: true,
-    };
-  }
-  return {
+  const mediaPreview = {
     path: card.dataset.mediaPath || "",
     kind: card.dataset.mediaKind || "",
     scope: "download",
     pinned: card.dataset.pinned === "1",
   };
+  const hasMedia = Boolean(mediaPreview.path && mediaPreview.kind);
+  const avatarPreview = {
+    path: card.dataset.avatarPath || "",
+    kind: "image",
+    scope: card.dataset.avatarScope || "project",
+    pinned: true,
+  };
+  const hasAvatar = Boolean(avatarPreview.path);
+  const forcedMode = String(card.dataset.previewMode || "").toLowerCase();
+  if (forcedMode === "media" && hasMedia) {
+    return mediaPreview;
+  }
+  if (forcedMode === "avatar" && hasAvatar) {
+    return avatarPreview;
+  }
+  if (state.accountBoard.viewMode === "avatar" && hasAvatar) {
+    return avatarPreview;
+  }
+  if (hasMedia) {
+    return mediaPreview;
+  }
+  if (hasAvatar) {
+    return {
+      ...avatarPreview,
+    };
+  }
+  return mediaPreview;
 }
 
 function renderBoardCardPreview(card) {
@@ -2053,6 +2276,7 @@ function renderAccountBoard(items) {
     card.dataset.pinned = item.pinned ? "1" : "0";
     card.dataset.avatarPath = item.avatar_path || "";
     card.dataset.avatarScope = item.avatar_scope || "";
+    card.dataset.previewMode = "";
 
     const mediaWrap = document.createElement("div");
     mediaWrap.className = "profile-media-wrap";
@@ -2178,6 +2402,7 @@ async function refreshBoardCard(card, preferKind = "auto") {
         prefer_kind: preferKind,
       }),
     });
+    card.dataset.previewMode = "media";
     setBoardCardMedia(
       card,
       payload.media_path || "",
@@ -3185,6 +3410,14 @@ function bindEvents() {
     loadAccountBoard(false);
   });
 
+  refs.boardAvatarPageBtn.addEventListener("click", () => {
+    generateBoardAvatarCurrentPage();
+  });
+
+  refs.boardAvatarAllBtn.addEventListener("click", () => {
+    generateBoardAvatarAllUnpinned();
+  });
+
   refs.boardPinAllBtn.addEventListener("click", () => {
     pinCurrentBoardPage();
   });
@@ -3350,6 +3583,7 @@ function startTaskPolling() {
 
 function bootstrap() {
   bindEvents();
+  setBoardAvatarBatchBusy(false);
   syncBatchValuePlaceholder("douyin");
   syncBatchValuePlaceholder("tiktok");
   state.accountBoard.platform = refs.boardPlatform.value || "douyin";
