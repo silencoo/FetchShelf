@@ -262,6 +262,17 @@ class APIServer(TikTok):
         message = str(result.get("message", ""))
         return "失败" in message or "参数错误" in message
 
+    def _sync_runtime_http_clients(self) -> None:
+        if hasattr(self.links, "requester"):
+            self.links.requester.client = self.parameter.client
+        if hasattr(self.links_tiktok, "requester"):
+            self.links_tiktok.requester.client = self.parameter.client_tiktok
+        self.downloader.client = self.parameter.client
+        self.downloader.client_tiktok = self.parameter.client_tiktok
+        self.downloader.proxy = self.parameter.proxy
+        self.downloader.proxy_tiktok = self.parameter.proxy_tiktok
+        self.downloader.timeout = self.parameter.timeout
+
     async def _execute_ui_task(self, task_id: str, worker_id: int) -> None:
         task = self.ui_tasks.get(task_id)
         if not task or task.get("status") != "pending":
@@ -299,6 +310,8 @@ class APIServer(TikTok):
             message = str(error)
             if "client has been closed" in message.lower():
                 try:
+                    old_client = self.parameter.client
+                    old_client_tiktok = self.parameter.client_tiktok
                     self.parameter.client = create_client(
                         timeout=self.parameter.timeout,
                         proxy=self.parameter.proxy,
@@ -307,6 +320,9 @@ class APIServer(TikTok):
                         timeout=self.parameter.timeout,
                         proxy=self.parameter.proxy_tiktok,
                     )
+                    self._sync_runtime_http_clients()
+                    await old_client.aclose()
+                    await old_client_tiktok.aclose()
                     retry_response = await self._execute_ui_endpoint(
                         task["endpoint"],
                         task["payload"],
@@ -1924,6 +1940,7 @@ class APIServer(TikTok):
             self.parameter.settings.update(merged)
             try:
                 await self.parameter.set_settings_data(merged.copy())
+                self._sync_runtime_http_clients()
             except Exception as error:
                 raise HTTPException(
                     status_code=400,
@@ -2565,6 +2582,7 @@ class APIServer(TikTok):
             extract: Settings, token: str = Depends(token_dependency)
         ):
             await self.parameter.set_settings_data(extract.model_dump())
+            self._sync_runtime_http_clients()
             return Settings(**self.parameter.get_settings_data())
 
         @self.server.get(
