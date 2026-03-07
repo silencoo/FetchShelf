@@ -437,6 +437,20 @@ class TikTok:
             tiktok=tiktok,
         )
 
+    def _persist_settings_on_mark_backfill(self, tiktok: bool) -> None:
+        try:
+            self.settings.update(self.parameter.get_settings_data())
+        except OSError as error:
+            platform = "TikTok" if tiktok else _("抖音")
+            self.logger.warning(
+                _(
+                    "已回填 {platform} 账号 mark，但即时写入 settings.json 失败：{error}"
+                ).format(
+                    platform=platform,
+                    error=error,
+                )
+            )
+
     async def account_acquisition_interactive(
         self,
         select="",
@@ -543,6 +557,7 @@ class TikTok:
                 and self._apply_missing_mark(data, result.get("mark", ""))
             ):
                 auto_filled_mark += 1
+                self._persist_settings_on_mark_backfill(tiktok)
             earliest_updated, earliest_target = self._apply_auto_update_earliest(
                 data,
                 earliest_days,
