@@ -2536,12 +2536,12 @@ class APIServer(TikTok):
 
         @self.server.get(
             "/",
-            summary=_("访问项目 GitHub 仓库"),
-            description=_("重定向至项目 GitHub 仓库主页"),
+            summary=_("访问 Web UI 首页"),
+            description=_("重定向至 Web UI 交互界面"),
             tags=[_("项目")],
         )
         async def index():
-            return RedirectResponse(url=REPOSITORY)
+            return RedirectResponse(url="/ui")
 
         @self.server.get(
             "/token",
