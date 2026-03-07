@@ -39,8 +39,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 \
     libx11-6 \
     libxcb1 \
+    libxcb-util1 \
+    libxcb-render0 \
+    libxcb-shm0 \
+    libxfixes3 \
+    libxi6 \
     libgl1 \
     && rm -rf /var/lib/apt/lists/* \
+    && ldconfig \
+    && ldconfig -p | grep -q "libxcb.so.1" \
     && pip install --no-cache-dir uv
 COPY --from=builder /opt/venv /opt/venv
 
