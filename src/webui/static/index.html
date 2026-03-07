@@ -49,6 +49,14 @@
               <input name="folder_name" type="text" placeholder="detail 模式目录名" />
             </label>
             <label class="field">
+              <span>profile_avatar_folder</span>
+              <input
+                name="profile_avatar_folder"
+                type="text"
+                placeholder="自动头像输出目录（位于 settings 下）"
+              />
+            </label>
+            <label class="field">
               <span>storage_format</span>
               <select name="storage_format">
                 <option value="">关闭</option>
@@ -449,6 +457,17 @@
 
           <div id="files-meta" class="status-line">等待加载目录…</div>
           <div id="files-stats" class="status-line">统计信息待加载…</div>
+          <div class="file-account-tools">
+            <div id="files-account-context" class="status-line">
+              账户上下文：未从看板选择账户
+            </div>
+            <div class="card-actions">
+              <button id="files-back-to-board-btn" class="btn ghost">返回账户看板</button>
+              <button id="files-pin-profile-btn" class="btn ghost">设为 Profile Pin</button>
+              <button id="files-generate-avatar-btn" class="btn ghost">AI 生成头像</button>
+              <button id="files-pin-avatar-btn" class="btn ghost">手动设为头像</button>
+            </div>
+          </div>
 
           <div class="gallery-layout">
             <div id="files-list" class="files-list"></div>
@@ -489,6 +508,13 @@
                 <option value="auto">自动(优先图片)</option>
                 <option value="video">视频优先</option>
                 <option value="image">图片优先</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>展示模式</span>
+              <select id="board-view-mode">
+                <option value="avatar">高密度头像</option>
+                <option value="media">媒体卡片</option>
               </select>
             </label>
             <label class="field compact board-density-control">

@@ -205,6 +205,7 @@ demo()
 <ul>
 <li><code>root</code>：下载与数据导出的根目录（作品文件、CSV/XLSX/SQL 等）。默认留空时使用项目数据根目录（即 <code>./settings</code>；Docker 中通常是 <code>/app/settings</code>）。</li>
 <li><code>folder_name</code>：仅用于“链接作品下载（detail）”模式的子目录名称，默认值为 <code>Download</code>。</li>
+<li><code>profile_avatar_folder</code>：WebUI 账户看板 AI 头像输出目录名称（位于 <code>settings</code> 目录下，默认 <code>profile_avatars</code>）。</li>
 <li>账号发布/喜欢/收藏、合集、收藏夹等批量模式不会使用 <code>folder_name</code>，会按内置规则自动命名目录（如 <code>UIDxxx_发布作品</code>、<code>MIDxxx_合集作品</code>）。</li>
 <li><code>Music</code>、<code>Live</code> 目录也不受 <code>folder_name</code> 影响。</li>
 <li><code>settings.json</code>、数据库（<code>DouK-Downloader.db</code>）、缓存（<code>Cache</code>）默认位于项目数据根目录（<code>./settings</code>）。当前没有单独参数只改这三者路径。</li>

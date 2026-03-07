@@ -703,6 +703,13 @@ a {
   word-break: break-word;
 }
 
+.file-account-tools {
+  margin: 8px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .board-toolbar {
   display: flex;
   gap: 8px;
@@ -720,6 +727,10 @@ a {
   column-count: var(--board-columns);
   column-gap: 12px;
   min-height: 120px;
+}
+
+.profile-board.profile-board-compact {
+  column-gap: 8px;
 }
 
 .profile-card {
@@ -794,7 +805,26 @@ a {
 .profile-actions .btn {
   padding: 5px 8px;
   font-size: 11px;
-  flex: 1 1 calc(50% - 6px);
+  flex: 1 1 calc(33.3% - 6px);
+}
+
+.profile-board.profile-board-compact .profile-card {
+  margin: 0 0 8px;
+  border-radius: 10px;
+}
+
+.profile-board.profile-board-compact .profile-media-wrap {
+  aspect-ratio: 1 / 1;
+}
+
+.profile-board.profile-board-compact .profile-body {
+  min-height: 112px;
+  padding: 8px;
+}
+
+.profile-board.profile-board-compact .profile-url,
+.profile-board.profile-board-compact .profile-folder {
+  display: none;
 }
 
 .empty-tip {

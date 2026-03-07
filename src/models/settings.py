@@ -78,6 +78,7 @@ class Settings(BaseModel):
     owner_url_tiktok: None = None
     root: str | None = None
     folder_name: str | None = None
+    profile_avatar_folder: str | None = None
     name_format: str | None = None
     desc_length: int | None = None
     name_length: int | None = None

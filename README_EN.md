@@ -197,6 +197,13 @@ demo()
 <p>Docker containers cannot directly access the host machine's file system, and some features may be unavailable, for example: <code>Get Cookie from Browser</code>; if there are any other issues, please report!</p>
 <hr>
 
+## Profile Avatar Setting
+
+<ul>
+<li><code>profile_avatar_folder</code>: output folder name for WebUI AI profile avatars (under <code>settings</code>, default <code>profile_avatars</code>).</li>
+</ul>
+<hr>
+
 ## About Cookie
 
 [Click to view Cookie tutorial](https://github.com/JoeanAmier/TikTokDownloader/blob/master/docs/Cookie%E8%8E%B7%E5%8F%96%E6%95%99%E7%A8%8B.md)
