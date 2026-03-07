@@ -192,7 +192,7 @@ demo()
 </li>
 <li>View logs: <code>docker logs -f douk-webui</code></li>
 <li>Stop container: <code>docker stop douk-webui</code></li>
-<li>If you need terminal interactive mode, override command: <code>docker run -it --rm &lt;image name&gt; python main.py</code></li>
+<li>If you need terminal interactive mode, override command: <code>docker run -it --rm &lt;image name&gt; uv run --no-sync main.py</code></li>
 </ol>
 <p>Docker containers cannot directly access the host machine's file system, and some features may be unavailable, for example: <code>Get Cookie from Browser</code>; if there are any other issues, please report!</p>
 <hr>

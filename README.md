@@ -195,7 +195,7 @@ demo()
 </li>
 <li>查看日志：<code>docker logs -f douk-webui</code></li>
 <li>停止容器：<code>docker stop douk-webui</code></li>
-<li>如需进入终端交互菜单模式，可覆盖启动命令：<code>docker run -it --rm &lt;镜像名称&gt; python main.py</code></li>
+<li>如需进入终端交互菜单模式，可覆盖启动命令：<code>docker run -it --rm &lt;镜像名称&gt; uv run --no-sync main.py</code></li>
 </ol>
 <p>Docker 容器无法直接访问宿主机的文件系统，部分功能不可用，例如：<code>从浏览器读取 Cookie</code>；其他功能如有异常请反馈！</p>
 <hr>

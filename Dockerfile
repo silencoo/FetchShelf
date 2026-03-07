@@ -1,8 +1,7 @@
 # ---- 阶段 1: 构建器 (Builder) ----
-# 使用一个功能完整的镜像，它包含编译工具或可以轻松安装它们
 FROM python:3.12-bullseye as builder
 
-# 安装编译 uvloop 和 httptools 所需的系统依赖 (C编译器等)
+# 安装编译依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
@@ -10,15 +9,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 设置工作目录
 WORKDIR /app
 
-# 复制需求文件
-COPY requirements.txt .
+# 使用 uv 同步依赖到固定虚拟环境目录
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1
 
-# 在这个具备编译环境的阶段安装所有 Python 依赖
-# 安装到一个独立的目录 /install 中，以便后续复制
-RUN pip install --no-cache-dir --prefix="/install" -r requirements.txt
+COPY pyproject.toml uv.lock ./
+RUN pip install --no-cache-dir uv \
+    && uv sync --frozen --no-dev --no-install-project
 
 # ---- 阶段 2: 最终镜像 (Final Image) ----
-# 使用轻量级 slim 镜像作为最终的运行环境
 FROM python:3.12-slim
 
 # 设置工作目录
@@ -27,8 +27,12 @@ WORKDIR /app
 # 添加元数据标签
 LABEL name="DouK-Downloader" authors="JoeanAmier" repository="https://github.com/JoeanAmier/TikTokDownloader"
 
-# 从构建器阶段，将已经安装好的依赖包复制到最终镜像的系统路径中
-COPY --from=builder /install /usr/local
+# 运行时使用 uv + 预构建虚拟环境
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PATH="/opt/venv/bin:${PATH}"
+
+RUN pip install --no-cache-dir uv
+COPY --from=builder /opt/venv /opt/venv
 
 # 复制你的应用程序代码和相关文件
 COPY src /app/src
@@ -37,6 +41,8 @@ COPY static /app/static
 COPY license /app/license
 COPY main.py /app/main.py
 COPY main_webui.py /app/main_webui.py
+COPY pyproject.toml /app/pyproject.toml
+COPY uv.lock /app/uv.lock
 
 # 暴露端口
 EXPOSE 5555
@@ -45,4 +51,4 @@ EXPOSE 5555
 VOLUME /app/settings
 
 # 设置容器启动命令（默认直接启动 WebUI 服务）
-CMD ["python", "main_webui.py"]
+CMD ["uv", "run", "--no-sync", "main_webui.py"]
