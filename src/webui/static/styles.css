@@ -730,7 +730,7 @@ a {
 }
 
 .profile-board.profile-board-compact {
-  column-gap: 8px;
+  column-gap: 6px;
 }
 
 .profile-card {
@@ -809,7 +809,7 @@ a {
 }
 
 .profile-board.profile-board-compact .profile-card {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   border-radius: 10px;
 }
 
@@ -818,8 +818,40 @@ a {
 }
 
 .profile-board.profile-board-compact .profile-body {
-  min-height: 112px;
-  padding: 8px;
+  min-height: 92px;
+  padding: 6px;
+}
+
+.profile-board.profile-board-compact .profile-title {
+  margin-bottom: 4px;
+}
+
+.profile-board.profile-board-compact .profile-name {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.profile-board.profile-board-compact .profile-actions {
+  gap: 4px;
+}
+
+.profile-board.profile-board-compact .profile-actions .btn {
+  padding: 3px 6px;
+  font-size: 10px;
+  min-height: 24px;
+}
+
+.profile-board.profile-board-ultra .profile-body {
+  min-height: 54px;
+}
+
+.profile-board.profile-board-ultra .profile-actions {
+  display: none;
+}
+
+.profile-board.profile-board-ultra .profile-card:hover .profile-actions,
+.profile-board.profile-board-ultra .profile-card:focus-within .profile-actions {
+  display: flex;
 }
 
 .profile-board.profile-board-compact .profile-url,
