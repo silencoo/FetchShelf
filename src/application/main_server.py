@@ -64,6 +64,7 @@ from ..webui.files import (
     resolve_within_root,
     serialize_entry,
 )
+from ..webui.account_backfill import attach_settings_index_by_url
 from ..webui.profile_avatar import generate_face_avatar
 from .main_terminal import TikTok
 
@@ -1433,12 +1434,18 @@ class APIServer(TikTok):
             self.parameter.accounts_urls_tiktok
             if tiktok
             else self.parameter.accounts_urls
-        ) if use_settings else []
+        )
         rows = [vars(item) for item in settings_rows] if use_settings else payload.get("items", [])
         items = self._normalize_account_items(rows)
         if use_settings:
             for index, item in enumerate(items):
                 item["_settings_index"] = index
+        else:
+            attach_settings_index_by_url(
+                items,
+                settings_rows,
+                normalizer=self._normalize_string,
+            )
         queued_items = [item for item in items if item["url"] and item["enable"]]
 
         if not queued_items:
@@ -1493,18 +1500,18 @@ class APIServer(TikTok):
             )
             if result:
                 success += 1
-                if use_settings:
-                    row_index = item.get("_settings_index")
-                    if isinstance(row_index, int) and 0 <= row_index < len(settings_rows):
-                        if (
-                            getattr(self.parameter, "auto_backfill_mark", True)
-                            and self._apply_missing_mark(
-                                settings_rows[row_index],
-                                result.get("mark", ""),
-                            )
-                        ):
-                            auto_filled_mark += 1
-                            self._persist_settings_on_mark_backfill(tiktok)
+                row_index = item.get("_settings_index")
+                if isinstance(row_index, int) and 0 <= row_index < len(settings_rows):
+                    if (
+                        getattr(self.parameter, "auto_backfill_mark", True)
+                        and self._apply_missing_mark(
+                            settings_rows[row_index],
+                            result.get("mark", ""),
+                        )
+                    ):
+                        auto_filled_mark += 1
+                        self._persist_settings_on_mark_backfill(tiktok)
+                    if use_settings:
                         earliest_updated, earliest_target = self._apply_auto_update_earliest(
                             settings_rows[row_index],
                             earliest_days,
