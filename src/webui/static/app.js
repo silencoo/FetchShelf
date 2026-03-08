@@ -2159,8 +2159,12 @@ function selectedBoardPreview(card) {
     scope: card.dataset.avatarScope || "project",
     pinned: true,
   };
+  const isPinnedProfile = card.dataset.pinned === "1";
   const hasAvatar = Boolean(avatarPreview.path);
   const forcedMode = String(card.dataset.previewMode || "").toLowerCase();
+  if (isPinnedProfile && hasMedia) {
+    return mediaPreview;
+  }
   if (forcedMode === "media" && hasMedia) {
     return mediaPreview;
   }
@@ -2188,6 +2192,7 @@ function renderBoardCardPreview(card) {
   const refreshVideoBtn = card.querySelector('[data-action="board-refresh-video"]');
   const pinBadge = card.querySelector(".profile-pin-badge");
   const avatarBadge = card.querySelector(".profile-avatar-badge");
+  const displayBadge = card.querySelector(".profile-display-badge");
   const avatarBtn = card.querySelector('[data-action="board-generate-avatar"]');
   const preview = selectedBoardPreview(card);
 
@@ -2198,6 +2203,25 @@ function renderBoardCardPreview(card) {
   if (avatarBadge) {
     avatarBadge.textContent = card.dataset.avatarPath ? "有头像" : "无头像";
     avatarBadge.classList.toggle("ok", Boolean(card.dataset.avatarPath));
+  }
+  if (displayBadge) {
+    const isPinnedProfile = card.dataset.pinned === "1";
+    if (isPinnedProfile && card.dataset.mediaPath) {
+      displayBadge.textContent = "展示: Pin";
+      displayBadge.classList.add("ok");
+      displayBadge.classList.remove("warn");
+    } else if (preview.path && preview.scope === "project") {
+      displayBadge.textContent = "展示: AI";
+      displayBadge.classList.add("ok");
+      displayBadge.classList.remove("warn");
+    } else if (preview.path) {
+      displayBadge.textContent = "展示: 媒体";
+      displayBadge.classList.remove("ok", "warn");
+    } else {
+      displayBadge.textContent = "展示: 无";
+      displayBadge.classList.add("warn");
+      displayBadge.classList.remove("ok");
+    }
   }
   if (pinBtn) {
     pinBtn.textContent = card.dataset.pinned === "1" ? "已 Pin" : "Pin";
@@ -2302,9 +2326,13 @@ function renderAccountBoard(items) {
     const avatarBadge = document.createElement("span");
     avatarBadge.className = `badge profile-avatar-badge ${item.avatar_path ? "ok" : ""}`;
     avatarBadge.textContent = item.avatar_path ? "有头像" : "无头像";
+    const displayBadge = document.createElement("span");
+    displayBadge.className = "badge profile-display-badge";
+    displayBadge.textContent = item.pinned ? "展示: Pin" : item.avatar_path ? "展示: AI" : "展示: 媒体";
     badges.appendChild(enableBadge);
     badges.appendChild(pinBadge);
     badges.appendChild(avatarBadge);
+    badges.appendChild(displayBadge);
 
     titleRow.appendChild(name);
     titleRow.appendChild(badges);
