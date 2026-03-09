@@ -114,6 +114,8 @@ class APIServer(TikTok):
     )
     ACCOUNT_BATCH_SCHEDULE = "account_batch"
     COLLECT_MONITOR_SCHEDULE = "collect_monitor"
+    COLLECT_MONITOR_PAGE_COUNT = 20
+    COLLECT_MONITOR_MAX_PAGES = 30
 
     def __init__(
         self,
@@ -1561,6 +1563,67 @@ class APIServer(TikTok):
             sec_uids.append(sec_uid)
         return sec_uids
 
+    @classmethod
+    def _collect_monitor_page_count(cls, limit: int) -> int:
+        return max(1, min(int(limit), cls.COLLECT_MONITOR_PAGE_COUNT))
+
+    async def _collect_monitor_fetch_aweme_items(
+        self,
+        collect_id: str,
+        cookie: str,
+        proxy: str | None,
+        limit: int,
+    ) -> list[dict]:
+        target = self._normalize_collect_limit(limit, default=10)
+        cursor = 0
+        page_count = self._collect_monitor_page_count(target)
+        max_pages = max(
+            1,
+            min(
+                self.COLLECT_MONITOR_MAX_PAGES,
+                (target * 3 + page_count - 1) // page_count,
+            ),
+        )
+        aweme_items: list[dict] = []
+        seen_aweme_ids = set()
+
+        for _ in range(max_pages):
+            collector = CollectsDetail(
+                self.parameter,
+                cookie=cookie,
+                proxy=proxy,
+                collects_id=collect_id,
+                pages=1,
+                cursor=cursor,
+                count=page_count,
+            )
+            page_items = await collector.run(single_page=True)
+            if not isinstance(page_items, list):
+                page_items = []
+
+            for item in page_items:
+                if not isinstance(item, dict):
+                    continue
+                aweme_id = self._normalize_string(item.get("aweme_id"))
+                if aweme_id:
+                    if aweme_id in seen_aweme_ids:
+                        continue
+                    seen_aweme_ids.add(aweme_id)
+                aweme_items.append(item)
+                if len(aweme_items) >= target:
+                    break
+
+            next_cursor = collector.cursor
+            if (
+                len(aweme_items) >= target
+                or collector.finished
+                or next_cursor == cursor
+            ):
+                break
+            cursor = next_cursor
+
+        return aweme_items[:target]
+
     def _resolve_runtime_douyin_cookie(self, override: str = "") -> str:
         if override := self._normalize_string(override):
             return override
@@ -1663,18 +1726,12 @@ class APIServer(TikTok):
             }
         proxy = self._normalize_string(schedule.get("proxy")) or None
         count = self._normalize_collect_limit(schedule.get("limit"), default=10)
-        collector = CollectsDetail(
-            self.parameter,
+        aweme_items = await self._collect_monitor_fetch_aweme_items(
+            collect_id=collect_id,
             cookie=cookie,
             proxy=proxy,
-            collects_id=collect_id,
-            pages=1,
-            cursor=0,
-            count=count,
+            limit=count,
         )
-        aweme_items = await collector.run(single_page=True)
-        if not isinstance(aweme_items, list):
-            aweme_items = []
         sec_uids = self._extract_collect_monitor_sec_uids(aweme_items)
 
         existing_rows = self._normalize_account_items(self._account_rows(False))
