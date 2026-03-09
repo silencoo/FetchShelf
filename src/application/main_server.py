@@ -5,10 +5,11 @@ from json import JSONDecodeError, dumps, loads
 from mimetypes import guess_type
 from pathlib import Path
 from random import choice
+from re import sub
 from shutil import copy2
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import (
     Depends,
@@ -54,7 +55,8 @@ from ..models import (
     UserSearch,
     VideoSearch,
 )
-from ..tools import create_client
+from ..tools import create_client, cookie_dict_to_str
+from ..interface import CollectsDetail
 from ..translation import _
 from ..webui.files import (
     IMAGE_SUFFIXES,
@@ -110,6 +112,8 @@ class APIServer(TikTok):
         "user not found",
         "account has been deleted",
     )
+    ACCOUNT_BATCH_SCHEDULE = "account_batch"
+    COLLECT_MONITOR_SCHEDULE = "collect_monitor"
 
     def __init__(
         self,
@@ -554,6 +558,58 @@ class APIServer(TikTok):
         except (TypeError, ValueError):
             return None
 
+    @classmethod
+    def _normalize_schedule_type(cls, value: Any) -> str:
+        text = cls._normalize_string(value).lower()
+        if text == cls.COLLECT_MONITOR_SCHEDULE:
+            return cls.COLLECT_MONITOR_SCHEDULE
+        return cls.ACCOUNT_BATCH_SCHEDULE
+
+    @staticmethod
+    def _normalize_collect_tab(value: Any) -> str:
+        tab = APIServer._normalize_string(value).lower()
+        if tab in {"post", "favorite", "collection"}:
+            return tab
+        return "post"
+
+    @staticmethod
+    def _normalize_collect_limit(value: Any, default: int = 10) -> int:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            number = default
+        return max(1, min(number, 60))
+
+    @staticmethod
+    def _normalize_collect_interval(value: Any, default: int = 30) -> int:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            number = default
+        return max(1, min(number, 24 * 60))
+
+    @staticmethod
+    def _normalize_account_url(url: str) -> str:
+        value = APIServer._normalize_string(url)
+        if not value:
+            return ""
+        try:
+            parsed = urlsplit(value)
+            path = parsed.path.rstrip("/")
+            if parsed.scheme and parsed.netloc:
+                base = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}"
+                return base
+        except ValueError:
+            pass
+        return value.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+
+    @staticmethod
+    def _normalize_match_token(value: str) -> str:
+        text = APIServer._normalize_string(value).lower()
+        if not text:
+            return ""
+        return sub(r"[^0-9a-z\u4e00-\u9fff]+", "", text)
+
     @staticmethod
     def _normalize_account_items(items: list[dict]) -> list[dict]:
         results = []
@@ -949,6 +1005,19 @@ class APIServer(TikTok):
         except OSError:
             return []
 
+    def _account_match_tokens(self, value: str) -> list[str]:
+        raw = self._normalize_string(value).lower()
+        if not raw:
+            return []
+        tokens = {raw}
+        cleaned = self.parameter.CLEANER.filter_name(raw, "").lower()
+        if cleaned:
+            tokens.add(cleaned)
+        normalized = self._normalize_match_token(raw)
+        if normalized:
+            tokens.add(normalized)
+        return sorted(tokens, key=len, reverse=True)
+
     def _match_account_board_dir(
         self,
         mark: str,
@@ -957,21 +1026,44 @@ class APIServer(TikTok):
     ) -> Path | None:
         if not candidates:
             return None
-        mark_token = self._normalize_string(mark).lower()
-        url_tokens = self._extract_account_tokens(url)
+        mark_tokens = self._account_match_tokens(mark)
+        url_tokens: list[str] = []
+        for token in self._extract_account_tokens(url):
+            url_tokens.extend(self._account_match_tokens(token))
         best_dir = None
         best_score = 0
         for folder in candidates:
             name = folder.name.lower()
+            cleaned_name = self.parameter.CLEANER.filter_name(name, "").lower()
+            normalized_name = self._normalize_match_token(name)
             score = 0
-            if mark_token:
-                if f"_{mark_token}_" in name:
-                    score += 140
-                elif mark_token in name:
-                    score += 100
+            for mark_token in mark_tokens:
+                if not mark_token:
+                    continue
+                if (
+                    f"_{mark_token}_" in name
+                    or f"_{mark_token}_" in cleaned_name
+                    or mark_token in name
+                    or mark_token in cleaned_name
+                    or (
+                        self._normalize_match_token(mark_token)
+                        and self._normalize_match_token(mark_token) in normalized_name
+                    )
+                ):
+                    score += 120
+                    break
             for token in url_tokens:
-                if token and token in name:
-                    score += 24
+                if not token:
+                    continue
+                if (
+                    token in name
+                    or token in cleaned_name
+                    or (
+                        self._normalize_match_token(token)
+                        and self._normalize_match_token(token) in normalized_name
+                    )
+                ):
+                    score += 26
             if score > best_score:
                 best_dir = folder
                 best_score = score
@@ -1288,6 +1380,35 @@ class APIServer(TikTok):
         if any(not isinstance(item, dict) for item in items):
             raise ValueError("items only accepts object items.")
 
+    @staticmethod
+    def _validate_collect_monitor_payload(payload: dict) -> None:
+        collect_id = APIServer._normalize_string(payload.get("collect_id"))
+        if not collect_id:
+            raise ValueError("collect_id is required.")
+        if not collect_id.isdigit():
+            raise ValueError("collect_id must be numeric.")
+        for key in ("interval_minutes", "limit"):
+            if key in payload and payload[key] not in {None, ""}:
+                try:
+                    int(payload[key])
+                except (TypeError, ValueError):
+                    raise ValueError(f"{key} must be integer.")
+        tab = APIServer._normalize_string(payload.get("default_tab"))
+        if tab and tab not in {"post", "favorite", "collection"}:
+            raise ValueError("default_tab must be post/favorite/collection.")
+        for key in (
+            "enabled",
+            "account_enable",
+            "immediate_crawl",
+            "default_auto_update_earliest",
+        ):
+            if key in payload and not isinstance(payload.get(key), bool):
+                raise ValueError(f"{key} must be bool.")
+        for key in ("cookie", "proxy", "bark_url"):
+            value = payload.get(key)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{key} must be string or null.")
+
     def _schedule_public(self, schedule: dict) -> dict:
         return {
             key: value
@@ -1295,7 +1416,59 @@ class APIServer(TikTok):
             if key not in {"_runner"}
         }
 
+    def _normalize_collect_monitor_payload(self, payload: dict) -> dict:
+        now = self._now_text()
+        collect_id = self._normalize_string(payload.get("collect_id"))
+        interval_minutes = self._normalize_collect_interval(
+            payload.get("interval_minutes"),
+            default=30,
+        )
+        limit = self._normalize_collect_limit(payload.get("limit"), default=10)
+        enabled = bool(payload.get("enabled", True))
+        normalized = {
+            "schedule_type": self.COLLECT_MONITOR_SCHEDULE,
+            "schedule_id": self._normalize_string(payload.get("schedule_id")),
+            "name": self._normalize_string(payload.get("name"))
+            or f"收藏夹监控-{collect_id or '未设置'}",
+            "platform": "douyin",
+            "collect_id": collect_id,
+            "interval_minutes": interval_minutes,
+            "limit": limit,
+            "enabled": enabled,
+            "account_enable": bool(payload.get("account_enable", True)),
+            "immediate_crawl": bool(payload.get("immediate_crawl", False)),
+            "default_tab": self._normalize_collect_tab(payload.get("default_tab")),
+            "default_earliest": self._normalize_string(payload.get("default_earliest")),
+            "default_latest": self._normalize_string(payload.get("default_latest")),
+            "default_auto_update_earliest": bool(
+                payload.get("default_auto_update_earliest", False)
+            ),
+            "cookie": self._normalize_string(payload.get("cookie")),
+            "proxy": self._normalize_string(payload.get("proxy")),
+            "bark_url": self._normalize_string(payload.get("bark_url")),
+            "created_at": self._normalize_string(payload.get("created_at")) or now,
+            "updated_at": now,
+            "last_run_at": self._normalize_string(payload.get("last_run_at")),
+            "next_run_at": self._normalize_string(payload.get("next_run_at")),
+            "last_result": (
+                payload.get("last_result")
+                if isinstance(payload.get("last_result"), dict)
+                else {}
+            ),
+        }
+        if normalized["enabled"]:
+            normalized["next_run_at"] = normalized["next_run_at"] or self._next_interval_run_text(
+                normalized["interval_minutes"]
+            )
+        else:
+            normalized["next_run_at"] = ""
+        return normalized
+
     def _normalize_schedule_payload(self, payload: dict) -> dict:
+        schedule_type = self._normalize_schedule_type(payload.get("schedule_type"))
+        if schedule_type == self.COLLECT_MONITOR_SCHEDULE:
+            return self._normalize_collect_monitor_payload(payload)
+
         platform = self._normalize_string(payload.get("platform")) or "douyin"
         if platform not in {"douyin", "tiktok"}:
             platform = "douyin"
@@ -1313,6 +1486,7 @@ class APIServer(TikTok):
         )
         now = self._now_text()
         normalized = {
+            "schedule_type": self.ACCOUNT_BATCH_SCHEDULE,
             "schedule_id": self._normalize_string(payload.get("schedule_id")),
             "name": self._normalize_string(payload.get("name"))
             or f"每日下载-{platform}",
@@ -1349,6 +1523,13 @@ class APIServer(TikTok):
     def _next_run_text(self, hour: int, minute: int) -> str:
         return self._next_run_datetime(hour, minute).strftime("%Y-%m-%d %H:%M:%S")
 
+    @staticmethod
+    def _next_interval_run_datetime(minutes: int) -> datetime:
+        return datetime.now() + timedelta(minutes=max(1, int(minutes or 1)))
+
+    def _next_interval_run_text(self, minutes: int) -> str:
+        return self._next_interval_run_datetime(minutes).strftime("%Y-%m-%d %H:%M:%S")
+
     def _schedule_task_payload(self, schedule: dict) -> tuple[str, dict]:
         endpoint = (
             "/workflow/tiktok/account_batch"
@@ -1362,6 +1543,212 @@ class APIServer(TikTok):
             "proxy": schedule.get("proxy", ""),
         }
         return endpoint, payload
+
+    @staticmethod
+    def _extract_collect_monitor_sec_uids(aweme_items: list[dict]) -> list[str]:
+        sec_uids = []
+        seen = set()
+        for item in aweme_items:
+            if not isinstance(item, dict):
+                continue
+            author = item.get("author") or {}
+            if not isinstance(author, dict):
+                continue
+            sec_uid = APIServer._normalize_string(author.get("sec_uid"))
+            if not sec_uid or sec_uid in seen:
+                continue
+            seen.add(sec_uid)
+            sec_uids.append(sec_uid)
+        return sec_uids
+
+    def _resolve_runtime_douyin_cookie(self, override: str = "") -> str:
+        if override := self._normalize_string(override):
+            return override
+        if self.parameter.cookie_str:
+            return self.parameter.cookie_str
+        if isinstance(self.parameter.cookie_dict, dict) and self.parameter.cookie_dict:
+            return cookie_dict_to_str(self.parameter.cookie_dict)
+        return ""
+
+    async def _send_bark_notification(
+        self,
+        bark_url: str,
+        title: str,
+        body: str,
+        proxy: str | None = None,
+    ) -> tuple[bool, str]:
+        url = self._normalize_string(bark_url)
+        if not url:
+            return False, ""
+        proxy_value = self._normalize_string(proxy) or self.parameter.proxy
+        timeout = max(5, min(int(getattr(self.parameter, "timeout", 10) or 10), 30))
+        try:
+            async with create_client(timeout=timeout, proxy=proxy_value) as client:
+                if "{title}" in url or "{body}" in url:
+                    target = url.format(
+                        title=quote(title, safe=""),
+                        body=quote(body, safe=""),
+                    )
+                    response = await client.get(target)
+                elif url.rstrip("/").endswith("/push"):
+                    response = await client.post(
+                        url,
+                        json={
+                            "title": title,
+                            "body": body,
+                        },
+                    )
+                else:
+                    target = f"{url.rstrip('/')}/{quote(title, safe='')}/{quote(body, safe='')}"
+                    response = await client.get(target)
+                response.raise_for_status()
+                return True, ""
+        except Exception as error:  # noqa: BLE001
+            return False, str(error)
+
+    async def _notify_collect_monitor(
+        self,
+        schedule: dict,
+        success: bool,
+        summary: dict,
+        error_text: str = "",
+    ) -> None:
+        bark_url = self._normalize_string(schedule.get("bark_url"))
+        if not bark_url:
+            return
+        title = (
+            f"收藏夹监控成功: {schedule.get('name') or schedule.get('collect_id')}"
+            if success
+            else f"收藏夹监控异常: {schedule.get('name') or schedule.get('collect_id')}"
+        )
+        if success:
+            body = (
+                f"collect_id={schedule.get('collect_id')} "
+                f"新增{summary.get('added_accounts', 0)} 去重{summary.get('duplicate_accounts', 0)} "
+                f"作品{summary.get('fetched_aweme', 0)}"
+            )
+        else:
+            body = (
+                f"collect_id={schedule.get('collect_id')} "
+                f"错误={error_text or summary.get('error', 'unknown')}"
+            )
+        sent, error = await self._send_bark_notification(
+            bark_url=bark_url,
+            title=title,
+            body=body,
+            proxy=self._normalize_string(schedule.get("proxy")),
+        )
+        if not sent and error:
+            self.logger.warning(
+                _("Bark 通知发送失败：{error}").format(error=error),
+            )
+
+    async def _run_collect_monitor_once(self, schedule: dict) -> dict:
+        collect_id = self._normalize_string(schedule.get("collect_id"))
+        if not collect_id:
+            return {
+                "ok": False,
+                "error": "collect_id is empty",
+            }
+        if not collect_id.isdigit():
+            return {
+                "ok": False,
+                "error": "collect_id must be numeric",
+            }
+        cookie = self._resolve_runtime_douyin_cookie(schedule.get("cookie", ""))
+        if not cookie:
+            return {
+                "ok": False,
+                "error": _("未配置抖音 Cookie，无法访问收藏夹接口"),
+            }
+        proxy = self._normalize_string(schedule.get("proxy")) or None
+        count = self._normalize_collect_limit(schedule.get("limit"), default=10)
+        collector = CollectsDetail(
+            self.parameter,
+            cookie=cookie,
+            proxy=proxy,
+            collects_id=collect_id,
+            pages=1,
+            cursor=0,
+            count=count,
+        )
+        aweme_items = await collector.run(single_page=True)
+        if not isinstance(aweme_items, list):
+            aweme_items = []
+        sec_uids = self._extract_collect_monitor_sec_uids(aweme_items)
+
+        existing_rows = self._normalize_account_items(self._account_rows(False))
+        seen_urls = {
+            self._normalize_account_url(item.get("url", ""))
+            for item in existing_rows
+            if self._normalize_account_url(item.get("url", ""))
+        }
+        new_rows = []
+        duplicate_accounts = 0
+        for sec_uid in sec_uids:
+            account_url = f"https://www.douyin.com/user/{sec_uid}"
+            key = self._normalize_account_url(account_url)
+            if not key or key in seen_urls:
+                duplicate_accounts += 1
+                continue
+            seen_urls.add(key)
+            new_rows.append(
+                {
+                    "mark": "",
+                    "url": account_url,
+                    "tab": self._normalize_collect_tab(schedule.get("default_tab")),
+                    "earliest": self._normalize_string(schedule.get("default_earliest")),
+                    "latest": self._normalize_string(schedule.get("default_latest")),
+                    "enable": bool(schedule.get("account_enable", True)),
+                    "auto_update_earliest": bool(
+                        schedule.get("default_auto_update_earliest", False)
+                    ),
+                }
+            )
+
+        if new_rows:
+            merged_rows = [*existing_rows, *new_rows]
+            self._set_account_rows(False, merged_rows)
+            self.parameter.settings.update(self.parameter.get_settings_data())
+
+        immediate_result: dict[str, Any] = {}
+        if new_rows and bool(schedule.get("immediate_crawl", False)):
+            batch = await self._run_ui_account_batch(
+                payload={
+                    "use_settings": False,
+                    "items": new_rows,
+                    "cookie": self._normalize_string(schedule.get("cookie")),
+                    "proxy": self._normalize_string(schedule.get("proxy")),
+                },
+                tiktok=False,
+            )
+            immediate_result = {
+                "message": batch.message,
+                "data": batch.data,
+            }
+
+        summary = {
+            "ok": True,
+            "collect_id": collect_id,
+            "fetched_aweme": len(aweme_items),
+            "sec_uid_count": len(sec_uids),
+            "added_accounts": len(new_rows),
+            "duplicate_accounts": duplicate_accounts,
+            "immediate_crawl": bool(schedule.get("immediate_crawl", False)),
+            "immediate_result": immediate_result,
+        }
+        self.logger.info(
+            _(
+                "收藏夹监控完成: collect_id={collect} 作品={works} sec_uid={sec} 新增账号={added} 去重={dup}"
+            ).format(
+                collect=collect_id,
+                works=summary["fetched_aweme"],
+                sec=summary["sec_uid_count"],
+                added=summary["added_accounts"],
+                dup=summary["duplicate_accounts"],
+            )
+        )
+        return summary
 
     def _start_single_schedule_runner(self, schedule_id: str) -> None:
         if schedule_id in self.ui_schedule_tasks:
@@ -1383,7 +1770,15 @@ class APIServer(TikTok):
             schedule = self.ui_schedules.get(schedule_id)
             if not schedule or not schedule.get("enabled", False):
                 break
-            next_run = self._next_run_datetime(schedule["hour"], schedule["minute"])
+            schedule_type = self._normalize_schedule_type(schedule.get("schedule_type"))
+            if schedule_type == self.COLLECT_MONITOR_SCHEDULE:
+                interval = self._normalize_collect_interval(
+                    schedule.get("interval_minutes"),
+                    default=30,
+                )
+                next_run = self._next_interval_run_datetime(interval)
+            else:
+                next_run = self._next_run_datetime(schedule["hour"], schedule["minute"])
             schedule["next_run_at"] = next_run.strftime("%Y-%m-%d %H:%M:%S")
             delay = max(1.0, (next_run - datetime.now()).total_seconds())
             try:
@@ -1393,17 +1788,49 @@ class APIServer(TikTok):
             schedule = self.ui_schedules.get(schedule_id)
             if not schedule or not schedule.get("enabled", False):
                 continue
-            endpoint, payload = self._schedule_task_payload(schedule)
-            self._enqueue_ui_task(
-                endpoint=endpoint,
-                payload=loads(dumps(payload, ensure_ascii=False)),
-            )
+            schedule_type = self._normalize_schedule_type(schedule.get("schedule_type"))
+            if schedule_type == self.COLLECT_MONITOR_SCHEDULE:
+                try:
+                    result = await self._run_collect_monitor_once(schedule)
+                except Exception as error:  # noqa: BLE001
+                    result = {
+                        "ok": False,
+                        "error": str(error),
+                    }
+                schedule["last_result"] = result
+                if result.get("ok", False):
+                    await self._notify_collect_monitor(
+                        schedule=schedule,
+                        success=True,
+                        summary=result,
+                    )
+                else:
+                    await self._notify_collect_monitor(
+                        schedule=schedule,
+                        success=False,
+                        summary=result,
+                        error_text=self._normalize_string(result.get("error")),
+                    )
+            else:
+                endpoint, payload = self._schedule_task_payload(schedule)
+                self._enqueue_ui_task(
+                    endpoint=endpoint,
+                    payload=loads(dumps(payload, ensure_ascii=False)),
+                )
             schedule["last_run_at"] = self._now_text()
             schedule["updated_at"] = self._now_text()
-            schedule["next_run_at"] = self._next_run_text(
-                schedule["hour"],
-                schedule["minute"],
-            )
+            if schedule_type == self.COLLECT_MONITOR_SCHEDULE:
+                schedule["next_run_at"] = self._next_interval_run_text(
+                    self._normalize_collect_interval(
+                        schedule.get("interval_minutes"),
+                        default=30,
+                    )
+                )
+            else:
+                schedule["next_run_at"] = self._next_run_text(
+                    schedule["hour"],
+                    schedule["minute"],
+                )
             self.parameter.ui_schedules = [
                 self._schedule_public(item) for item in self.ui_schedules.values()
             ]
@@ -1419,6 +1846,29 @@ class APIServer(TikTok):
             )
         ]
         self.parameter.settings.update(self.parameter.get_settings_data())
+
+    def _schedule_items_by_type(self, schedule_type: str) -> list[dict]:
+        target = self._normalize_schedule_type(schedule_type)
+        return [
+            item
+            for item in self.ui_schedules.values()
+            if self._normalize_schedule_type(item.get("schedule_type")) == target
+        ]
+
+    def _find_schedule_by_type(
+        self,
+        schedule_id: str,
+        schedule_type: str,
+    ) -> dict | None:
+        schedule = self.ui_schedules.get(schedule_id)
+        if not schedule:
+            return None
+        if (
+            self._normalize_schedule_type(schedule.get("schedule_type"))
+            != self._normalize_schedule_type(schedule_type)
+        ):
+            return None
+        return schedule
 
     async def _run_ui_account_batch(
         self,
@@ -2715,7 +3165,7 @@ class APIServer(TikTok):
             items = [
                 self._schedule_public(item)
                 for item in sorted(
-                    self.ui_schedules.values(),
+                    self._schedule_items_by_type(self.ACCOUNT_BATCH_SCHEDULE),
                     key=lambda item: item.get("schedule_id", ""),
                     reverse=True,
                 )
@@ -2742,6 +3192,8 @@ class APIServer(TikTok):
                     status_code=400,
                     detail=f"Payload validation failed: {error}",
                 )
+            body = dict(body)
+            body["schedule_type"] = self.ACCOUNT_BATCH_SCHEDULE
             schedule = self._normalize_schedule_payload(body)
             schedule["schedule_id"] = self._new_schedule_id()
             self.ui_schedules[schedule["schedule_id"]] = schedule
@@ -2763,7 +3215,10 @@ class APIServer(TikTok):
             body: dict = Body(default={}),
             token: str = Depends(token_dependency),
         ):
-            schedule = self.ui_schedules.get(schedule_id)
+            schedule = self._find_schedule_by_type(
+                schedule_id,
+                self.ACCOUNT_BATCH_SCHEDULE,
+            )
             if not schedule:
                 raise HTTPException(status_code=404, detail="Schedule not found.")
             enabled = body.get("enabled")
@@ -2800,7 +3255,10 @@ class APIServer(TikTok):
             schedule_id: str,
             token: str = Depends(token_dependency),
         ):
-            schedule = self.ui_schedules.get(schedule_id)
+            schedule = self._find_schedule_by_type(
+                schedule_id,
+                self.ACCOUNT_BATCH_SCHEDULE,
+            )
             if not schedule:
                 raise HTTPException(status_code=404, detail="Schedule not found.")
             endpoint, payload = self._schedule_task_payload(schedule)
@@ -2830,13 +3288,179 @@ class APIServer(TikTok):
             schedule_id: str,
             token: str = Depends(token_dependency),
         ):
-            schedule = self.ui_schedules.pop(schedule_id, None)
+            schedule = self._find_schedule_by_type(
+                schedule_id,
+                self.ACCOUNT_BATCH_SCHEDULE,
+            )
             if not schedule:
                 raise HTTPException(status_code=404, detail="Schedule not found.")
+            self.ui_schedules.pop(schedule_id, None)
             await self._stop_single_schedule_runner(schedule_id)
             self._persist_ui_schedules()
             return {
                 "message": _("删除定时任务成功！"),
+                "schedule_id": schedule_id,
+            }
+
+        @self.server.get(
+            "/ui/api/collect-monitors",
+            summary="Web UI 收藏夹监控列表",
+            description="返回收藏夹监控配置与状态",
+            tags=[_("项目")],
+        )
+        async def webui_list_collect_monitors(
+            token: str = Depends(token_dependency),
+        ):
+            items = [
+                self._schedule_public(item)
+                for item in sorted(
+                    self._schedule_items_by_type(self.COLLECT_MONITOR_SCHEDULE),
+                    key=lambda item: item.get("schedule_id", ""),
+                    reverse=True,
+                )
+            ]
+            return {
+                "items": items,
+                "count": len(items),
+            }
+
+        @self.server.post(
+            "/ui/api/collect-monitors",
+            summary="Web UI 创建收藏夹监控",
+            description="创建基于 collect_id 的定时监控任务",
+            tags=[_("项目")],
+        )
+        async def webui_create_collect_monitor(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                self._validate_collect_monitor_payload(body)
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Payload validation failed: {error}",
+                )
+            payload = dict(body)
+            payload["schedule_type"] = self.COLLECT_MONITOR_SCHEDULE
+            schedule = self._normalize_schedule_payload(payload)
+            schedule["schedule_id"] = self._new_schedule_id()
+            self.ui_schedules[schedule["schedule_id"]] = schedule
+            if schedule["enabled"]:
+                self._start_single_schedule_runner(schedule["schedule_id"])
+            self._persist_ui_schedules()
+            return {
+                "monitor": self._schedule_public(schedule),
+            }
+
+        @self.server.post(
+            "/ui/api/collect-monitors/{schedule_id}/toggle",
+            summary="Web UI 切换收藏夹监控状态",
+            description="启用或停用收藏夹监控任务",
+            tags=[_("项目")],
+        )
+        async def webui_toggle_collect_monitor(
+            schedule_id: str,
+            body: dict = Body(default={}),
+            token: str = Depends(token_dependency),
+        ):
+            schedule = self._find_schedule_by_type(
+                schedule_id,
+                self.COLLECT_MONITOR_SCHEDULE,
+            )
+            if not schedule:
+                raise HTTPException(status_code=404, detail="Monitor not found.")
+            enabled = body.get("enabled")
+            if enabled is None:
+                enabled = not schedule.get("enabled", False)
+            if not isinstance(enabled, bool):
+                raise HTTPException(status_code=400, detail="enabled must be bool.")
+            schedule["enabled"] = enabled
+            schedule["updated_at"] = self._now_text()
+            if enabled:
+                schedule["next_run_at"] = self._next_interval_run_text(
+                    self._normalize_collect_interval(
+                        schedule.get("interval_minutes"),
+                        default=30,
+                    )
+                )
+                self._start_single_schedule_runner(schedule_id)
+            else:
+                schedule["next_run_at"] = ""
+                await self._stop_single_schedule_runner(schedule_id)
+            self._persist_ui_schedules()
+            return {
+                "monitor": self._schedule_public(schedule),
+            }
+
+        @self.server.post(
+            "/ui/api/collect-monitors/{schedule_id}/run",
+            summary="Web UI 立即执行收藏夹监控",
+            description="立刻执行一次收藏夹监控并返回结果",
+            tags=[_("项目")],
+        )
+        async def webui_run_collect_monitor_now(
+            schedule_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            schedule = self._find_schedule_by_type(
+                schedule_id,
+                self.COLLECT_MONITOR_SCHEDULE,
+            )
+            if not schedule:
+                raise HTTPException(status_code=404, detail="Monitor not found.")
+            try:
+                result = await self._run_collect_monitor_once(schedule)
+            except Exception as error:  # noqa: BLE001
+                result = {
+                    "ok": False,
+                    "error": str(error),
+                }
+            schedule["last_result"] = result
+            schedule["last_run_at"] = self._now_text()
+            schedule["updated_at"] = self._now_text()
+            if schedule.get("enabled", False):
+                schedule["next_run_at"] = self._next_interval_run_text(
+                    self._normalize_collect_interval(
+                        schedule.get("interval_minutes"),
+                        default=30,
+                    )
+                )
+            else:
+                schedule["next_run_at"] = ""
+            await self._notify_collect_monitor(
+                schedule=schedule,
+                success=bool(result.get("ok", False)),
+                summary=result,
+                error_text=self._normalize_string(result.get("error")),
+            )
+            self._persist_ui_schedules()
+            return {
+                "monitor": self._schedule_public(schedule),
+                "result": result,
+            }
+
+        @self.server.delete(
+            "/ui/api/collect-monitors/{schedule_id}",
+            summary="Web UI 删除收藏夹监控",
+            description="删除收藏夹监控配置",
+            tags=[_("项目")],
+        )
+        async def webui_delete_collect_monitor(
+            schedule_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            schedule = self._find_schedule_by_type(
+                schedule_id,
+                self.COLLECT_MONITOR_SCHEDULE,
+            )
+            if not schedule:
+                raise HTTPException(status_code=404, detail="Monitor not found.")
+            self.ui_schedules.pop(schedule_id, None)
+            await self._stop_single_schedule_runner(schedule_id)
+            self._persist_ui_schedules()
+            return {
+                "message": _("删除收藏夹监控成功！"),
                 "schedule_id": schedule_id,
             }
 

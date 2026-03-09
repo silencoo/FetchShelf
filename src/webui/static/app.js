@@ -187,6 +187,25 @@ const refs = {
   scheduleStatus: document.getElementById("schedule-status"),
   scheduleList: document.getElementById("schedule-list"),
 
+  monitorName: document.getElementById("monitor-name"),
+  monitorCollectId: document.getElementById("monitor-collect-id"),
+  monitorInterval: document.getElementById("monitor-interval"),
+  monitorLimit: document.getElementById("monitor-limit"),
+  monitorDefaultTab: document.getElementById("monitor-default-tab"),
+  monitorDefaultEarliest: document.getElementById("monitor-default-earliest"),
+  monitorDefaultLatest: document.getElementById("monitor-default-latest"),
+  monitorBarkUrl: document.getElementById("monitor-bark-url"),
+  monitorCookie: document.getElementById("monitor-cookie"),
+  monitorProxy: document.getElementById("monitor-proxy"),
+  monitorEnabled: document.getElementById("monitor-enabled"),
+  monitorAccountEnable: document.getElementById("monitor-account-enable"),
+  monitorImmediateCrawl: document.getElementById("monitor-immediate-crawl"),
+  monitorAutoUpdateEarliest: document.getElementById("monitor-auto-update-earliest"),
+  monitorCreateBtn: document.getElementById("monitor-create-btn"),
+  monitorRefreshBtn: document.getElementById("monitor-refresh-btn"),
+  monitorStatus: document.getElementById("monitor-status"),
+  monitorList: document.getElementById("monitor-list"),
+
   taskEndpoint: document.getElementById("task-endpoint"),
   taskPayload: document.getElementById("task-payload"),
   taskTemplateBtn: document.getElementById("task-template-btn"),
@@ -2865,6 +2884,151 @@ async function deleteSchedule(scheduleId) {
   }
 }
 
+function collectMonitorPayloadFromForm() {
+  return {
+    name: refs.monitorName.value.trim(),
+    collect_id: refs.monitorCollectId.value.trim(),
+    interval_minutes: Number(refs.monitorInterval.value || 30),
+    limit: Number(refs.monitorLimit.value || 10),
+    default_tab: refs.monitorDefaultTab.value || "post",
+    default_earliest: refs.monitorDefaultEarliest.value.trim(),
+    default_latest: refs.monitorDefaultLatest.value.trim(),
+    bark_url: refs.monitorBarkUrl.value.trim(),
+    cookie: refs.monitorCookie.value.trim(),
+    proxy: refs.monitorProxy.value.trim(),
+    enabled: refs.monitorEnabled.checked,
+    account_enable: refs.monitorAccountEnable.checked,
+    immediate_crawl: refs.monitorImmediateCrawl.checked,
+    default_auto_update_earliest: refs.monitorAutoUpdateEarliest.checked,
+  };
+}
+
+function renderCollectMonitorList(items) {
+  if (!refs.monitorList) {
+    return;
+  }
+  refs.monitorList.innerHTML = "";
+  if (!Array.isArray(items) || !items.length) {
+    refs.monitorList.innerHTML =
+      '<div class="task-row"><div class="task-main"><span class="task-endpoint">暂无收藏夹监控</span></div></div>';
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  items.forEach((item) => {
+    const lastResult = item?.last_result && typeof item.last_result === "object" ? item.last_result : {};
+    const statusTag = item.enabled ? "enabled" : "disabled";
+    const row = document.createElement("div");
+    row.className = "task-row";
+    row.innerHTML = `
+      <span class="task-status ${item.enabled ? "success" : "canceled"}">${statusTag}</span>
+      <div class="task-main">
+        <span class="task-id">${item.schedule_id || "-"}</span>
+        <span class="task-endpoint">${item.name || "-"} · collect_id=${item.collect_id || "-"}</span>
+        <span class="task-time">
+          间隔 ${item.interval_minutes || "-"} 分钟 · limit ${item.limit || "-"} · 下次 ${item.next_run_at || "-"}
+        </span>
+        <span class="task-time">
+          上次 ${item.last_run_at || "-"} · 新增 ${lastResult.added_accounts || 0} · 去重 ${lastResult.duplicate_accounts || 0}
+        </span>
+      </div>
+      <div class="task-actions">
+        <button class="btn ghost" data-action="run">立即执行</button>
+        <button class="btn ghost" data-action="toggle">${item.enabled ? "停用" : "启用"}</button>
+        <button class="btn ghost danger" data-action="delete">删除</button>
+      </div>
+    `;
+    row.querySelector('[data-action="run"]')?.addEventListener("click", () => {
+      runCollectMonitorNow(item.schedule_id);
+    });
+    row.querySelector('[data-action="toggle"]')?.addEventListener("click", () => {
+      toggleCollectMonitor(item.schedule_id, !item.enabled);
+    });
+    row.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
+      deleteCollectMonitor(item.schedule_id);
+    });
+    fragment.appendChild(row);
+  });
+  refs.monitorList.appendChild(fragment);
+}
+
+async function loadCollectMonitors() {
+  try {
+    const payload = await fetchJson("/ui/api/collect-monitors", {
+      method: "GET",
+      headers: headerOptions(false),
+    });
+    renderCollectMonitorList(payload.items || []);
+  } catch (error) {
+    refs.monitorStatus.textContent = `加载监控失败: ${error.message}`;
+  }
+}
+
+async function createCollectMonitor() {
+  refs.monitorStatus.textContent = "正在创建收藏夹监控…";
+  try {
+    const payload = collectMonitorPayloadFromForm();
+    await fetchJson("/ui/api/collect-monitors", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify(payload),
+    });
+    refs.monitorStatus.textContent = "收藏夹监控创建成功";
+    await loadCollectMonitors();
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.monitorStatus.textContent = `创建失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function toggleCollectMonitor(scheduleId, enabled) {
+  try {
+    await fetchJson(`/ui/api/collect-monitors/${encodeURIComponent(scheduleId)}/toggle`, {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({ enabled }),
+    });
+    refs.monitorStatus.textContent = "监控状态已更新";
+    await loadCollectMonitors();
+  } catch (error) {
+    refs.monitorStatus.textContent = `更新失败: ${error.message}`;
+  }
+}
+
+async function runCollectMonitorNow(scheduleId) {
+  try {
+    const payload = await fetchJson(`/ui/api/collect-monitors/${encodeURIComponent(scheduleId)}/run`, {
+      method: "POST",
+      headers: headerOptions(false),
+    });
+    const result = payload?.result || {};
+    if (result.ok) {
+      refs.monitorStatus.textContent = `执行完成: 新增 ${result.added_accounts || 0} · 去重 ${result.duplicate_accounts || 0}`;
+    } else {
+      refs.monitorStatus.textContent = `执行失败: ${result.error || "unknown"}`;
+    }
+    await loadCollectMonitors();
+    if (payload?.result?.immediate_result) {
+      refs.workflowAccountSummary.textContent = `监控触发下载: ${payload.result.immediate_result.message || "-"}`;
+    }
+  } catch (error) {
+    refs.monitorStatus.textContent = `触发失败: ${error.message}`;
+  }
+}
+
+async function deleteCollectMonitor(scheduleId) {
+  try {
+    await fetchJson(`/ui/api/collect-monitors/${encodeURIComponent(scheduleId)}`, {
+      method: "DELETE",
+      headers: headerOptions(false),
+    });
+    refs.monitorStatus.textContent = "监控已删除";
+    await loadCollectMonitors();
+  } catch (error) {
+    refs.monitorStatus.textContent = `删除失败: ${error.message}`;
+  }
+}
+
 function formatWorkflowAccountSummary(task) {
   const endpoint = String(task?.endpoint || "");
   if (!endpoint.endsWith("/account_batch")) {
@@ -3073,6 +3237,7 @@ function bindEvents() {
     loadFiles();
     loadTaskList();
     loadSchedules();
+    loadCollectMonitors();
     connectLogSocket();
   });
 
@@ -3564,6 +3729,14 @@ function bindEvents() {
     loadSchedules();
   });
 
+  refs.monitorCreateBtn.addEventListener("click", () => {
+    createCollectMonitor();
+  });
+
+  refs.monitorRefreshBtn.addEventListener("click", () => {
+    loadCollectMonitors();
+  });
+
   refs.taskEndpoint.addEventListener("change", () => {
     loadTaskTemplate();
   });
@@ -3669,6 +3842,7 @@ function bootstrap() {
   loadFiles();
   loadTaskList();
   loadSchedules();
+  loadCollectMonitors();
 }
 
 bootstrap();
