@@ -14,6 +14,7 @@
           <p>Card 模块化控制台</p>
           <div class="top-tabs">
             <button class="tab-btn active" data-tab-target="workbench">下载工作台</button>
+            <button class="tab-btn" data-tab-target="monitor">账户监控</button>
             <button class="tab-btn" data-tab-target="control">设置与日志</button>
             <button class="tab-btn" data-tab-target="files">文件浏览</button>
             <button class="tab-btn" data-tab-target="profiles">账户看板</button>
@@ -544,6 +545,84 @@
           </div>
           <div id="board-status" class="status-line">切换到该标签页后自动加载</div>
           <div id="board-grid" class="profile-board"></div>
+        </section>
+
+        <section class="card monitor-card tab-panel hidden-panel" data-tab-panel="monitor">
+          <div class="card-head">
+            <h2>账户监控（收藏夹 → 账号）</h2>
+            <div class="card-actions">
+              <button id="monitor-refresh-btn" class="btn ghost">刷新监控列表</button>
+            </div>
+          </div>
+          <div class="monitor-grid">
+            <label class="field">
+              <span>名称</span>
+              <input id="monitor-name" type="text" placeholder="例如：收藏夹监控-A" />
+            </label>
+            <label class="field">
+              <span>collect_id</span>
+              <input id="monitor-collect-id" type="text" placeholder="1234567890123456789" />
+            </label>
+            <label class="field">
+              <span>监控间隔(分钟)</span>
+              <input id="monitor-interval" type="number" min="1" max="1440" value="30" />
+            </label>
+            <label class="field">
+              <span>限定数量(limit)</span>
+              <input id="monitor-limit" type="number" min="1" max="60" value="10" />
+            </label>
+            <label class="field">
+              <span>默认 tab</span>
+              <select id="monitor-default-tab">
+                <option value="post" selected>post</option>
+                <option value="favorite">favorite</option>
+                <option value="collection">collection</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>默认 earliest</span>
+              <input id="monitor-default-earliest" type="text" placeholder="YYYY/MM/DD" />
+            </label>
+            <label class="field">
+              <span>默认 latest</span>
+              <input id="monitor-default-latest" type="text" placeholder="YYYY/MM/DD" />
+            </label>
+            <label class="field">
+              <span>Bark URL</span>
+              <input id="monitor-bark-url" type="text" placeholder="https://api.day.app/xxx" />
+            </label>
+            <label class="field">
+              <span>cookie(可选覆盖)</span>
+              <input id="monitor-cookie" type="text" placeholder="留空使用默认 Cookie" />
+            </label>
+            <label class="field">
+              <span>proxy(可选覆盖)</span>
+              <input id="monitor-proxy" type="text" placeholder="如 socks5://127.0.0.1:1080" />
+            </label>
+          </div>
+          <div class="monitor-toggle-row">
+            <label class="toggle-field">
+              <input id="monitor-enabled" type="checkbox" checked />
+              <span>启用监控</span>
+            </label>
+            <label class="toggle-field">
+              <input id="monitor-account-enable" type="checkbox" checked />
+              <span>新增账号默认启用</span>
+            </label>
+            <label class="toggle-field">
+              <input id="monitor-immediate-crawl" type="checkbox" />
+              <span>新增后立即爬取</span>
+            </label>
+            <label class="toggle-field">
+              <input id="monitor-auto-update-earliest" type="checkbox" />
+              <span>新增账号 auto update earliest</span>
+            </label>
+          </div>
+          <div class="card-actions">
+            <button id="monitor-create-btn" class="btn primary">创建监控</button>
+          </div>
+          <div id="monitor-status" class="status-line">等待创建监控</div>
+          <div id="monitor-list" class="task-queue-list"></div>
         </section>
 
         <section class="card tools-card tab-panel" data-tab-panel="workbench">
