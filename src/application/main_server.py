@@ -1707,7 +1707,8 @@ class APIServer(TikTok):
             )
 
         if new_rows:
-            merged_rows = [*existing_rows, *new_rows]
+            # Keep monitor-added accounts at top, same as manual "新增一行" behavior.
+            merged_rows = [*new_rows, *existing_rows]
             self._set_account_rows(False, merged_rows)
             self.parameter.settings.update(self.parameter.get_settings_data())
 
