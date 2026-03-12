@@ -1791,6 +1791,13 @@ class APIServer(TikTok):
         bark_url = self._normalize_string(schedule.get("bark_url"))
         if not bark_url:
             return
+        if success:
+            try:
+                added_accounts = int(summary.get("added_accounts", 0) or 0)
+            except (TypeError, ValueError):
+                added_accounts = 0
+            if added_accounts <= 0:
+                return
         title = (
             f"收藏夹监控成功: {schedule.get('name') or schedule.get('collect_id')}"
             if success
