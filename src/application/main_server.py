@@ -357,6 +357,21 @@ class APIServer(TikTok):
             task["finished_at"] = self._now_text()
             task["updated_at"] = self._now_text()
             task["_runner"] = None
+            schedule_url = self._normalize_string(task.get("schedule_uptime_kuma_url"))
+            if schedule_url:
+                status, message = self._build_uptime_kuma_status(
+                    task,
+                    self._normalize_string(task.get("schedule_name")),
+                    self._normalize_string(task.get("schedule_platform")),
+                )
+                push_url = self._build_uptime_kuma_url(schedule_url, status, message)
+                if push_url:
+                    create_task(
+                        self._send_uptime_kuma_push(
+                            push_url,
+                            proxy=self._normalize_string(task.get("payload", {}).get("proxy")),
+                        )
+                    )
 
     async def _execute_ui_endpoint(self, endpoint: str, payload: dict):
         if endpoint == "/douyin/detail":
@@ -571,6 +586,75 @@ class APIServer(TikTok):
                 parsed.fragment,
             )
         )
+
+    @staticmethod
+    def _build_uptime_kuma_status(
+        task: dict,
+        name: str,
+        platform: str,
+    ) -> tuple[str, str]:
+        task_status = str(task.get("status", "") or "")
+        result = task.get("result") if isinstance(task.get("result"), dict) else {}
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+
+        def _get_int(key: str) -> int | None:
+            value = data.get(key)
+            return value if isinstance(value, int) else None
+
+        queued = _get_int("queued")
+        success = _get_int("success")
+        failed = _get_int("failed")
+        skipped = _get_int("skipped")
+
+        status = "up"
+        if task_status == "failed":
+            status = "down"
+        if isinstance(failed, int) and failed > 0:
+            status = "down"
+        if isinstance(queued, int) and queued == 0:
+            status = "down"
+
+        base = f"{name or 'Schedule'} · {platform or '-'}"
+        summary_parts = []
+        result_message = result.get("message") if isinstance(result, dict) else ""
+        if isinstance(result_message, str) and result_message:
+            summary_parts.append(result_message)
+        elif task_status:
+            summary_parts.append(task_status)
+        if queued is not None:
+            summary_parts.append(f"queued={queued}")
+        if success is not None:
+            summary_parts.append(f"success={success}")
+        if failed is not None:
+            summary_parts.append(f"failed={failed}")
+        if skipped is not None:
+            summary_parts.append(f"skipped={skipped}")
+        message = f"{base} | {' | '.join(summary_parts)}" if summary_parts else base
+        return status, message
+
+    def _attach_schedule_task_meta(self, task: dict, schedule: dict) -> None:
+        if not isinstance(task, dict) or not isinstance(schedule, dict):
+            return
+        task["schedule_id"] = self._normalize_string(schedule.get("schedule_id"))
+        task["schedule_name"] = self._normalize_string(schedule.get("name"))
+        task["schedule_platform"] = self._normalize_string(schedule.get("platform"))
+        task["schedule_uptime_kuma_url"] = self._normalize_string(
+            schedule.get("uptime_kuma_url")
+        )
+
+    async def _send_uptime_kuma_push(self, url: str, proxy: str | None = None) -> None:
+        target = self._normalize_string(url)
+        if not target:
+            return
+        proxy_value = self._normalize_string(proxy) or self.parameter.proxy
+        timeout = max(5, min(int(getattr(self.parameter, "timeout", 10) or 10), 30))
+        try:
+            async with create_client(timeout=timeout, proxy=proxy_value) as client:
+                await client.get(target)
+        except Exception as error:  # noqa: BLE001
+            self.logger.warning(
+                _("Uptime Kuma push failed: {error}").format(error=error)
+            )
 
     @staticmethod
     def _normalize_optional_int(value: Any) -> int | None:
@@ -1899,10 +1983,11 @@ class APIServer(TikTok):
                     )
             else:
                 endpoint, payload = self._schedule_task_payload(schedule)
-                self._enqueue_ui_task(
+                task = self._enqueue_ui_task(
                     endpoint=endpoint,
                     payload=loads(dumps(payload, ensure_ascii=False)),
                 )
+                self._attach_schedule_task_meta(task, schedule)
             schedule["last_run_at"] = self._now_text()
             schedule["updated_at"] = self._now_text()
             if schedule_type == self.COLLECT_MONITOR_SCHEDULE:
@@ -3352,6 +3437,7 @@ class APIServer(TikTok):
                 endpoint=endpoint,
                 payload=loads(dumps(payload, ensure_ascii=False)),
             )
+            self._attach_schedule_task_meta(task, schedule)
             schedule["last_run_at"] = self._now_text()
             schedule["updated_at"] = self._now_text()
             schedule["next_run_at"] = self._next_run_text(

@@ -26,3 +26,13 @@ def test_schedule_normalizes_uptime_kuma_url():
     server._now_text = lambda: "2026-03-13 00:00:00"
     normalized = APIServer._normalize_schedule_payload(server, payload)
     assert normalized["uptime_kuma_url"] == "https://kuma/push/abc"
+
+
+def test_uptime_kuma_status_down_when_failed_counts():
+    task = {
+        "status": "success",
+        "result": {"data": {"failed": 1, "queued": 2}},
+    }
+    status, msg = APIServer._build_uptime_kuma_status(task, "Task", "douyin")
+    assert status == "down"
+    assert "failed" in msg
