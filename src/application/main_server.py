@@ -9,7 +9,7 @@ from re import sub
 from shutil import copy2
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from fastapi import (
     Depends,
@@ -547,6 +547,30 @@ class APIServer(TikTok):
         if value is None:
             return ""
         return str(value).strip()
+
+    @staticmethod
+    def _build_uptime_kuma_url(
+        base_url: str,
+        status: str,
+        message: str,
+    ) -> str:
+        if not base_url:
+            return ""
+        parsed = urlsplit(base_url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query["status"] = status
+        if message:
+            query["msg"] = message
+        new_query = urlencode(query, doseq=True)
+        return urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                new_query,
+                parsed.fragment,
+            )
+        )
 
     @staticmethod
     def _normalize_optional_int(value: Any) -> int | None:
