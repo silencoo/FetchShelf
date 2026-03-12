@@ -1405,6 +1405,9 @@ class APIServer(TikTok):
             raise ValueError("items must be list.")
         if any(not isinstance(item, dict) for item in items):
             raise ValueError("items only accepts object items.")
+        uptime_kuma_url = payload.get("uptime_kuma_url")
+        if uptime_kuma_url is not None and not isinstance(uptime_kuma_url, str):
+            raise ValueError("uptime_kuma_url must be string or null.")
 
     @staticmethod
     def _validate_collect_monitor_payload(payload: dict) -> None:
@@ -1524,6 +1527,7 @@ class APIServer(TikTok):
             "items": items,
             "cookie": self._normalize_string(payload.get("cookie")),
             "proxy": self._normalize_string(payload.get("proxy")),
+            "uptime_kuma_url": self._normalize_string(payload.get("uptime_kuma_url")),
             "created_at": self._normalize_string(payload.get("created_at")) or now,
             "updated_at": now,
             "last_run_at": self._normalize_string(payload.get("last_run_at")),
