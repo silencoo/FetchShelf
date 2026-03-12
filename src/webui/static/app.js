@@ -182,6 +182,7 @@ const refs = {
   scheduleMinute: document.getElementById("schedule-minute"),
   scheduleCookie: document.getElementById("schedule-cookie"),
   scheduleProxy: document.getElementById("schedule-proxy"),
+  scheduleUptimeKumaUrl: document.getElementById("schedule-uptime-kuma-url"),
   scheduleCreateBtn: document.getElementById("schedule-create-btn"),
   scheduleRefreshBtn: document.getElementById("schedule-refresh-btn"),
   scheduleStatus: document.getElementById("schedule-status"),
@@ -2759,6 +2760,7 @@ function schedulePayloadFromForm() {
     minute: Number(refs.scheduleMinute.value || 0),
     cookie: refs.scheduleCookie.value.trim(),
     proxy: refs.scheduleProxy.value.trim(),
+    uptime_kuma_url: refs.scheduleUptimeKumaUrl?.value.trim(),
     enabled: true,
   };
 }
