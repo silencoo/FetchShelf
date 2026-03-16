@@ -605,14 +605,15 @@ class APIServer(TikTok):
         success = _get_int("success")
         failed = _get_int("failed")
         skipped = _get_int("skipped")
+        failed_streak_max = _get_int("failed_streak_max")
 
-        status = "up"
-        if task_status == "failed":
-            status = "down"
-        if isinstance(failed, int) and failed > 0:
-            status = "down"
-        if isinstance(queued, int) and queued == 0:
-            status = "down"
+        ratio_down = (
+            isinstance(failed, int)
+            and isinstance(success, int)
+            and failed > success
+        )
+        streak_down = isinstance(failed_streak_max, int) and failed_streak_max >= 5
+        status = "down" if (ratio_down or streak_down) else "up"
 
         base = f"{name or 'Schedule'} · {platform or '-'}"
         summary_parts = []
@@ -629,6 +630,8 @@ class APIServer(TikTok):
             summary_parts.append(f"failed={failed}")
         if skipped is not None:
             summary_parts.append(f"skipped={skipped}")
+        if failed_streak_max is not None:
+            summary_parts.append(f"failed_streak_max={failed_streak_max}")
         message = f"{base} | {' | '.join(summary_parts)}" if summary_parts else base
         return status, message
 
@@ -2094,6 +2097,8 @@ class APIServer(TikTok):
 
         success = 0
         failed = 0
+        failed_streak = 0
+        failed_streak_max = 0
         failures = []
         auto_filled_mark = 0
         auto_updated_earliest = 0
@@ -2103,6 +2108,8 @@ class APIServer(TikTok):
         for index, item in enumerate(queued_items, start=1):
             if not (sec_user_id := await self.check_sec_user_id(item["url"], tiktok)):
                 failed += 1
+                failed_streak += 1
+                failed_streak_max = max(failed_streak_max, failed_streak)
                 failures.append(
                     {
                         "index": index,
@@ -2128,6 +2135,7 @@ class APIServer(TikTok):
             )
             if result:
                 success += 1
+                failed_streak = 0
                 row_index = item.get("_settings_index")
                 if isinstance(row_index, int) and 0 <= row_index < len(settings_rows):
                     if (
@@ -2155,6 +2163,8 @@ class APIServer(TikTok):
                             )
                 continue
             failed += 1
+            failed_streak += 1
+            failed_streak_max = max(failed_streak_max, failed_streak)
             failures.append(
                 {
                     "index": index,
@@ -2184,6 +2194,7 @@ class APIServer(TikTok):
                 "success": success,
                 "failed": failed,
                 "skipped": skipped,
+                "failed_streak_max": failed_streak_max,
                 "mark_backfilled": auto_filled_mark,
                 "earliest_updated": auto_updated_earliest,
                 "failures": failures,
