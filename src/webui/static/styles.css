@@ -313,6 +313,28 @@ a {
   border-radius: 12px;
 }
 
+.quick-settings-panel {
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(10, 16, 26, 0.35);
+}
+
+.quick-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick-settings-grid-compact {
+  margin-top: 10px;
+}
+
+.quick-cookie-editor {
+  min-height: 140px;
+}
+
 #settings-raw-editor {
   min-height: 320px;
   line-height: 1.55;
@@ -1045,6 +1067,10 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .quick-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
   .form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1376,6 +1402,12 @@ a {
 }
 
 .account-editor-panel {
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 72%, transparent);
+  border-radius: var(--md-sys-shape-corner-large);
+  background: color-mix(in srgb, var(--md-sys-color-surface-container-low) 74%, transparent);
+}
+
+.quick-settings-panel {
   border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 72%, transparent);
   border-radius: var(--md-sys-shape-corner-large);
   background: color-mix(in srgb, var(--md-sys-color-surface-container-low) 74%, transparent);

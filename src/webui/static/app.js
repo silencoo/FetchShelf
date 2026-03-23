@@ -69,6 +69,14 @@ const refs = {
   settingsRawSaveBtn: document.getElementById("settings-raw-save-btn"),
   settingsRawFormatBtn: document.getElementById("settings-raw-format-btn"),
   settingsRawStatus: document.getElementById("settings-raw-status"),
+  settingsAuthLoadBtn: document.getElementById("settings-auth-load-btn"),
+  settingsAuthApplyBtn: document.getElementById("settings-auth-apply-btn"),
+  settingsAuthSaveBtn: document.getElementById("settings-auth-save-btn"),
+  settingsAuthCookieDouyin: document.getElementById("settings-auth-cookie-douyin"),
+  settingsAuthCookieTikTok: document.getElementById("settings-auth-cookie-tiktok"),
+  settingsAuthTikTokDeviceId: document.getElementById("settings-auth-tiktok-device-id"),
+  settingsAuthTikTokUserAgent: document.getElementById("settings-auth-tiktok-user-agent"),
+  settingsAuthStatus: document.getElementById("settings-auth-status"),
   accountsSettingsBlock: document.getElementById("accounts-settings-block"),
   accountsToggleBtn: document.getElementById("accounts-toggle-btn"),
   accountsDouyinBody: document.getElementById("accounts-douyin-body"),
@@ -262,7 +270,8 @@ const TASK_TEMPLATES = {
     source: false,
   },
   "/tiktok/detail": {
-    detail_id: "7399999999999999999",
+    detail_id: "",
+    detail_url: "https://www.tiktok.com/@username/video/7399999999999999999",
     cookie: "",
     proxy: "",
     source: false,
@@ -1301,6 +1310,7 @@ function mapSettingsToForm(settings) {
   setAccountRows("tiktok", settings?.accounts_urls_tiktok || []);
   setDeletedRows("douyin", settings?.deleted_accounts || []);
   setDeletedRows("tiktok", settings?.deleted_accounts_tiktok || []);
+  syncQuickAuthEditors(settings);
 }
 
 function collectSettingsPayload() {
@@ -1437,10 +1447,108 @@ async function loadRawSettings() {
       headers: headerOptions(false),
     });
     refs.settingsRawEditor.value = String(payload?.text || "");
+    try {
+      const parsed = JSON.parse(refs.settingsRawEditor.value || "{}");
+      syncQuickAuthEditors(parsed);
+    } catch {
+      syncQuickAuthEditors(state.settingsData);
+    }
     refs.settingsRawStatus.textContent = `已加载: ${payload?.path || ""}`;
     setApiStatus("就绪", "ok");
   } catch (error) {
     refs.settingsRawStatus.textContent = `读取失败: ${error.message}`;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+function stringifySettingValue(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+  return "";
+}
+
+function cloneSettingsObject(value) {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+function syncQuickAuthEditors(settings = state.settingsData) {
+  const next = settings && typeof settings === "object" ? settings : {};
+  refs.settingsAuthCookieDouyin.value = stringifySettingValue(next.cookie);
+  refs.settingsAuthCookieTikTok.value = stringifySettingValue(next.cookie_tiktok);
+  refs.settingsAuthTikTokDeviceId.value = String(
+    next?.browser_info_tiktok?.device_id || "",
+  );
+  refs.settingsAuthTikTokUserAgent.value = String(
+    next?.browser_info_tiktok?.["User-Agent"] || "",
+  );
+}
+
+function resolveSettingsEditorBase() {
+  const rawText = String(refs.settingsRawEditor.value || "").trim();
+  if (rawText) {
+    const parsed = JSON.parse(rawText);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  }
+  return cloneSettingsObject(state.settingsData);
+}
+
+function applyQuickAuthEditorsToSettings(base) {
+  const next = cloneSettingsObject(base);
+  next.cookie = refs.settingsAuthCookieDouyin.value.trim();
+  next.cookie_tiktok = refs.settingsAuthCookieTikTok.value.trim();
+  const browserInfoTikTok =
+    next.browser_info_tiktok && typeof next.browser_info_tiktok === "object"
+      ? cloneSettingsObject(next.browser_info_tiktok)
+      : {};
+  browserInfoTikTok.device_id = refs.settingsAuthTikTokDeviceId.value.trim();
+  browserInfoTikTok["User-Agent"] = refs.settingsAuthTikTokUserAgent.value.trim();
+  next.browser_info_tiktok = browserInfoTikTok;
+  return next;
+}
+
+function applyQuickAuthEditorsToRaw() {
+  refs.settingsAuthStatus.textContent = "正在写入原文编辑器…";
+  try {
+    const next = applyQuickAuthEditorsToSettings(resolveSettingsEditorBase());
+    refs.settingsRawEditor.value = JSON.stringify(next, null, 2);
+    refs.settingsAuthStatus.textContent = "已写入原文编辑器，可继续检查后保存";
+    refs.settingsRawStatus.textContent = "快捷登录信息已同步到原文编辑器";
+  } catch (error) {
+    refs.settingsAuthStatus.textContent = `写入失败: ${error.message}`;
+  }
+}
+
+async function saveQuickAuthSettings() {
+  refs.settingsAuthStatus.textContent = "正在保存登录信息…";
+  try {
+    const next = applyQuickAuthEditorsToSettings(resolveSettingsEditorBase());
+    refs.settingsRawEditor.value = JSON.stringify(next, null, 2);
+    const payload = await fetchJson("/ui/api/settings/raw", {
+      method: "PUT",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        text: refs.settingsRawEditor.value,
+      }),
+    });
+    refs.settingsAuthStatus.textContent = payload?.message || "登录信息保存成功";
+    refs.settingsRawStatus.textContent = payload?.message || "登录信息保存成功";
+    if (payload?.settings) {
+      mapSettingsToForm(payload.settings);
+    } else {
+      await loadSettings();
+    }
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.settingsAuthStatus.textContent = `保存失败: ${error.message}`;
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -3280,6 +3388,19 @@ function bindEvents() {
 
   refs.settingsRawSaveBtn.addEventListener("click", () => {
     saveRawSettings();
+  });
+
+  refs.settingsAuthLoadBtn.addEventListener("click", () => {
+    syncQuickAuthEditors(state.settingsData);
+    refs.settingsAuthStatus.textContent = "已从当前配置载入登录信息";
+  });
+
+  refs.settingsAuthApplyBtn.addEventListener("click", () => {
+    applyQuickAuthEditorsToRaw();
+  });
+
+  refs.settingsAuthSaveBtn.addEventListener("click", () => {
+    saveQuickAuthSettings();
   });
 
   refs.accountsDouyinAddBtn.addEventListener("click", () => {

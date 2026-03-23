@@ -181,8 +181,9 @@ built with gcc 14.2.0 (crosstool-NG 1.27.0.18_7458341)
 <h1>配置文件</h1>
 <p>配置文件：项目根目录下的 <code>./settings/settings.json</code> 文件，可以自定义设置程序部分运行参数。</p>
 <p>若无特殊需求，大部分配置参数无需修改，直接使用默认值即可。</p>
-<p><b><code>cookie</code>、<code>cookie_tiktok</code> 与 <code>device_id</code>参数为必需参数，必须设置该参数才能正常使用程序</b>；其余参数可以根据实际需求进行修改！</p>
+<p><b>抖音侧建议配置可用的 <code>cookie</code>；TikTok 侧建议配置已登录的 <code>cookie_tiktok</code>，并尽量同时提供 <code>browser_info_tiktok.device_id</code> 与 <code>browser_info_tiktok.User-Agent</code> 以提高稳定性。</b> 并非所有场景都强制要求这些参数，但缺失登录态或关键浏览器信息时，更容易出现列表不完整、<code>empty response</code>、验证码或下载 <code>403</code>。</p>
 <p>如果您的计算机没有合适的程序编辑 JSON 文件，建议使用 <a href="https://www.toolhelper.cn/JSON/JSONFormat">在线工具</a> 编辑配置文件内容，修改后需要重启软件才能生效。</p>
+<p>如果使用 WebUI，可直接在 <code>settings.json Editor</code> 下方的“登录信息快捷编辑”面板维护这些参数，无需在大段 JSON 中手动定位。</p>
 <p>注意: 手动修改 <code>settings.json</code> 后需要重新运行程序才会生效！</p>
 <h2>参数说明</h2>
 <table>
@@ -1053,11 +1054,16 @@ built with gcc 14.2.0 (crosstool-NG 1.27.0.18_7458341)
 <li>手动输入待采集的账号链接；此选项仅支持批量下载账号发布页作品，暂不支持参数设置。</li>
 <li>输入文本文档路径，读取文件包含的账号链接；此选项仅支持批量下载账号发布页作品，暂不支持参数设置。</li>
 </ol>
+<p>当前已经支持像抖音 <code>accounts_urls</code> 一样，通过 <code>accounts_urls_tiktok</code> 批量配置 TikTok 账号链接，推荐优先使用该参数管理 TikTok 账号任务。</p>
 <p>支持链接格式：</p>
 <ul>
 <li><code>https://www.tiktok.com/@TikTok号</code></li>
 <li><code>https://www.tiktok.com/@TikTok号/video/作品ID</code></li>
 </ul>
+<p>如需稳定采集 TikTok 账号作品，建议同时配置已登录的 <code>cookie_tiktok</code>，并启用 <code>tiktok_api_enabled</code>、<code>tiktok_api_reuse_session</code>、<code>tiktok_api_persistent_profile</code> 等参数，保持同一个浏览器 profile 持续复用；如果只提供访客态参数（例如仅有 <code>msToken</code> / <code>ttwid</code>），可能出现作品列表不完整、<code>empty response</code>、验证码或下载 <code>403</code> 的情况。</p>
+<p>当前程序已经增加 TikTok 风控检测：会识别验证码 / challenge、<code>empty response</code>、接口返回 HTML 而不是 JSON，以及“账号资料显示有视频但列表为空”等异常信号。</p>
+<p>命中风控后，程序默认会根据 <code>tiktok_api_skip_on_risk</code> 与 <code>tiktok_api_risk_cooldown_seconds</code> 进入冷却，并跳过旧版接口回退，避免账号已经受限时继续激进请求。</p>
+<p>当 TikTok 视频直链下载返回 <code>403</code> 时，程序会回退到共享 TikTokApi 会话下载；当前实现会优先在浏览器上下文中抓取媒体并复用当前 profile、Cookie 与浏览器环境，而不是把媒体下载主路径直接落到 Python HTTP 客户端。</p>
 <p><del>如果需要大批量采集账号作品，建议启用 <code>src/custom/function.py</code> 文件的 <code>suspend</code> 方法。</del>（默认启用）</p>
 <p>如果当前账号昵称或账号标识不是有效的文件夹名称时，程序会自动替换为账号 ID。</p>
 <p>每个账号的作品会下载至 <code>root</code> 参数路径下的账号文件夹，账号文件夹格式为 <code>UID123456789_mark_类型</code> 或者 <code>UID123456789_账号昵称_类型</code></p>
@@ -1071,6 +1077,7 @@ built with gcc 14.2.0 (crosstool-NG 1.27.0.18_7458341)
 <li><code>https://vm.tiktok.com/分享码/</code></li>
 <li><code>https://www.tiktok.com/@TikTok号/video/作品ID</code></li>
 </ul>
+<p>程序会优先将短链展开为规范作品链接，并保留 <code>detail_url</code> 走 TikTokApi 页面方案获取作品详情；旧版 <code>detail_id</code> 接口仅作为兼容回退。</p>
 <p>作品会下载至 <code>root</code> 参数和 <code>folder_name</code> 参数拼接成的文件夹。</p>
 <h3>批量下载合集作品(TikTok)</h3>
 <ol>

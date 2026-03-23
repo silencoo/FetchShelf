@@ -410,6 +410,57 @@
                 <button id="settings-raw-save-btn" class="btn primary">保存原文</button>
               </div>
             </div>
+            <div class="quick-settings-panel">
+              <div class="card-head mini">
+                <h3>登录信息快捷编辑</h3>
+                <div class="card-actions">
+                  <button id="settings-auth-load-btn" class="btn ghost">载入当前值</button>
+                  <button id="settings-auth-apply-btn" class="btn ghost">写入原文</button>
+                  <button id="settings-auth-save-btn" class="btn primary">保存登录信息</button>
+                </div>
+              </div>
+              <div class="quick-settings-grid">
+                <label class="field">
+                  <span>抖音 Cookie</span>
+                  <textarea
+                    id="settings-auth-cookie-douyin"
+                    class="payload-editor quick-cookie-editor"
+                    rows="5"
+                    placeholder="粘贴抖音完整 Cookie"
+                  ></textarea>
+                </label>
+                <label class="field">
+                  <span>TikTok Cookie</span>
+                  <textarea
+                    id="settings-auth-cookie-tiktok"
+                    class="payload-editor quick-cookie-editor"
+                    rows="5"
+                    placeholder="粘贴 TikTok Web 完整 Cookie"
+                  ></textarea>
+                </label>
+              </div>
+              <div class="quick-settings-grid quick-settings-grid-compact">
+                <label class="field">
+                  <span>TikTok device_id</span>
+                  <input
+                    id="settings-auth-tiktok-device-id"
+                    type="text"
+                    placeholder="browser_info_tiktok.device_id"
+                  />
+                </label>
+                <label class="field">
+                  <span>TikTok User-Agent</span>
+                  <input
+                    id="settings-auth-tiktok-user-agent"
+                    type="text"
+                    placeholder="browser_info_tiktok.User-Agent"
+                  />
+                </label>
+              </div>
+              <div id="settings-auth-status" class="status-line">
+                可在这里快速修改抖音 / TikTok 登录信息，并同步到 settings.json
+              </div>
+            </div>
             <textarea
               id="settings-raw-editor"
               class="payload-editor"

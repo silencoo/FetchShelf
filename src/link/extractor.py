@@ -219,6 +219,17 @@ class ExtractorTikTok(Extractor):
     ) -> list[str]:
         return self.__extract_detail(urls)
 
+    async def detail_items(
+        self,
+        text: str,
+        proxy: str = None,
+    ) -> list[dict[str, str]]:
+        text = await self.requester.run(
+            text,
+            proxy,
+        )
+        return self.__extract_detail_items(text)
+
     async def user(
         self,
         urls: str,
@@ -234,6 +245,36 @@ class ExtractorTikTok(Extractor):
     ) -> list[str]:
         link = self.extract_info(self.detail_link, urls, index)
         return link
+
+    def __extract_detail_items(self, urls: str) -> list[dict[str, str]]:
+        items: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for match in self.detail_link.finditer(urls or ""):
+            detail_id = str(match.group(1) or "").strip()
+            detail_url = self.__clean_tiktok_url(match.group(0))
+            if not detail_id or not detail_url:
+                continue
+            key = (detail_id, detail_url)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "id": detail_id,
+                    "url": detail_url,
+                }
+            )
+        return items
+
+    @staticmethod
+    def __clean_tiktok_url(url: str) -> str:
+        value = str(url or "").strip()
+        if not value:
+            return ""
+        parsed = urlparse(value)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        return value.split("?", 1)[0].split("#", 1)[0]
 
     async def mix(
         self,

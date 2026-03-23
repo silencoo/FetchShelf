@@ -1,6 +1,9 @@
 services:
   douyin-download:
-    image: kook00/tiktok-downloader
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tiktok-downloader-local
 
     container_name: douyin-download
 

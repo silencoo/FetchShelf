@@ -297,6 +297,11 @@ class Extractor:
         self,
         data: int,
     ) -> str:
+        if isinstance(data, str):
+            try:
+                data = int(float(data.strip()))
+            except (TypeError, ValueError):
+                data = 0
         return strftime(
             self.date_format,
             localtime(data or None),

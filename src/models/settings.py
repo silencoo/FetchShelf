@@ -111,6 +111,23 @@ class Settings(BaseModel):
     tiktok_platform: bool | None = None
     browser_info: BrowserInfo | None = None
     browser_info_tiktok: TikTokBrowserInfo | None = None
+    tiktok_api_enabled: bool | None = None
+    tiktok_api_browser: str | None = None
+    tiktok_api_browser_engine: str | None = None
+    tiktok_api_headless: bool | None = None
+    tiktok_api_humanize: bool | None = None
+    tiktok_api_human_preset: str | None = None
+    tiktok_api_reuse_session: bool | None = None
+    tiktok_api_persistent_profile: bool | None = None
+    tiktok_api_profile_dir: str | None = None
+    tiktok_api_sleep_after: int | None = None
+    tiktok_api_timeout_ms: int | None = None
+    tiktok_api_page_size: int | None = None
+    tiktok_api_skip_on_risk: bool | None = None
+    tiktok_api_risk_cooldown_seconds: int | None = None
+    tiktok_api_debug_capture_enabled: bool | None = None
+    tiktok_api_debug_capture_slider: bool | None = None
+    tiktok_api_debug_capture_dir: str | None = None
     ui_schedules: list[dict] = []
 
     class Config:
