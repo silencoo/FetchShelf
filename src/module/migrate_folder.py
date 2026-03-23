@@ -1,3 +1,4 @@
+from os import rename
 from shutil import move
 from typing import TYPE_CHECKING
 
@@ -23,16 +24,26 @@ class MigrateFolder:
             if (old := self.ROOT.parent.joinpath(i)).exists() and not (
                 new_ := self.ROOT.joinpath(i)
             ).exists():
-                move(old, new_)
+                self._safe_move(old, new_)
         if self.ROOT != self.root:
             return
         if (old := self.ROOT.parent.joinpath(self.folder)).exists() and not (
             new_ := self.ROOT.joinpath(self.folder)
         ).exists():
-            move(old, new_)
+            self._safe_move(old, new_)
         folders = self.ROOT.parent.iterdir()
         for i in folders:
             if not i.is_dir():
                 continue
             if len(i.name) > 10 and i.name[1:3] == "ID":
-                move(i, self.ROOT.joinpath(i.name))
+                self._safe_move(i, self.ROOT.joinpath(i.name))
+
+    @staticmethod
+    def _safe_move(old, new_):
+        try:
+            move(old, new_)
+        except OSError:
+            try:
+                rename(old, new_)
+            except OSError:
+                return

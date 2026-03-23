@@ -100,6 +100,7 @@
 - 账号行支持 `auto_update_earliest` 开关；当该账号下载成功后，会自动回写 `earliest` 到“今天 - earliest_update_days”对应日期（例如 `days=3`，今天为 `2026/03/29`，则回写 `2026/03/26`）。
 - `earliest_update_days` 为全局回溯天数（默认 `3`，可设为 `0`）；仅对开启了 `auto_update_earliest` 的账号生效。
 - 若不启用自动更新且账号 `earliest` 留空，程序会按默认最早日期 `2016/09/20` 继续翻页采集，再由下载记录过滤已存在文件；这会产生更多历史请求。
+- `settings.json Editor` 下新增“登录信息快捷编辑”面板，可直接编辑 `cookie`、`cookie_tiktok`、`browser_info_tiktok.device_id`、`browser_info_tiktok.User-Agent`，不用在大段 JSON 中来回查找。
 - 账户看板支持“视频优先刷新”、卡片密度滑块；文件浏览支持目录统计（文件/图片/视频/体积）与当前目录搜索过滤。
 
 ## Web API 接口模式
@@ -179,7 +180,7 @@ demo()
 </ol>
 </li>
 <li>返回程序界面，依次选择 <code>终端交互模式</code> -> <code>批量下载链接作品(通用)</code> -> <code>手动输入待采集的作品链接</code></li>
-<li>输入抖音作品链接即可下载作品文件（TikTok 平台需要更多初始设置，详见文档）</li>
+<li>输入抖音作品链接即可下载作品文件；如需稳定使用 TikTok 平台，建议先在 <code>settings.json</code> 配置 <code>accounts_urls_tiktok</code>、已登录的 <code>cookie_tiktok</code>，以及下方“TikTok 账号配置与登录态”提到的 <code>tiktok_api_*</code> 参数。</li>
 <li>更多详细说明请查看 <b><a href="https://github.com/JoeanAmier/TikTokDownloader/wiki/Documentation">项目文档</a></b></li>
 </ol>
 <p>⭐ 推荐使用 <a href="https://learn.microsoft.com/zh-cn/windows/terminal/install">Windows 终端</a>（Windows 11 自带默认终端）</p>
@@ -229,6 +230,59 @@ demo()
 > * 程序获取数据失败时，可以尝试更新 Cookie 或者使用已登录的 Cookie！
 
 <hr>
+
+## TikTok 账号配置与登录态
+
+<ul>
+<li>当前已经支持像抖音 <code>accounts_urls</code> 一样，通过 <code>settings.json</code> 的 <code>accounts_urls_tiktok</code> 批量配置 TikTok 账号链接，并在 <code>批量下载账号作品(TikTok)</code> 模式中直接使用。</li>
+<li>推荐使用账号主页链接，例如 <code>https://www.tiktok.com/@username</code>；程序也支持从作品链接中提取账号信息，但批量模式仍建议配置主页链接。</li>
+<li><code>accounts_urls_tiktok</code> 的单项结构与抖音账号配置一致，常用参数为 <code>mark</code>、<code>url</code>、<code>tab</code>、<code>earliest</code>、<code>latest</code>、<code>enable</code>、<code>auto_update_earliest</code>。</li>
+<li>WebUI 的 <code>settings.json Editor</code> 已增加登录态快捷面板，可单独维护抖音 / TikTok Cookie 与 TikTok 浏览器指纹关键字段。</li>
+<li>TikTok 分享链接解析、单条下载、批量下载现在会优先保留规范化后的 <code>detail_url</code>，并走 TikTokApi 的页面方案获取作品详情，而不是优先依赖旧版 <code>api/item/detail/</code>。</li>
+</ul>
+
+```json
+"accounts_urls_tiktok": [
+  {
+    "mark": "hnks0505",
+    "url": "https://www.tiktok.com/@hnks0505",
+    "tab": "post",
+    "earliest": "2026/01/01",
+    "latest": "2036/01/01",
+    "enable": true,
+    "auto_update_earliest": false
+  }
+]
+```
+
+<ul>
+<li>推荐同时启用 TikTokApi 浏览器会话模式，并保持同一个持久化 profile，避免每次请求都生成新的浏览器指纹，降低验证码、空响应和 403 风控概率。</li>
+</ul>
+
+```json
+"tiktok_api_enabled": true,
+"tiktok_api_browser": "chromium",
+"tiktok_api_browser_engine": "cloakbrowser",
+"tiktok_api_headless": false,
+"tiktok_api_humanize": true,
+"tiktok_api_human_preset": "default",
+"tiktok_api_reuse_session": true,
+"tiktok_api_persistent_profile": true,
+"tiktok_api_profile_dir": "cache/tiktok_api_profile",
+"tiktok_api_skip_on_risk": true,
+"tiktok_api_risk_cooldown_seconds": 1800
+```
+
+<ul>
+<li><b>必须使用已登录的 TikTok Web Cookie。</b> 仅有 <code>msToken</code>、<code>ttwid</code> 等访客态参数时，可能只能拿到不完整列表，或者直接出现 <code>empty response</code>、验证码、下载 <code>403</code>。</li>
+<li><b>建议导入完整登录态 Cookie。</b> 至少应确保浏览器中 TikTok Web 已登录，并从该浏览器导入 <code>cookie_tiktok</code>；常见登录态 Cookie 键包括 <code>sessionid</code>、<code>sessionid_ss</code>、<code>sid_tt</code>、<code>uid_tt</code>。</li>
+<li><b>验证码处理后不要随意更换 profile 目录。</b> 如果手动完成了验证码，请继续复用同一个 <code>tiktok_api_profile_dir</code>，否则新的 profile 会丢失已验证状态并再次触发风控。</li>
+<li><b>程序现在会检测 TikTok 风控信号。</b> 包括验证码 / challenge、<code>empty response</code>、返回 HTML 而不是 JSON、以及“账号资料显示有视频但列表为空”等情况。</li>
+<li><b>命中风控后默认进入冷却并跳过旧版接口回退。</b> 这样可以避免在账号或会话已经受限时继续激进请求；可通过 <code>tiktok_api_skip_on_risk</code> 和 <code>tiktok_api_risk_cooldown_seconds</code> 控制。</li>
+<li><b>如果需要代理访问 TikTok，请设置 <code>proxy_tiktok</code>。</b> 不要只设置抖音侧的 <code>proxy</code>。</li>
+<li><b>如下载直链返回 403，程序会自动回退到共享 TikTokApi 会话下载。</b> 当前实现会优先在浏览器上下文中抓取媒体并复用当前 profile、Cookie 与浏览器环境，而不是把媒体下载主路径直接落到 Python HTTP 客户端；但这个回退同样依赖当前 profile 和登录态依然有效。</li>
+<li><b>调用 Web API 的 <code>/tiktok/detail</code> 时，推荐直接传 <code>detail_url</code>。</b> 目前 <code>detail_id</code> 仅保留兼容回退用途，分享短链也会先展开为规范作品链接再处理。</li>
+</ul>
 
 ## 其他说明
 

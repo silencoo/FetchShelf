@@ -11,6 +11,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "aiofiles>=25.1.0",
     "aiosqlite>=0.21.0",
+    "cloakbrowser>=0.3.18",
     "emoji>=2.15.0",
     "fastapi>=0.124.2",
     "gmssl>=3.2.2",
@@ -23,6 +24,7 @@ dependencies = [
     "pyperclip>=1.11.0",
     "rich>=14.2.0",
     "rookiepy>=0.5.6",
+    "tiktokapi>=7.3.2",
     "uvicorn>=0.38.0",
     "websockets>=15.0.1",
 ]
@@ -32,6 +34,9 @@ Repository = "https://github.com/JoeanAmier/TikTokDownloader"
 
 [tool.uv.pip]
 index-url = "https://pypi.org/simple"
+
+[tool.uv.sources]
+tiktokapi = { path = "vendor/TikTok-Api", editable = true }
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.

@@ -201,6 +201,69 @@ class Parameter:
         self.tiktok_platform = self.check_bool_true(
             tiktok_platform,
         )
+        self.tiktok_api_enabled = self.check_bool_true(
+            kwargs.get("tiktok_api_enabled", True),
+        )
+        self.tiktok_api_browser = self.check_str(
+            kwargs.get("tiktok_api_browser", "chromium")
+        ) or "chromium"
+        self.tiktok_api_browser_engine = self.check_str(
+            kwargs.get("tiktok_api_browser_engine", "cloakbrowser")
+        ) or "cloakbrowser"
+        self.tiktok_api_headless = self.check_bool_false(
+            kwargs.get("tiktok_api_headless", False),
+        )
+        self.tiktok_api_humanize = self.check_bool_true(
+            kwargs.get("tiktok_api_humanize", True),
+        )
+        self.tiktok_api_human_preset = self.check_str(
+            kwargs.get("tiktok_api_human_preset", "default")
+        ) or "default"
+        self.tiktok_api_reuse_session = self.check_bool_true(
+            kwargs.get("tiktok_api_reuse_session", True),
+        )
+        self.tiktok_api_persistent_profile = self.check_bool_true(
+            kwargs.get("tiktok_api_persistent_profile", True),
+        )
+        self.tiktok_api_profile_dir = self.check_str(
+            kwargs.get("tiktok_api_profile_dir", "cache/tiktok_api_profile")
+        ) or "cache/tiktok_api_profile"
+        self.tiktok_api_sleep_after = self.__check_number_value(
+            kwargs.get("tiktok_api_sleep_after", 3),
+            "tiktok_api_sleep_after",
+            0,
+            3,
+        )
+        self.tiktok_api_timeout_ms = self.__check_number_value(
+            kwargs.get("tiktok_api_timeout_ms", 30000),
+            "tiktok_api_timeout_ms",
+            1000,
+            30000,
+        )
+        self.tiktok_api_page_size = self.__check_number_value(
+            kwargs.get("tiktok_api_page_size", 30),
+            "tiktok_api_page_size",
+            1,
+            30,
+        )
+        self.tiktok_api_skip_on_risk = self.check_bool_true(
+            kwargs.get("tiktok_api_skip_on_risk", True),
+        )
+        self.tiktok_api_risk_cooldown_seconds = self.__check_number_value(
+            kwargs.get("tiktok_api_risk_cooldown_seconds", 1800),
+            "tiktok_api_risk_cooldown_seconds",
+            0,
+            1800,
+        )
+        self.tiktok_api_debug_capture_enabled = self.check_bool_false(
+            kwargs.get("tiktok_api_debug_capture_enabled", False),
+        )
+        self.tiktok_api_debug_capture_slider = self.check_bool_false(
+            kwargs.get("tiktok_api_debug_capture_slider", False),
+        )
+        self.tiktok_api_debug_capture_dir = self.check_str(
+            kwargs.get("tiktok_api_debug_capture_dir", "browser_debug")
+        ) or "browser_debug"
 
         self.browser_info = self.merge_browser_info(
             browser_info,
@@ -373,6 +436,12 @@ class Parameter:
                 TtWidTikTok.NAME,
             )
         )
+        if tt_wid_value:
+            self.logger.info(
+                f"TikTok {TtWidTikTok.NAME} 使用 Cookie 中已有值",
+                False,
+            )
+            return {TtWidTikTok.NAME: tt_wid_value}
         if tt_wid := await TtWidTikTok.get_tt_wid(
             self.logger,
             self.headers_params_tiktok,
@@ -922,6 +991,23 @@ class Parameter:
             "tiktok_platform": self.tiktok_platform,
             "browser_info": self.browser_info,
             "browser_info_tiktok": self.browser_info_tiktok,
+            "tiktok_api_enabled": self.tiktok_api_enabled,
+            "tiktok_api_browser": self.tiktok_api_browser,
+            "tiktok_api_browser_engine": self.tiktok_api_browser_engine,
+            "tiktok_api_headless": self.tiktok_api_headless,
+            "tiktok_api_humanize": self.tiktok_api_humanize,
+            "tiktok_api_human_preset": self.tiktok_api_human_preset,
+            "tiktok_api_reuse_session": self.tiktok_api_reuse_session,
+            "tiktok_api_persistent_profile": self.tiktok_api_persistent_profile,
+            "tiktok_api_profile_dir": self.tiktok_api_profile_dir,
+            "tiktok_api_sleep_after": self.tiktok_api_sleep_after,
+            "tiktok_api_timeout_ms": self.tiktok_api_timeout_ms,
+            "tiktok_api_page_size": self.tiktok_api_page_size,
+            "tiktok_api_skip_on_risk": self.tiktok_api_skip_on_risk,
+            "tiktok_api_risk_cooldown_seconds": self.tiktok_api_risk_cooldown_seconds,
+            "tiktok_api_debug_capture_enabled": self.tiktok_api_debug_capture_enabled,
+            "tiktok_api_debug_capture_slider": self.tiktok_api_debug_capture_slider,
+            "tiktok_api_debug_capture_dir": self.tiktok_api_debug_capture_dir,
             "ui_schedules": self.ui_schedules,
         }
 
@@ -1177,6 +1263,10 @@ class Parameter:
         return value if isinstance(value, str) else ""
 
     async def close_client(self) -> None:
+        if self.tiktok_api_enabled:
+            from ..module import TikTokAPIBridge
+
+            await TikTokAPIBridge.close_for_params(self)
         await self.client.aclose()
         await self.client_tiktok.aclose()
 

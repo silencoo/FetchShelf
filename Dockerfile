@@ -15,6 +15,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_COMPILE_BYTECODE=1
 
 COPY pyproject.toml uv.lock ./
+COPY vendor/TikTok-Api /app/vendor/TikTok-Api
 RUN pip install --no-cache-dir uv \
     && uv sync --frozen --no-dev --no-install-project
 
@@ -24,21 +25,41 @@ FROM python:3.12-slim
 # 设置工作目录
 WORKDIR /app
 
-# 添加元数据标签
-LABEL name="DouK-Downloader" authors="JoeanAmier" repository="https://github.com/JoeanAmier/TikTokDownloader"
-
 # 运行时使用 uv + 预构建虚拟环境
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
-    PATH="/opt/venv/bin:${PATH}"
+    PATH="/opt/venv/bin:${PATH}" \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     ffmpeg \
+    xvfb \
+    xauth \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcairo-gobject2 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
     libglib2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
     libsm6 \
+    libu2f-udev \
     libxext6 \
     libxrender1 \
     libx11-6 \
     libxcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxkbcommon0 \
+    libxrandr2 \
     libxcb-util1 \
     libxcb-render0 \
     libxcb-shm0 \
@@ -50,9 +71,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ldconfig -p | grep -q "libxcb.so.1" \
     && pip install --no-cache-dir uv
 COPY --from=builder /opt/venv /opt/venv
+RUN python -m playwright install chromium webkit
 
 # 复制你的应用程序代码和相关文件
 COPY src /app/src
+COPY vendor /app/vendor
 COPY locale /app/locale
 COPY static /app/static
 COPY license /app/license

@@ -98,6 +98,7 @@
 - Account rows support `auto_update_earliest`. After a successful account batch run, `earliest` is auto-written as `today - earliest_update_days`.
 - `earliest_update_days` is a global backtrack days value (default `3`, supports `0`) and only applies to rows with `auto_update_earliest=true`.
 - If auto update is off and `earliest` is empty, crawler pagination falls back to `2016/09/20`, then local download records filter duplicates. This causes more historical requests.
+- The `settings.json Editor` now includes a quick login panel for `cookie`, `cookie_tiktok`, `browser_info_tiktok.device_id`, and `browser_info_tiktok.User-Agent`, so you do not need to scroll through large JSON blocks.
 
 ## Web API mode
 
@@ -177,7 +178,7 @@ demo()
 </ol>
 </li>
 <li>Return to the program interface, sequentially select <code>Terminal interactive mode</code> -> <code>Batch download link works (general)</code> -> <code>Manually enter the link of the works to be collected</code>.</li>
-<li>Input the DouYin works link to download the works file (the TikTok platform requires more initial setup, please refer to the documentation for details).</li>
+<li>Input the DouYin works link to download the file. For stable TikTok usage, it is recommended to configure <code>accounts_urls_tiktok</code>, a logged-in <code>cookie_tiktok</code>, and the <code>tiktok_api_*</code> options described in the “TikTok account config and login state” section below.</li>
 <li>For more detailed instructions, please see <b><a href="https://github.com/JoeanAmier/TikTokDownloader/wiki/Documentation">Project Documentation</a></b>.</li>
 </ol>
 <p>⭐ It is recommended to use <a href="https://learn.microsoft.com/zh-cn/windows/terminal/install">Windows Terminal</a> (the default terminal that comes with Windows 11).</p>
@@ -221,6 +222,59 @@ demo()
 > * When the program fails to obtain data, you can try updating the Cookie or using a Cookie that is already logged in!
 
 <hr>
+
+## TikTok account config and login state
+
+<ul>
+<li>The project now supports TikTok account batch configuration through <code>accounts_urls_tiktok</code> in <code>settings.json</code>, similar to DouYin <code>accounts_urls</code>.</li>
+<li>The recommended value is a TikTok profile URL such as <code>https://www.tiktok.com/@username</code>. Work links can also be parsed, but profile URLs are recommended for batch account mode.</li>
+<li>Each <code>accounts_urls_tiktok</code> item uses the same common fields as DouYin account config: <code>mark</code>, <code>url</code>, <code>tab</code>, <code>earliest</code>, <code>latest</code>, <code>enable</code>, and <code>auto_update_earliest</code>.</li>
+<li>The WebUI <code>settings.json Editor</code> also provides a dedicated quick-auth panel for DouYin / TikTok cookies and key TikTok browser fingerprint fields.</li>
+<li>TikTok share-link parsing, single-link download, and batch-link download now preserve the canonical <code>detail_url</code> and prefer the TikTokApi page-based detail flow instead of relying on the legacy <code>api/item/detail/</code> endpoint first.</li>
+</ul>
+
+```json
+"accounts_urls_tiktok": [
+  {
+    "mark": "hnks0505",
+    "url": "https://www.tiktok.com/@hnks0505",
+    "tab": "post",
+    "earliest": "2026/01/01",
+    "latest": "2036/01/01",
+    "enable": true,
+    "auto_update_earliest": false
+  }
+]
+```
+
+<ul>
+<li>For better stability, enable the TikTokApi browser session and keep a persistent browser profile so requests do not create a new browser fingerprint every time.</li>
+</ul>
+
+```json
+"tiktok_api_enabled": true,
+"tiktok_api_browser": "chromium",
+"tiktok_api_browser_engine": "cloakbrowser",
+"tiktok_api_headless": false,
+"tiktok_api_humanize": true,
+"tiktok_api_human_preset": "default",
+"tiktok_api_reuse_session": true,
+"tiktok_api_persistent_profile": true,
+"tiktok_api_profile_dir": "cache/tiktok_api_profile",
+"tiktok_api_skip_on_risk": true,
+"tiktok_api_risk_cooldown_seconds": 1800
+```
+
+<ul>
+<li><b>You should use a logged-in TikTok Web cookie.</b> Visitor-only values such as <code>msToken</code> or <code>ttwid</code> may lead to incomplete lists, <code>empty response</code>, captcha, or download <code>403</code>.</li>
+<li><b>Import a full logged-in browser cookie whenever possible.</b> In practice, the browser should already be logged into TikTok Web before importing <code>cookie_tiktok</code>. Common logged-in cookie keys include <code>sessionid</code>, <code>sessionid_ss</code>, <code>sid_tt</code>, and <code>uid_tt</code>.</li>
+<li><b>Do not change the profile directory after solving a captcha.</b> Reuse the same <code>tiktok_api_profile_dir</code> so the verified browser state is preserved.</li>
+<li><b>The program now detects TikTok risk states.</b> This includes captcha / challenge pages, <code>empty response</code>, HTML returned instead of JSON, and cases where the profile reports videos but the item list is empty.</li>
+<li><b>When a risk signal is detected, the program enters a cooldown and skips legacy fallback by default.</b> This helps avoid hammering TikTok after the account or session is already restricted; use <code>tiktok_api_skip_on_risk</code> and <code>tiktok_api_risk_cooldown_seconds</code> to control this behavior.</li>
+<li><b>If TikTok requires a proxy in your network, configure <code>proxy_tiktok</code>.</b> Do not rely on DouYin-only <code>proxy</code>.</li>
+<li><b>If direct media download returns 403, the program falls back to shared TikTokApi-session download.</b> The current implementation prefers fetching media inside the browser context and reusing the active profile, cookies, and browser environment instead of making Python HTTP clients the primary download path. This fallback still depends on the current login state and profile remaining valid.</li>
+<li><b>For the Web API <code>/tiktok/detail</code>, prefer sending <code>detail_url</code>.</b> <code>detail_id</code> is kept mainly as a compatibility fallback, and short share links are expanded into canonical work URLs before processing.</li>
+</ul>
 
 ## Other Instructions
 

@@ -29,7 +29,6 @@ from uvicorn import Config, Server
 from ..custom import (
     __VERSION__,
     PROJECT_ROOT,
-    REPOSITORY,
     SERVER_HOST,
     SERVER_PORT,
     VERSION_BETA,
@@ -1702,7 +1701,7 @@ class APIServer(TikTok):
         aweme_items: list[dict] = []
         seen_aweme_ids = set()
 
-        for _ in range(max_pages):
+        for page_index in range(max_pages):
             collector = CollectsDetail(
                 self.parameter,
                 cookie=cookie,
@@ -1733,6 +1732,7 @@ class APIServer(TikTok):
                 len(aweme_items) >= target
                 or collector.finished
                 or next_cursor == cursor
+                or page_index + 1 >= max_pages
             ):
                 break
             cursor = next_cursor
@@ -2122,6 +2122,7 @@ class APIServer(TikTok):
                 index,
                 sec_user_id=sec_user_id,
                 mark=item["mark"],
+                url=item["url"],
                 tab=item["tab"],
                 earliest=item["earliest"],
                 latest=item["latest"],
@@ -2228,18 +2229,32 @@ class APIServer(TikTok):
         parser = self.links_tiktok if tiktok else self.links
         invalid_links = []
         parsed_ids = []
+        parsed_urls = []
         for text in links:
-            if ids := await parser.run(text):
+            if tiktok:
+                if items := await self._parse_tiktok_detail_targets(text, proxy):
+                    ids, urls = self._split_tiktok_detail_targets(items)
+                    parsed_ids.extend(ids)
+                    parsed_urls.extend(urls)
+                else:
+                    invalid_links.append(text)
+                continue
+            if ids := await parser.run(text, proxy=proxy):
                 parsed_ids.extend(ids)
             else:
                 invalid_links.append(text)
         unique_ids = []
+        unique_urls = []
         seen = set()
-        for item in parsed_ids:
-            if item in seen:
+        for index, item in enumerate(parsed_ids):
+            url = parsed_urls[index] if index < len(parsed_urls) else ""
+            key = (item, url) if tiktok else item
+            if key in seen:
                 continue
-            seen.add(item)
+            seen.add(key)
             unique_ids.append(item)
+            if tiktok:
+                unique_urls.append(url)
         if not unique_ids:
             return DataResponse(
                 message=_("链接解析失败！"),
@@ -2264,6 +2279,7 @@ class APIServer(TikTok):
                 source=False,
                 cookie=cookie,
                 proxy=proxy,
+                detail_urls=unique_urls if tiktok else None,
             )
         if not data:
             return DataResponse(
@@ -4138,7 +4154,10 @@ class APIServer(TikTok):
                 - **cookie**: TikTok Cookie；可选参数
                 - **proxy**: 代理；可选参数
                 - **source**: 是否返回原始响应数据；可选参数，默认值：False
-                - **detail_id**: TikTok 作品 ID；必需参数
+                - **detail_id**: TikTok 作品 ID；可选参数
+                - **detail_url**: TikTok 作品完整链接；可选参数
+
+                **推荐优先传入 `detail_url`，`detail_id` 和 `detail_url` 二选一即可**
                 """)
             ),
             tags=["TikTok"],
@@ -4255,8 +4274,20 @@ class APIServer(TikTok):
         extract: Detail | DetailTikTok,
         tiktok=False,
     ):
+        if tiktok and not (
+            getattr(extract, "detail_id", "") or getattr(extract, "detail_url", "")
+        ):
+            return self.failed_response(
+                extract,
+                _("detail_id 和 detail_url 不能同时为空！"),
+            )
         root, params, logger = self.record.run(self.parameter)
         async with logger(root, console=self.console, **params) as record:
+            detail_urls = (
+                [extract.detail_url]
+                if tiktok and getattr(extract, "detail_url", "")
+                else None
+            )
             if data := await self._handle_detail(
                 [extract.detail_id],
                 tiktok,
@@ -4265,6 +4296,7 @@ class APIServer(TikTok):
                 extract.source,
                 extract.cookie,
                 extract.proxy,
+                detail_urls=detail_urls,
             ):
                 return self.success_response(extract, data[0])
             return self.failed_response(extract)
