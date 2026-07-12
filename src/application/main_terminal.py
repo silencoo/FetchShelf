@@ -839,7 +839,7 @@ class TikTok:
             earliest=earliest,
             latest=latest,
             tiktok=tiktok,
-            mode=tab,
+            mode=tab or "post",
             info=info,
             return_context=return_context,
         )
@@ -885,6 +885,8 @@ class TikTok:
             sec_user_id=resolved_sec_uid,
             tab=tab,
             pages=pages,
+            cursor=kwargs.get("cursor", 0),
+            count=kwargs.get("count"),
             url=url,
         )
         if not any(account_data):
@@ -910,7 +912,7 @@ class TikTok:
             earliest=earliest,
             latest=latest,
             tiktok=True,
-            mode=tab,
+            mode=tab or "post",
             info=info,
             return_context=return_context,
         )
@@ -936,6 +938,7 @@ class TikTok:
             earliest,
             latest,
             pages,
+            **kwargs,
         ).run()
 
     async def _get_account_data_tiktok(
@@ -960,6 +963,8 @@ class TikTok:
                 sec_user_id=sec_user_id,
                 tab=tab,
                 pages=pages,
+                cursor=kwargs.get("cursor", 0),
+                count=kwargs.get("count"),
                 url=kwargs.get("url", ""),
             )
             if any(data[0]):
@@ -979,6 +984,7 @@ class TikTok:
             earliest,
             latest,
             pages,
+            **kwargs,
         ).run()
 
     async def get_user_info_data(
