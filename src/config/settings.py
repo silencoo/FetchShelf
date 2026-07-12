@@ -91,6 +91,7 @@ class Settings:
         "timeout": 10,
         "max_retry": 5,  # 重试最大次数
         "max_pages": 0,
+        "request_delay": 6.0,
         "auto_backfill_mark": True,
         "run_command": "",
         "ffmpeg": "",
@@ -126,6 +127,7 @@ class Settings:
             "device_id": "",
         },
         "tiktok_api_enabled": True,
+        "tiktok_bridge_fallback_enabled": False,
         "tiktok_api_browser": "chromium",
         "tiktok_api_browser_engine": "cloakbrowser",
         "tiktok_api_headless": False,

@@ -668,6 +668,7 @@ class Downloader:
                 if (
                     tiktok
                     and item
+                    and self._tiktok_bridge_fallback_enabled()
                     and getattr(e.response, "status_code", None) == 403
                     and await self._download_tiktok_video_with_api(
                         item,
@@ -702,6 +703,12 @@ class Downloader:
                 self.log.error(f"URL: {url}", False)
                 self.log.error(f"Headers: {headers}", False)
                 return False
+
+    def _tiktok_bridge_fallback_enabled(self) -> bool:
+        return bool(
+            getattr(self.params, "tiktok_api_enabled", False)
+            and getattr(self.params, "tiktok_bridge_fallback_enabled", False)
+        )
 
     async def _download_tiktok_video_with_api(
         self,

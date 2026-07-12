@@ -23,3 +23,5 @@ repos
 .mypy_cache
 .pytype
 demo
+/encipher.py
+/settings/

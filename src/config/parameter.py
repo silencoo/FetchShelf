@@ -18,6 +18,7 @@ from ..custom import (
     QRCODE_HEADERS,
     TIMEOUT,
     USERAGENT,
+    configure_wait,
 )
 from ..encrypt import (
     ABogus,
@@ -33,7 +34,13 @@ from ..interface import API, APITikTok
 from ..module import FFMPEG
 from ..record import BaseLogger, LoggerManager
 from ..storage import RecordManager
-from ..tools import Cleaner, DownloaderError, cookie_dict_to_str, create_client
+from ..tools import (
+    Cleaner,
+    DownloaderError,
+    cookie_dict_to_str,
+    create_client,
+    load_objects_from_external_py,
+)
 from ..translation import _
 
 if TYPE_CHECKING:
@@ -99,6 +106,7 @@ class Parameter:
         chunk: int,
         max_retry: int,
         max_pages: int,
+        request_delay: float,
         auto_backfill_mark: bool,
         run_command: str,
         owner_url: dict,
@@ -123,6 +131,7 @@ class Parameter:
         self.ab = ABogus()
         self.xb = XBogus()
         self.xg = XGnarly()
+        self._external_signers: set[str] = set()
         self.console = console
         self.recorder = recorder
         self.preview = BLANK_PREVIEW
@@ -191,6 +200,8 @@ class Parameter:
         self.timeout = self.__check_timeout(timeout)
         self.max_retry = self.__check_max_retry(max_retry)
         self.max_pages = self.__check_max_pages(max_pages)
+        self.request_delay = self.__check_request_delay(request_delay)
+        configure_wait(self.request_delay)
         self.auto_backfill_mark = self.check_bool_true(auto_backfill_mark)
         self.run_command = self.__check_run_command(run_command)
         self.ffmpeg = self.__generate_ffmpeg_object(ffmpeg)
@@ -203,6 +214,9 @@ class Parameter:
         )
         self.tiktok_api_enabled = self.check_bool_true(
             kwargs.get("tiktok_api_enabled", True),
+        )
+        self.tiktok_bridge_fallback_enabled = self.check_bool_false(
+            kwargs.get("tiktok_bridge_fallback_enabled", False),
         )
         self.tiktok_api_browser = self.check_str(
             kwargs.get("tiktok_api_browser", "chromium")
@@ -278,6 +292,17 @@ class Parameter:
         )
         self.__set_browser_info(self.browser_info)
         self.__set_browser_info_tiktok(self.browser_info_tiktok)
+        (
+            self.ab,
+            self.xb,
+            self.xg,
+            self._external_signers,
+        ) = self.load_signing_objects(
+            console,
+            self.ab,
+            self.xb,
+            self.xg,
+        )
 
         self.proxy: str | None = self.__check_proxy(
             proxy,
@@ -327,12 +352,14 @@ class Parameter:
             "timeout": self.__check_timeout,
             "max_retry": self.__check_max_retry,
             "max_pages": self.__check_max_pages,
+            "request_delay": self.__set_request_delay,
             "auto_backfill_mark": self.check_bool_true,
             "run_command": self.__check_run_command,
             "ffmpeg": self.__generate_ffmpeg_object,
             "live_qualities": self.__check_live_qualities,
             "douyin_platform": self.check_bool_true,
             "tiktok_platform": self.check_bool_true,
+            "tiktok_bridge_fallback_enabled": self.check_bool_false,
         }
         # self.__BROWSER_INFO = {
         #     "browser_info": None,
@@ -693,6 +720,24 @@ class Parameter:
             10,
         )
 
+    def __check_request_delay(self, value: float | int) -> float:
+        try:
+            delay = float(value)
+        except (TypeError, ValueError):
+            delay = 6.0
+        if delay < 0:
+            self.logger.warning(
+                _("request_delay 参数不能小于 0，程序将使用默认值：6")
+            )
+            return 6.0
+        self.logger.info(f"request_delay 参数已设置为 {delay}", False)
+        return delay
+
+    def __set_request_delay(self, value: float | int) -> float:
+        delay = self.__check_request_delay(value)
+        configure_wait(delay)
+        return delay
+
     def __check_storage_format(self, storage_format: str) -> str:
         if storage_format in RecordManager.DataLogger.keys():
             self.logger.info(f"storage_format 参数已设置为 {storage_format}", False)
@@ -1007,6 +1052,7 @@ class Parameter:
             "chunk": self.chunk,
             "max_retry": self.max_retry,
             "max_pages": self.max_pages,
+            "request_delay": self.request_delay,
             "auto_backfill_mark": self.auto_backfill_mark,
             "run_command": " ".join(self.run_command[::-1]),
             "ffmpeg": self.ffmpeg.path or "",
@@ -1017,6 +1063,7 @@ class Parameter:
             "browser_info": self.browser_info,
             "browser_info_tiktok": self.browser_info_tiktok,
             "tiktok_api_enabled": self.tiktok_api_enabled,
+            "tiktok_bridge_fallback_enabled": self.tiktok_bridge_fallback_enabled,
             "tiktok_api_browser": self.tiktok_api_browser,
             "tiktok_api_browser_engine": self.tiktok_api_browser_engine,
             "tiktok_api_headless": self.tiktok_api_headless,
@@ -1290,11 +1337,47 @@ class Parameter:
         self.__set_browser_info_tiktok(self.browser_info_tiktok)
 
     @staticmethod
+    def load_signing_objects(console, ab, xb, xg):
+        external = load_objects_from_external_py(
+            "encipher.py",
+            ["ABogus", "XBogus", "XGnarly"],
+            console,
+        )
+        selected = {"ABogus": ab, "XBogus": xb, "XGnarly": xg}
+        methods = {
+            "ABogus": "get_value",
+            "XBogus": "get_x_bogus",
+            "XGnarly": "generate",
+        }
+        loaded: set[str] = set()
+        for name, fallback in tuple(selected.items()):
+            candidate = external.get(name)
+            if candidate is None:
+                continue
+            try:
+                instance = candidate()
+                if not callable(getattr(instance, methods[name], None)):
+                    raise TypeError(f"{name}.{methods[name]} is not callable")
+            except Exception as error:
+                console.error(
+                    _("外部 {name} 初始化失败，将使用项目内置实现：{error}").format(
+                        name=name,
+                        error=error,
+                    )
+                )
+                selected[name] = fallback
+                continue
+            selected[name] = instance
+            loaded.add(name)
+            console.info(_("已加载外部加密参数实现：{name}").format(name=name))
+        return selected["ABogus"], selected["XBogus"], selected["XGnarly"], loaded
+
+    @staticmethod
     def check_str(value: str) -> str:
         return value if isinstance(value, str) else ""
 
     async def close_client(self) -> None:
-        if self.tiktok_api_enabled:
+        if self.tiktok_api_enabled and self.tiktok_bridge_fallback_enabled:
             from ..module import TikTokAPIBridge
 
             await TikTokAPIBridge.close_for_params(self)
@@ -1338,12 +1421,13 @@ class Parameter:
                 i,
             ):
                 API.params[i] = v
-        self.ab = ABogus(
-            ua,
-            info.get(
-                "browser_platform",
-            ),
-        )
+        if "ABogus" not in self._external_signers:
+            self.ab = ABogus(
+                ua,
+                info.get(
+                    "browser_platform",
+                ),
+            )
 
     def __set_browser_info_tiktok(
         self,
