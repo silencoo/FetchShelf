@@ -343,13 +343,38 @@ class Parameter:
     def check_bool_false(
         value: bool,
     ) -> bool:
-        return value if isinstance(value, bool) else False
+        return Parameter.coerce_bool(value, default=False)
 
     @staticmethod
     def check_bool_true(
         value: bool,
     ) -> bool:
-        return value if isinstance(value, bool) else True
+        return Parameter.coerce_bool(value, default=True)
+
+    @staticmethod
+    def coerce_bool(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value in {None, ""}:
+            return default
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"1", "true", "yes", "on", "enable", "enabled", "启用", "开启"}:
+                return True
+            if text in {
+                "0",
+                "false",
+                "no",
+                "off",
+                "disable",
+                "disabled",
+                "禁用",
+                "关闭",
+            }:
+                return False
+        return default
 
     def __check_cookie_tiktok(
         self,
@@ -1071,12 +1096,14 @@ class Parameter:
         for item in data:
             if not item.get("url"):
                 continue
-            if not isinstance(item.get("enable"), bool):
-                item["enable"] = bool(item.get("enable", True))
-            if not isinstance(item.get("auto_update_earliest"), bool):
-                item["auto_update_earliest"] = bool(
-                    item.get("auto_update_earliest", False)
-                )
+            item["enable"] = Parameter.coerce_bool(
+                item.get("enable"),
+                default=True,
+            )
+            item["auto_update_earliest"] = Parameter.coerce_bool(
+                item.get("auto_update_earliest"),
+                default=False,
+            )
             if not isinstance(item.get("mark"), str):
                 item["mark"] = ""
             items.append(item)
@@ -1104,9 +1131,13 @@ class Parameter:
                     else "post",
                     "earliest": str(item.get("earliest", "") or "").strip(),
                     "latest": str(item.get("latest", "") or "").strip(),
-                    "enable": bool(item.get("enable", False)),
-                    "auto_update_earliest": bool(
-                        item.get("auto_update_earliest", False)
+                    "enable": Parameter.coerce_bool(
+                        item.get("enable"),
+                        default=False,
+                    ),
+                    "auto_update_earliest": Parameter.coerce_bool(
+                        item.get("auto_update_earliest"),
+                        default=False,
                     ),
                     "deleted_at": item.get("deleted_at", "")
                     if isinstance(item.get("deleted_at"), str)

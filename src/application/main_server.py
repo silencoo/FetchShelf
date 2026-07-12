@@ -563,6 +563,31 @@ class APIServer(TikTok):
         return str(value).strip()
 
     @staticmethod
+    def _normalize_bool(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value in {None, ""}:
+            return default
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"1", "true", "yes", "on", "enable", "enabled", "启用", "开启"}:
+                return True
+            if text in {
+                "0",
+                "false",
+                "no",
+                "off",
+                "disable",
+                "disabled",
+                "禁用",
+                "关闭",
+            }:
+                return False
+        return default
+
+    @staticmethod
     def _build_uptime_kuma_url(
         base_url: str,
         status: str,
@@ -728,12 +753,6 @@ class APIServer(TikTok):
         for item in items:
             if not isinstance(item, dict):
                 continue
-            enable = item.get("enable", True)
-            if not isinstance(enable, bool):
-                enable = bool(enable)
-            auto_update_earliest = item.get("auto_update_earliest", False)
-            if not isinstance(auto_update_earliest, bool):
-                auto_update_earliest = bool(auto_update_earliest)
             results.append(
                 {
                     "mark": APIServer._normalize_string(item.get("mark")),
@@ -741,8 +760,14 @@ class APIServer(TikTok):
                     "tab": APIServer._normalize_string(item.get("tab")) or "post",
                     "earliest": APIServer._normalize_string(item.get("earliest")),
                     "latest": APIServer._normalize_string(item.get("latest")),
-                    "enable": enable,
-                    "auto_update_earliest": auto_update_earliest,
+                    "enable": APIServer._normalize_bool(
+                        item.get("enable"),
+                        default=True,
+                    ),
+                    "auto_update_earliest": APIServer._normalize_bool(
+                        item.get("auto_update_earliest"),
+                        default=False,
+                    ),
                     "pages": APIServer._normalize_optional_int(item.get("pages")),
                 }
             )
@@ -812,9 +837,13 @@ class APIServer(TikTok):
                     "tab": APIServer._normalize_string(item.get("tab")) or "post",
                     "earliest": APIServer._normalize_string(item.get("earliest")),
                     "latest": APIServer._normalize_string(item.get("latest")),
-                    "enable": bool(item.get("enable", False)),
-                    "auto_update_earliest": bool(
-                        item.get("auto_update_earliest", False)
+                    "enable": APIServer._normalize_bool(
+                        item.get("enable"),
+                        default=False,
+                    ),
+                    "auto_update_earliest": APIServer._normalize_bool(
+                        item.get("auto_update_earliest"),
+                        default=False,
                     ),
                     "deleted_at": APIServer._normalize_string(item.get("deleted_at")),
                     "reason": APIServer._normalize_string(item.get("reason")),
@@ -1539,7 +1568,7 @@ class APIServer(TikTok):
             default=30,
         )
         limit = self._normalize_collect_limit(payload.get("limit"), default=10)
-        enabled = bool(payload.get("enabled", True))
+        enabled = self._normalize_bool(payload.get("enabled"), default=True)
         normalized = {
             "schedule_type": self.COLLECT_MONITOR_SCHEDULE,
             "schedule_id": self._normalize_string(payload.get("schedule_id")),
@@ -1550,13 +1579,20 @@ class APIServer(TikTok):
             "interval_minutes": interval_minutes,
             "limit": limit,
             "enabled": enabled,
-            "account_enable": bool(payload.get("account_enable", True)),
-            "immediate_crawl": bool(payload.get("immediate_crawl", False)),
+            "account_enable": self._normalize_bool(
+                payload.get("account_enable"),
+                default=True,
+            ),
+            "immediate_crawl": self._normalize_bool(
+                payload.get("immediate_crawl"),
+                default=False,
+            ),
             "default_tab": self._normalize_collect_tab(payload.get("default_tab")),
             "default_earliest": self._normalize_string(payload.get("default_earliest")),
             "default_latest": self._normalize_string(payload.get("default_latest")),
-            "default_auto_update_earliest": bool(
-                payload.get("default_auto_update_earliest", False)
+            "default_auto_update_earliest": self._normalize_bool(
+                payload.get("default_auto_update_earliest"),
+                default=False,
             ),
             "cookie": self._normalize_string(payload.get("cookie")),
             "proxy": self._normalize_string(payload.get("proxy")),
@@ -1593,7 +1629,7 @@ class APIServer(TikTok):
             hour = 2
         if minute is None or not 0 <= minute <= 59:
             minute = 0
-        use_settings = bool(payload.get("use_settings", True))
+        use_settings = self._normalize_bool(payload.get("use_settings"), default=True)
         items = (
             self._normalize_account_items(payload.get("items", []))
             if not use_settings
@@ -1608,7 +1644,7 @@ class APIServer(TikTok):
             "platform": platform,
             "hour": hour,
             "minute": minute,
-            "enabled": bool(payload.get("enabled", True)),
+            "enabled": self._normalize_bool(payload.get("enabled"), default=True),
             "use_settings": use_settings,
             "items": items,
             "cookie": self._normalize_string(payload.get("cookie")),
@@ -1878,9 +1914,13 @@ class APIServer(TikTok):
                     "tab": self._normalize_collect_tab(schedule.get("default_tab")),
                     "earliest": self._normalize_string(schedule.get("default_earliest")),
                     "latest": self._normalize_string(schedule.get("default_latest")),
-                    "enable": bool(schedule.get("account_enable", True)),
-                    "auto_update_earliest": bool(
-                        schedule.get("default_auto_update_earliest", False)
+                    "enable": self._normalize_bool(
+                        schedule.get("account_enable"),
+                        default=True,
+                    ),
+                    "auto_update_earliest": self._normalize_bool(
+                        schedule.get("default_auto_update_earliest"),
+                        default=False,
                     ),
                 }
             )
@@ -1892,7 +1932,11 @@ class APIServer(TikTok):
             self.parameter.settings.update(self.parameter.get_settings_data())
 
         immediate_result: dict[str, Any] = {}
-        if new_rows and bool(schedule.get("immediate_crawl", False)):
+        immediate_crawl = self._normalize_bool(
+            schedule.get("immediate_crawl"),
+            default=False,
+        )
+        if new_rows and immediate_crawl:
             batch = await self._run_ui_account_batch(
                 payload={
                     "use_settings": False,
@@ -1914,7 +1958,7 @@ class APIServer(TikTok):
             "sec_uid_count": len(sec_uids),
             "added_accounts": len(new_rows),
             "duplicate_accounts": duplicate_accounts,
-            "immediate_crawl": bool(schedule.get("immediate_crawl", False)),
+            "immediate_crawl": immediate_crawl,
             "immediate_result": immediate_result,
         }
         self.logger.info(
