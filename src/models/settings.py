@@ -103,6 +103,7 @@ class Settings(BaseModel):
     timeout: int | None = None
     max_retry: int | None = None
     max_pages: int | None = None
+    request_delay: float | None = None
     auto_backfill_mark: bool | None = None
     run_command: str | None = None
     ffmpeg: str | None = None
@@ -112,6 +113,7 @@ class Settings(BaseModel):
     browser_info: BrowserInfo | None = None
     browser_info_tiktok: TikTokBrowserInfo | None = None
     tiktok_api_enabled: bool | None = None
+    tiktok_bridge_fallback_enabled: bool | None = None
     tiktok_api_browser: str | None = None
     tiktok_api_browser_engine: str | None = None
     tiktok_api_headless: bool | None = None

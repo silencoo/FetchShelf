@@ -230,7 +230,7 @@ demo()
 <li>The recommended value is a TikTok profile URL such as <code>https://www.tiktok.com/@username</code>. Work links can also be parsed, but profile URLs are recommended for batch account mode.</li>
 <li>Each <code>accounts_urls_tiktok</code> item uses the same common fields as DouYin account config: <code>mark</code>, <code>url</code>, <code>tab</code>, <code>earliest</code>, <code>latest</code>, <code>enable</code>, and <code>auto_update_earliest</code>.</li>
 <li>The WebUI <code>settings.json Editor</code> also provides a dedicated quick-auth panel for DouYin / TikTok cookies and key TikTok browser fingerprint fields.</li>
-<li>TikTok share-link parsing, single-link download, and batch-link download now preserve the canonical <code>detail_url</code> and prefer the TikTokApi page-based detail flow instead of relying on the legacy <code>api/item/detail/</code> endpoint first.</li>
+<li>TikTok share-link parsing, single-link download, and batch-link download preserve the canonical <code>detail_url</code>; data requests use the project's <code>APITikTok</code> implementation by default.</li>
 </ul>
 
 ```json
@@ -247,11 +247,11 @@ demo()
 ]
 ```
 
-<ul>
-<li>For better stability, enable the TikTokApi browser session and keep a persistent browser profile so requests do not create a new browser fingerprint every time.</li>
-</ul>
+<p>Request pacing and compatibility fallback example:</p>
 
 ```json
+"request_delay": 6.0,
+"tiktok_bridge_fallback_enabled": false,
 "tiktok_api_enabled": true,
 "tiktok_api_browser": "chromium",
 "tiktok_api_browser_engine": "cloakbrowser",
@@ -266,13 +266,14 @@ demo()
 ```
 
 <ul>
+<li><b>External signing implementations are supported.</b> If the bundled <code>a_bogus</code>, <code>X-Bogus</code>, or <code>X-Gnarly</code> implementation expires, copy <code>encipher_example.py</code> to <code>encipher.py</code> in the project root and implement the required classes. This file runs with the application's permissions, so only use trusted code.</li>
+<li><b>The browser compatibility bridge is disabled by default.</b> The previous TikTokApi browser path is attempted after a legacy request failure or media 403 only when <code>tiktok_bridge_fallback_enabled</code> is explicitly set to <code>true</code>.</li>
+<li><b><code>request_delay</code> is the average request interval in seconds.</b> The default <code>6</code> uses a human-like random distribution; set it to <code>0</code> to disable waiting.</li>
 <li><b>You should use a logged-in TikTok Web cookie.</b> Visitor-only values such as <code>msToken</code> or <code>ttwid</code> may lead to incomplete lists, <code>empty response</code>, captcha, or download <code>403</code>.</li>
 <li><b>Import a full logged-in browser cookie whenever possible.</b> In practice, the browser should already be logged into TikTok Web before importing <code>cookie_tiktok</code>. Common logged-in cookie keys include <code>sessionid</code>, <code>sessionid_ss</code>, <code>sid_tt</code>, and <code>uid_tt</code>.</li>
-<li><b>Do not change the profile directory after solving a captcha.</b> Reuse the same <code>tiktok_api_profile_dir</code> so the verified browser state is preserved.</li>
-<li><b>The program now detects TikTok risk states.</b> This includes captcha / challenge pages, <code>empty response</code>, HTML returned instead of JSON, and cases where the profile reports videos but the item list is empty.</li>
-<li><b>When a risk signal is detected, the program enters a cooldown and skips legacy fallback by default.</b> This helps avoid hammering TikTok after the account or session is already restricted; use <code>tiktok_api_skip_on_risk</code> and <code>tiktok_api_risk_cooldown_seconds</code> to control this behavior.</li>
+<li><b>When the compatibility bridge is enabled, do not change its profile directory after solving a captcha.</b> Reuse the same <code>tiktok_api_profile_dir</code> so the verified browser state is preserved.</li>
 <li><b>If TikTok requires a proxy in your network, configure <code>proxy_tiktok</code>.</b> Do not rely on DouYin-only <code>proxy</code>.</li>
-<li><b>If direct media download returns 403, the program falls back to shared TikTokApi-session download.</b> The current implementation prefers fetching media inside the browser context and reusing the active profile, cookies, and browser environment instead of making Python HTTP clients the primary download path. This fallback still depends on the current login state and profile remaining valid.</li>
+<li><b>If direct media download returns 403,</b> shared TikTokApi-session download is attempted only when <code>tiktok_bridge_fallback_enabled</code> is enabled.</li>
 <li><b>For the Web API <code>/tiktok/detail</code>, prefer sending <code>detail_url</code>.</b> <code>detail_id</code> is kept mainly as a compatibility fallback, and short share links are expanded into canonical work URLs before processing.</li>
 </ul>
 

@@ -763,25 +763,6 @@ class TikTok:
             if index
             else _("开始处理账号")
         )
-        if tiktok and self.parameter.tiktok_api_enabled and TikTokAPIBridge.available():
-            result = await self._deal_account_detail_tiktok_bridge_only(
-                index=index,
-                sec_user_id=sec_user_id,
-                mark=mark,
-                tab=tab,
-                earliest=earliest,
-                latest=latest,
-                pages=pages,
-                api=api,
-                source=source,
-                cookie=cookie,
-                proxy=proxy,
-                return_context=return_context,
-                **kwargs,
-            )
-            if result is not None:
-                return result
-
         if api:
             info = None
         elif not (
@@ -953,7 +934,21 @@ class TikTok:
         *args,
         **kwargs,
     ):
-        if self.parameter.tiktok_api_enabled and TikTokAPIBridge.available():
+        data = await AccountTikTok(
+            self.parameter,
+            cookie,
+            proxy,
+            sec_user_id,
+            tab,
+            earliest,
+            latest,
+            pages,
+            **kwargs,
+        ).run() or ([], "", "")
+        if any(data[0]) or not self._tiktok_bridge_fallback_available():
+            return data
+        self.logger.info(_("旧版 TikTok 接口获取账号作品失败，尝试兼容桥回退"))
+        if self._tiktok_bridge_fallback_available():
             bridge = TikTokAPIBridge(
                 self.parameter,
                 cookie,
@@ -971,21 +966,10 @@ class TikTok:
                 return data
             if bridge.should_skip_legacy_fallback():
                 self.logger.warning(
-                    _("TikTokApi 已检测到风控，跳过旧版接口回退以避免进一步触发限制")
+                    _("TikTok 兼容桥检测到风控，停止继续请求")
                 )
                 return [], "", ""
-            self.logger.info(_("TikTokApi 账号作品获取失败，回退到旧版接口"))
-        return await AccountTikTok(
-            self.parameter,
-            cookie,
-            proxy,
-            sec_user_id,
-            tab,
-            earliest,
-            latest,
-            pages,
-            **kwargs,
-        ).run()
+        return data
 
     async def get_user_info_data(
         self,
@@ -1033,7 +1017,17 @@ class TikTok:
         sec_user_id: Union[str] = "",
         url: str = "",
     ):
-        if self.parameter.tiktok_api_enabled and TikTokAPIBridge.available():
+        info = await InfoTikTok(
+            self.parameter,
+            cookie,
+            proxy,
+            unique_id,
+            sec_user_id,
+        ).run()
+        if info or not self._tiktok_bridge_fallback_available():
+            return info
+        self.logger.info(_("旧版 TikTok 接口获取账号信息失败，尝试兼容桥回退"))
+        if self._tiktok_bridge_fallback_available():
             bridge = TikTokAPIBridge(
                 self.parameter,
                 cookie,
@@ -1048,17 +1042,17 @@ class TikTok:
                 return info
             if bridge.should_skip_legacy_fallback():
                 self.logger.warning(
-                    _("TikTokApi 已检测到风控，跳过旧版接口回退以避免进一步触发限制")
+                    _("TikTok 兼容桥检测到风控，停止继续请求")
                 )
                 return {}
-            self.logger.info(_("TikTokApi 账号信息获取失败，回退到旧版接口"))
-        return await InfoTikTok(
-            self.parameter,
-            cookie,
-            proxy,
-            unique_id,
-            sec_user_id,
-        ).run()
+        return info
+
+    def _tiktok_bridge_fallback_available(self) -> bool:
+        return bool(
+            getattr(self.parameter, "tiktok_api_enabled", False)
+            and getattr(self.parameter, "tiktok_bridge_fallback_enabled", False)
+            and TikTokAPIBridge.available()
+        )
 
     async def _batch_process_detail(
         self,
@@ -1438,27 +1432,25 @@ class TikTok:
         detail_url: str = "",
         bridge: TikTokAPIBridge | None = None,
     ):
-        if tiktok and detail_url and bridge:
-            if data := await bridge.get_video_detail(
-                detail_url=detail_url,
-                detail_id=detail_id,
-            ):
-                return data
-            if not bridge.should_skip_legacy_fallback():
-                bridge.log.warning(
-                    _(
-                        "TikTokApi 作品详情获取失败，已跳过旧版 detail 接口回退: {url}"
-                    ).format(url=detail_url)
-                )
-            return None
         if not detail_id:
             return None
-        return await processor(
+        data = await processor(
             self.parameter,
             cookie,
             proxy,
             detail_id,
         ).run()
+        if data or not (tiktok and detail_url and bridge):
+            return data
+        bridge.log.warning(
+            _("旧版 TikTok 作品详情接口失败，尝试兼容桥回退: {url}").format(
+                url=detail_url
+            )
+        )
+        return await bridge.get_video_detail(
+            detail_url=detail_url,
+            detail_id=detail_id,
+        )
 
     async def __handle_detail(
         self,
@@ -1480,6 +1472,7 @@ class TikTok:
             )
             if tiktok
             and self.parameter.tiktok_api_enabled
+            and self.parameter.tiktok_bridge_fallback_enabled
             and TikTokAPIBridge.available()
             else None
         )

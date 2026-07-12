@@ -68,6 +68,16 @@
               />
             </label>
             <label class="field">
+              <span>request_delay</span>
+              <input
+                name="request_delay"
+                type="number"
+                min="0"
+                step="0.5"
+                placeholder="平均请求间隔秒数；0 表示关闭"
+              />
+            </label>
+            <label class="field">
               <span>storage_format</span>
               <select name="storage_format">
                 <option value="">关闭</option>
@@ -115,6 +125,13 @@
             <label class="toggle-field">
               <input name="auto_backfill_mark" type="checkbox" />
               <span>auto_backfill_mark</span>
+            </label>
+            <label
+              class="toggle-field"
+              title="旧版 TikTok 接口失败时，启用浏览器兼容桥回退"
+            >
+              <input name="tiktok_bridge_fallback_enabled" type="checkbox" />
+              <span>tiktok_bridge_fallback_enabled</span>
             </label>
           </form>
           <div id="accounts-settings-block" class="accounts-settings-block">

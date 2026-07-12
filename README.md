@@ -238,7 +238,7 @@ demo()
 <li>推荐使用账号主页链接，例如 <code>https://www.tiktok.com/@username</code>；程序也支持从作品链接中提取账号信息，但批量模式仍建议配置主页链接。</li>
 <li><code>accounts_urls_tiktok</code> 的单项结构与抖音账号配置一致，常用参数为 <code>mark</code>、<code>url</code>、<code>tab</code>、<code>earliest</code>、<code>latest</code>、<code>enable</code>、<code>auto_update_earliest</code>。</li>
 <li>WebUI 的 <code>settings.json Editor</code> 已增加登录态快捷面板，可单独维护抖音 / TikTok Cookie 与 TikTok 浏览器指纹关键字段。</li>
-<li>TikTok 分享链接解析、单条下载、批量下载现在会优先保留规范化后的 <code>detail_url</code>，并走 TikTokApi 的页面方案获取作品详情，而不是优先依赖旧版 <code>api/item/detail/</code>。</li>
+<li>TikTok 分享链接解析、单条下载、批量下载会保留规范化后的 <code>detail_url</code>；数据请求默认使用项目的 <code>APITikTok</code> 接口实现。</li>
 </ul>
 
 ```json
@@ -255,11 +255,11 @@ demo()
 ]
 ```
 
-<ul>
-<li>推荐同时启用 TikTokApi 浏览器会话模式，并保持同一个持久化 profile，避免每次请求都生成新的浏览器指纹，降低验证码、空响应和 403 风控概率。</li>
-</ul>
+<p>请求间隔和兼容回退示例：</p>
 
 ```json
+"request_delay": 6.0,
+"tiktok_bridge_fallback_enabled": false,
 "tiktok_api_enabled": true,
 "tiktok_api_browser": "chromium",
 "tiktok_api_browser_engine": "cloakbrowser",
@@ -274,13 +274,14 @@ demo()
 ```
 
 <ul>
+<li><b>加密参数接口支持外部实现。</b> 如内置 <code>a_bogus</code>、<code>X-Bogus</code> 或 <code>X-Gnarly</code> 失效，可复制 <code>encipher_example.py</code> 为项目根目录下的 <code>encipher.py</code> 并实现所需类。该文件会以应用自身权限执行，只能使用可信代码。</li>
+<li><b>浏览器兼容桥默认关闭。</b> 只有显式设置 <code>tiktok_bridge_fallback_enabled: true</code> 时，旧版接口失败或媒体直链返回 403 后才会尝试原 TikTokApi 浏览器方案。</li>
+<li><b><code>request_delay</code> 是平均请求间隔秒数。</b> 默认值 <code>6</code> 使用更接近人工操作的随机分布；设置为 <code>0</code> 可关闭等待。</li>
 <li><b>必须使用已登录的 TikTok Web Cookie。</b> 仅有 <code>msToken</code>、<code>ttwid</code> 等访客态参数时，可能只能拿到不完整列表，或者直接出现 <code>empty response</code>、验证码、下载 <code>403</code>。</li>
 <li><b>建议导入完整登录态 Cookie。</b> 至少应确保浏览器中 TikTok Web 已登录，并从该浏览器导入 <code>cookie_tiktok</code>；常见登录态 Cookie 键包括 <code>sessionid</code>、<code>sessionid_ss</code>、<code>sid_tt</code>、<code>uid_tt</code>。</li>
-<li><b>验证码处理后不要随意更换 profile 目录。</b> 如果手动完成了验证码，请继续复用同一个 <code>tiktok_api_profile_dir</code>，否则新的 profile 会丢失已验证状态并再次触发风控。</li>
-<li><b>程序现在会检测 TikTok 风控信号。</b> 包括验证码 / challenge、<code>empty response</code>、返回 HTML 而不是 JSON、以及“账号资料显示有视频但列表为空”等情况。</li>
-<li><b>命中风控后默认进入冷却并跳过旧版接口回退。</b> 这样可以避免在账号或会话已经受限时继续激进请求；可通过 <code>tiktok_api_skip_on_risk</code> 和 <code>tiktok_api_risk_cooldown_seconds</code> 控制。</li>
+<li><b>启用兼容桥后不要随意更换 profile 目录。</b> 如果手动完成了验证码，请继续复用同一个 <code>tiktok_api_profile_dir</code>。</li>
 <li><b>如果需要代理访问 TikTok，请设置 <code>proxy_tiktok</code>。</b> 不要只设置抖音侧的 <code>proxy</code>。</li>
-<li><b>如下载直链返回 403，程序会自动回退到共享 TikTokApi 会话下载。</b> 当前实现会优先在浏览器上下文中抓取媒体并复用当前 profile、Cookie 与浏览器环境，而不是把媒体下载主路径直接落到 Python HTTP 客户端；但这个回退同样依赖当前 profile 和登录态依然有效。</li>
+<li><b>如下载直链返回 403，</b>仅在启用 <code>tiktok_bridge_fallback_enabled</code> 后尝试共享 TikTokApi 会话下载。</li>
 <li><b>调用 Web API 的 <code>/tiktok/detail</code> 时，推荐直接传 <code>detail_url</code>。</b> 目前 <code>detail_id</code> 仅保留兼容回退用途，分享短链也会先展开为规范作品链接再处理。</li>
 </ul>
 

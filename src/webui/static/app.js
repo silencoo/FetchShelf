@@ -1318,6 +1318,7 @@ function mapSettingsToForm(settings) {
     "folder_name",
     "profile_avatar_folder",
     "earliest_update_days",
+    "request_delay",
     "storage_format",
     "proxy",
     "proxy_tiktok",
@@ -1338,6 +1339,7 @@ function mapSettingsToForm(settings) {
     "dynamic_cover",
     "static_cover",
     "auto_backfill_mark",
+    "tiktok_bridge_fallback_enabled",
   ];
   for (const name of boolFields) {
     const element = refs.settingsForm.elements.namedItem(name);
@@ -1358,11 +1360,14 @@ function collectSettingsPayload() {
   const formData = new FormData(refs.settingsForm);
   const rawDays = Number(formData.get("earliest_update_days"));
   const earliestUpdateDays = Number.isFinite(rawDays) ? Math.max(0, Math.trunc(rawDays)) : 0;
+  const rawRequestDelay = Number(formData.get("request_delay"));
+  const requestDelay = Number.isFinite(rawRequestDelay) ? Math.max(0, rawRequestDelay) : 6;
   const payload = {
     root: String(formData.get("root") || "").trim(),
     folder_name: String(formData.get("folder_name") || "").trim(),
     profile_avatar_folder: String(formData.get("profile_avatar_folder") || "").trim(),
     earliest_update_days: earliestUpdateDays,
+    request_delay: requestDelay,
     storage_format: String(formData.get("storage_format") || "").trim(),
     proxy: String(formData.get("proxy") || "").trim(),
     proxy_tiktok: String(formData.get("proxy_tiktok") || "").trim(),
@@ -1373,6 +1378,9 @@ function collectSettingsPayload() {
     dynamic_cover: refs.settingsForm.elements.namedItem("dynamic_cover").checked,
     static_cover: refs.settingsForm.elements.namedItem("static_cover").checked,
     auto_backfill_mark: refs.settingsForm.elements.namedItem("auto_backfill_mark").checked,
+    tiktok_bridge_fallback_enabled: refs.settingsForm.elements.namedItem(
+      "tiktok_bridge_fallback_enabled",
+    ).checked,
     accounts_urls: collectAccountRows("douyin"),
     accounts_urls_tiktok: collectAccountRows("tiktok"),
     deleted_accounts: collectDeletedRows("douyin"),

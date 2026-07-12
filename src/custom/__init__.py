@@ -1,5 +1,7 @@
 from .function import (
     wait,
+    configure_wait,
+    get_wait_time,
     failure_handling,
     condition_filter,
     suspend,

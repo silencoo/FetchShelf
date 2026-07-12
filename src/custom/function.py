@@ -1,22 +1,48 @@
 from asyncio import sleep
-from random import randint
+from math import log
+from random import lognormvariate
 from typing import TYPE_CHECKING
+
 from src.translation import _
 
 if TYPE_CHECKING:
     from src.tools import ColorfulConsole
 
 
+_REQUEST_DELAY_MEAN = 6.0
+_REQUEST_DELAY_SIGMA = 0.6
+
+
+def configure_wait(avg_delay: float | int) -> float:
+    """Configure the process-wide average delay used between data requests."""
+    global _REQUEST_DELAY_MEAN
+    try:
+        value = float(avg_delay)
+    except (TypeError, ValueError):
+        value = 6.0
+    _REQUEST_DELAY_MEAN = max(0.0, value)
+    return _REQUEST_DELAY_MEAN
+
+
+def get_wait_time(
+    avg_delay: float | int | None = None,
+    sigma: float = _REQUEST_DELAY_SIGMA,
+) -> float:
+    """Return a human-like log-normal delay with the requested arithmetic mean."""
+    mean = _REQUEST_DELAY_MEAN if avg_delay is None else max(0.0, float(avg_delay))
+    if mean == 0:
+        return 0.0
+    mu = log(mean) - (sigma**2 / 2)
+    return max(0.5, lognormvariate(mu, sigma))
+
+
 async def wait() -> None:
     """
     设置网络请求间隔时间，仅对获取数据生效，不影响下载文件
     """
-    # 随机延时
-    await sleep(randint(5, 20) * 0.1)
-    # 固定延时
-    # await sleep(1)
-    # 取消延时
-    # pass
+    delay = get_wait_time()
+    if delay > 0:
+        await sleep(delay)
 
 
 def failure_handling() -> bool:
