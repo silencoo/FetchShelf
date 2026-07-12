@@ -347,6 +347,9 @@ const BOARD_COLUMNS_STORAGE_KEY = "webui.board.columns";
 const BOARD_VIEW_MODE_STORAGE_KEY = "webui.board.view_mode";
 
 function setBadge(element, text, kind = "") {
+  if (!element) {
+    return;
+  }
   element.textContent = text;
   element.classList.remove("ok", "warn", "error");
   if (kind) {
@@ -360,6 +363,25 @@ function setApiStatus(text, kind = "") {
 
 function setWsStatus(text, kind = "") {
   setBadge(refs.wsStatus, `日志: ${text}`, kind);
+}
+
+async function withBusyButton(button, busyText, action) {
+  if (!button || button.disabled) {
+    return;
+  }
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.classList.add("busy");
+  if (busyText) {
+    button.textContent = busyText;
+  }
+  try {
+    await action();
+  } finally {
+    button.classList.remove("busy");
+    button.disabled = false;
+    button.textContent = previousText;
+  }
 }
 
 function headerOptions(json = true) {
@@ -595,20 +617,24 @@ function connectLogSocket() {
 }
 
 function switchTab(tab) {
-  state.activeTab = tab;
+  const fallbackTab = "workbench";
+  const nextTab = refs.tabButtons.some((button) => button.dataset.tabTarget === tab)
+    ? tab
+    : fallbackTab;
+  state.activeTab = nextTab;
   document.querySelectorAll(".tab-panel").forEach((panel) => {
-    panel.classList.toggle("hidden-panel", panel.dataset.tabPanel !== tab);
+    panel.classList.toggle("hidden-panel", panel.dataset.tabPanel !== nextTab);
   });
   refs.tabButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.tabTarget === tab);
+    button.classList.toggle("active", button.dataset.tabTarget === nextTab);
   });
   try {
-    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab);
+    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, nextTab);
   } catch {}
-  if (tab === "profiles" && state.accountBoardDirty) {
+  if (nextTab === "profiles" && state.accountBoardDirty) {
     loadAccountBoard(true);
   }
-  if (tab === "files") {
+  if (nextTab === "files") {
     updateFilesAccountContext();
   }
 }
@@ -638,8 +664,8 @@ function normalizeAccountRows(rows) {
       tab: String(item.tab || "post").trim() || "post",
       earliest: String(item.earliest || "").trim(),
       latest: String(item.latest || "").trim(),
-      enable: Boolean(item.enable ?? true),
-      auto_update_earliest: Boolean(item.auto_update_earliest ?? false),
+      enable: parseBooleanValue(item.enable, true),
+      auto_update_earliest: parseBooleanValue(item.auto_update_earliest, false),
       selected: Boolean(item.selected ?? false),
     }));
   return normalized.length ? normalized : [defaultAccountRow()];
@@ -672,8 +698,8 @@ function normalizeDeletedRows(rows) {
       tab: String(item.tab || "post").trim() || "post",
       earliest: String(item.earliest || "").trim(),
       latest: String(item.latest || "").trim(),
-      enable: Boolean(item.enable ?? false),
-      auto_update_earliest: Boolean(item.auto_update_earliest ?? false),
+      enable: parseBooleanValue(item.enable, false),
+      auto_update_earliest: parseBooleanValue(item.auto_update_earliest, false),
       deleted_at: String(item.deleted_at || "").trim(),
       reason: String(item.reason || "").trim(),
       selected: Boolean(item.selected ?? false),
@@ -699,6 +725,32 @@ function escapeAttr(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function escapeHtml(value) {
+  return escapeAttr(value);
+}
+
+function parseBooleanValue(value, defaultValue = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (value === null || typeof value === "undefined" || value === "") {
+    return defaultValue;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  const trueValues = new Set(["1", "true", "yes", "on", "enable", "enabled", "启用", "开启"]);
+  const falseValues = new Set(["0", "false", "no", "off", "disable", "disabled", "禁用", "关闭"]);
+  if (trueValues.has(normalized)) {
+    return true;
+  }
+  if (falseValues.has(normalized)) {
+    return false;
+  }
+  return defaultValue;
 }
 
 function duplicateUrlIndexes(platform) {
@@ -1036,18 +1088,7 @@ function openUrls(urls) {
 }
 
 function parseBatchBoolValue(value) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  const trueValues = new Set(["1", "true", "yes", "on", "enable", "enabled", "启用", "开启"]);
-  const falseValues = new Set(["0", "false", "no", "off", "disable", "disabled", "禁用", "关闭"]);
-  if (trueValues.has(normalized)) {
-    return true;
-  }
-  if (falseValues.has(normalized)) {
-    return false;
-  }
-  return null;
+  return parseBooleanValue(value, null);
 }
 
 function batchValuePlaceholder(field) {
@@ -1605,21 +1646,21 @@ function normalizeEntries(payload) {
 
 function iconForEntry(entry) {
   if (entry.is_dir || entry.kind === "dir") {
-    return "📁";
+    return "DIR";
   }
   if (entry.kind === "image") {
-    return "🖼️";
+    return "IMG";
   }
   if (entry.kind === "video") {
-    return "🎬";
+    return "VID";
   }
   if (entry.kind === "audio") {
-    return "🎵";
+    return "AUD";
   }
   if (entry.kind === "text") {
-    return "📄";
+    return "TXT";
   }
-  return "📦";
+  return "BIN";
 }
 
 function renderFilePreview(entry) {
@@ -1722,6 +1763,7 @@ function renderFiles() {
     row.dataset.path = entry.path || "";
 
     const icon = document.createElement("span");
+    icon.className = "file-icon";
     icon.textContent = iconForEntry(entry);
 
     const name = document.createElement("span");
@@ -2885,35 +2927,41 @@ function renderScheduleList(items) {
   }
   const fragment = document.createDocumentFragment();
   items.forEach((item) => {
+    const isEnabled = parseBooleanValue(item.enabled, false);
+    const scheduleId = String(item.schedule_id || "");
+    const hour = Number.isFinite(Number(item.hour)) ? Number(item.hour) : 0;
+    const minute = Number.isFinite(Number(item.minute)) ? Number(item.minute) : 0;
     const row = document.createElement("div");
     row.className = "task-row";
     row.innerHTML = `
-      <span class="task-status ${item.enabled ? "success" : "canceled"}">${
-      item.enabled ? "enabled" : "disabled"
+      <span class="task-status ${isEnabled ? "success" : "canceled"}">${
+      isEnabled ? "enabled" : "disabled"
     }</span>
       <div class="task-main">
-        <span class="task-id">${item.schedule_id || "-"}</span>
-        <span class="task-endpoint">${item.name || "-"} · ${item.platform || "-"}</span>
-        <span class="task-time">每日 ${String(item.hour).padStart(2, "0")}:${String(
-      item.minute,
-    ).padStart(2, "0")} · 下次 ${item.next_run_at || "-"}</span>
+        <span class="task-id">${escapeHtml(scheduleId || "-")}</span>
+        <span class="task-endpoint">${escapeHtml(item.name || "-")} · ${escapeHtml(
+      item.platform || "-",
+    )}</span>
+        <span class="task-time">每日 ${String(hour).padStart(2, "0")}:${String(
+      minute,
+    ).padStart(2, "0")} · 下次 ${escapeHtml(item.next_run_at || "-")}</span>
       </div>
       <div class="task-actions">
         <button class="btn ghost" data-action="run">立即执行</button>
         <button class="btn ghost" data-action="toggle">${
-          item.enabled ? "停用" : "启用"
+          isEnabled ? "停用" : "启用"
         }</button>
         <button class="btn ghost danger" data-action="delete">删除</button>
       </div>
     `;
     row.querySelector('[data-action="run"]')?.addEventListener("click", () => {
-      runScheduleNow(item.schedule_id);
+      runScheduleNow(scheduleId);
     });
     row.querySelector('[data-action="toggle"]')?.addEventListener("click", () => {
-      toggleSchedule(item.schedule_id, !item.enabled);
+      toggleSchedule(scheduleId, !isEnabled);
     });
     row.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
-      deleteSchedule(item.schedule_id);
+      deleteSchedule(scheduleId);
     });
     fragment.appendChild(row);
   });
@@ -3026,35 +3074,43 @@ function renderCollectMonitorList(items) {
   const fragment = document.createDocumentFragment();
   items.forEach((item) => {
     const lastResult = item?.last_result && typeof item.last_result === "object" ? item.last_result : {};
-    const statusTag = item.enabled ? "enabled" : "disabled";
+    const isEnabled = parseBooleanValue(item.enabled, false);
+    const scheduleId = String(item.schedule_id || "");
+    const statusTag = isEnabled ? "enabled" : "disabled";
     const row = document.createElement("div");
     row.className = "task-row";
     row.innerHTML = `
-      <span class="task-status ${item.enabled ? "success" : "canceled"}">${statusTag}</span>
+      <span class="task-status ${isEnabled ? "success" : "canceled"}">${statusTag}</span>
       <div class="task-main">
-        <span class="task-id">${item.schedule_id || "-"}</span>
-        <span class="task-endpoint">${item.name || "-"} · collect_id=${item.collect_id || "-"}</span>
+        <span class="task-id">${escapeHtml(scheduleId || "-")}</span>
+        <span class="task-endpoint">${escapeHtml(item.name || "-")} · collect_id=${escapeHtml(
+      item.collect_id || "-",
+    )}</span>
         <span class="task-time">
-          间隔 ${item.interval_minutes || "-"} 分钟 · limit ${item.limit || "-"} · 下次 ${item.next_run_at || "-"}
+          间隔 ${escapeHtml(item.interval_minutes || "-")} 分钟 · limit ${escapeHtml(
+      item.limit || "-",
+    )} · 下次 ${escapeHtml(item.next_run_at || "-")}
         </span>
         <span class="task-time">
-          上次 ${item.last_run_at || "-"} · 新增 ${lastResult.added_accounts || 0} · 去重 ${lastResult.duplicate_accounts || 0}
+          上次 ${escapeHtml(item.last_run_at || "-")} · 新增 ${escapeHtml(
+      lastResult.added_accounts || 0,
+    )} · 去重 ${escapeHtml(lastResult.duplicate_accounts || 0)}
         </span>
       </div>
       <div class="task-actions">
         <button class="btn ghost" data-action="run">立即执行</button>
-        <button class="btn ghost" data-action="toggle">${item.enabled ? "停用" : "启用"}</button>
+        <button class="btn ghost" data-action="toggle">${isEnabled ? "停用" : "启用"}</button>
         <button class="btn ghost danger" data-action="delete">删除</button>
       </div>
     `;
     row.querySelector('[data-action="run"]')?.addEventListener("click", () => {
-      runCollectMonitorNow(item.schedule_id);
+      runCollectMonitorNow(scheduleId);
     });
     row.querySelector('[data-action="toggle"]')?.addEventListener("click", () => {
-      toggleCollectMonitor(item.schedule_id, !item.enabled);
+      toggleCollectMonitor(scheduleId, !isEnabled);
     });
     row.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
-      deleteCollectMonitor(item.schedule_id);
+      deleteCollectMonitor(scheduleId);
     });
     fragment.appendChild(row);
   });
@@ -3234,20 +3290,22 @@ function renderTaskList(items) {
   }
   const fragment = document.createDocumentFragment();
   for (const task of items) {
+    const taskStatus = String(task.status || "");
+    const taskStatusClass = taskStatus.replace(/[^a-z0-9_-]/gi, "");
     const row = document.createElement("div");
     row.className = "task-row";
     row.dataset.taskId = task.task_id || "";
 
     const status = document.createElement("span");
-    status.className = `task-status ${task.status || ""}`;
-    status.textContent = task.status || "-";
+    status.className = `task-status ${taskStatusClass}`;
+    status.textContent = taskStatus || "-";
 
     const main = document.createElement("div");
     main.className = "task-main";
     main.innerHTML = `
-      <span class="task-id">${task.task_id || "-"}</span>
-      <span class="task-endpoint">${task.endpoint || "-"}</span>
-      <span class="task-time">${task.updated_at || task.created_at || ""}</span>
+      <span class="task-id">${escapeHtml(task.task_id || "-")}</span>
+      <span class="task-endpoint">${escapeHtml(task.endpoint || "-")}</span>
+      <span class="task-time">${escapeHtml(task.updated_at || task.created_at || "")}</span>
     `;
 
     const actions = document.createElement("div");
@@ -3262,7 +3320,7 @@ function renderTaskList(items) {
     });
     actions.appendChild(viewBtn);
 
-    if (["pending", "running", "canceling"].includes(task.status)) {
+    if (["pending", "running", "canceling"].includes(taskStatus)) {
       const cancelBtn = document.createElement("button");
       cancelBtn.className = "btn ghost";
       cancelBtn.textContent = "取消";
@@ -3340,15 +3398,19 @@ function bindEvents() {
   });
 
   refs.applyTokenBtn.addEventListener("click", () => {
-    state.token = refs.tokenInput.value.trim();
-    setApiStatus("令牌已应用", "ok");
-    loadSettings();
-    loadRawSettings();
-    loadFiles();
-    loadTaskList();
-    loadSchedules();
-    loadCollectMonitors();
-    connectLogSocket();
+    withBusyButton(refs.applyTokenBtn, "应用中", async () => {
+      state.token = refs.tokenInput.value.trim();
+      setApiStatus("令牌已应用", "ok");
+      await Promise.allSettled([
+        loadSettings(),
+        loadRawSettings(),
+        loadFiles(),
+        loadTaskList(),
+        loadSchedules(),
+        loadCollectMonitors(),
+      ]);
+      connectLogSocket();
+    });
   });
 
   refs.logsAutoscroll.addEventListener("change", (event) => {
@@ -3371,15 +3433,15 @@ function bindEvents() {
   });
 
   refs.settingsReloadBtn.addEventListener("click", () => {
-    loadSettings();
+    withBusyButton(refs.settingsReloadBtn, "加载中", loadSettings);
   });
 
   refs.settingsSaveBtn.addEventListener("click", () => {
-    saveSettings();
+    withBusyButton(refs.settingsSaveBtn, "保存中", saveSettings);
   });
 
   refs.settingsRawLoadBtn.addEventListener("click", () => {
-    loadRawSettings();
+    withBusyButton(refs.settingsRawLoadBtn, "加载中", loadRawSettings);
   });
 
   refs.settingsRawFormatBtn.addEventListener("click", () => {
@@ -3387,7 +3449,7 @@ function bindEvents() {
   });
 
   refs.settingsRawSaveBtn.addEventListener("click", () => {
-    saveRawSettings();
+    withBusyButton(refs.settingsRawSaveBtn, "保存中", saveRawSettings);
   });
 
   refs.settingsAuthLoadBtn.addEventListener("click", () => {
@@ -3400,7 +3462,7 @@ function bindEvents() {
   });
 
   refs.settingsAuthSaveBtn.addEventListener("click", () => {
-    saveQuickAuthSettings();
+    withBusyButton(refs.settingsAuthSaveBtn, "保存中", saveQuickAuthSettings);
   });
 
   refs.accountsDouyinAddBtn.addEventListener("click", () => {
@@ -3544,19 +3606,27 @@ function bindEvents() {
   bindSearch(refs.accountsDouyinSearch, "douyin");
   bindSearch(refs.accountsTikTokSearch, "tiktok");
 
-  refs.accountsDouyinFormatBtn.addEventListener("click", async () => {
-    formatAccountUrls("douyin");
-    const result = await persistAccountTables("account_format_url");
-    setAccountStatus("douyin", `URL 已规则化并备份: ${result.backup_path || "-"}`);
+  refs.accountsDouyinFormatBtn.addEventListener("click", () => {
+    withBusyButton(refs.accountsDouyinFormatBtn, "规则化中", async () => {
+      formatAccountUrls("douyin");
+      const result = await persistAccountTables("account_format_url");
+      setAccountStatus("douyin", `URL 已规则化并备份: ${result.backup_path || "-"}`);
+    });
   });
-  refs.accountsTikTokFormatBtn.addEventListener("click", async () => {
-    formatAccountUrls("tiktok");
-    const result = await persistAccountTables("account_format_url");
-    setAccountStatus("tiktok", `URL 已规则化并备份: ${result.backup_path || "-"}`);
+  refs.accountsTikTokFormatBtn.addEventListener("click", () => {
+    withBusyButton(refs.accountsTikTokFormatBtn, "规则化中", async () => {
+      formatAccountUrls("tiktok");
+      const result = await persistAccountTables("account_format_url");
+      setAccountStatus("tiktok", `URL 已规则化并备份: ${result.backup_path || "-"}`);
+    });
   });
 
-  refs.accountsDouyinCheckBtn.addEventListener("click", () => verifyAccounts("douyin"));
-  refs.accountsTikTokCheckBtn.addEventListener("click", () => verifyAccounts("tiktok"));
+  refs.accountsDouyinCheckBtn.addEventListener("click", () =>
+    withBusyButton(refs.accountsDouyinCheckBtn, "检测中", () => verifyAccounts("douyin")),
+  );
+  refs.accountsTikTokCheckBtn.addEventListener("click", () =>
+    withBusyButton(refs.accountsTikTokCheckBtn, "检测中", () => verifyAccounts("tiktok")),
+  );
 
   refs.accountsDouyinSelectAllBtn.addEventListener("click", () =>
     selectAllRows("douyin", "active", true),
@@ -3621,63 +3691,75 @@ function bindEvents() {
     syncBatchValuePlaceholder("tiktok");
   });
 
-  refs.accountsDouyinApplyBatchBtn.addEventListener("click", async () => {
-    const field = refs.accountsDouyinBatchField.value;
-    const value = refs.accountsDouyinBatchValue.value;
-    const resultState = applyBatchField("douyin", field, value);
-    if (resultState.error) {
-      setAccountStatus("douyin", resultState.error);
-      return;
-    }
-    const result = await persistAccountTables("account_batch_replace");
-    setAccountStatus(
-      "douyin",
-      `已批量替换 ${resultState.updated} 行 ${field}: ${result.backup_path || "-"}`,
-    );
+  refs.accountsDouyinApplyBatchBtn.addEventListener("click", () => {
+    withBusyButton(refs.accountsDouyinApplyBatchBtn, "替换中", async () => {
+      const field = refs.accountsDouyinBatchField.value;
+      const value = refs.accountsDouyinBatchValue.value;
+      const resultState = applyBatchField("douyin", field, value);
+      if (resultState.error) {
+        setAccountStatus("douyin", resultState.error);
+        return;
+      }
+      const result = await persistAccountTables("account_batch_replace");
+      setAccountStatus(
+        "douyin",
+        `已批量替换 ${resultState.updated} 行 ${field}: ${result.backup_path || "-"}`,
+      );
+    });
   });
-  refs.accountsTikTokApplyBatchBtn.addEventListener("click", async () => {
-    const field = refs.accountsTikTokBatchField.value;
-    const value = refs.accountsTikTokBatchValue.value;
-    const resultState = applyBatchField("tiktok", field, value);
-    if (resultState.error) {
-      setAccountStatus("tiktok", resultState.error);
-      return;
-    }
-    const result = await persistAccountTables("account_batch_replace");
-    setAccountStatus(
-      "tiktok",
-      `已批量替换 ${resultState.updated} 行 ${field}: ${result.backup_path || "-"}`,
-    );
-  });
-
-  refs.accountsDouyinDeleteSelectedBtn.addEventListener("click", async () => {
-    selectedIndexes("douyin", "active")
-      .sort((a, b) => b - a)
-      .forEach((index) => removeAccountRow("douyin", index, "批量删除"));
-    const result = await persistAccountTables("account_batch_delete");
-    setAccountStatus("douyin", `批量删除已保存: ${result.backup_path || "-"}`);
-  });
-  refs.accountsTikTokDeleteSelectedBtn.addEventListener("click", async () => {
-    selectedIndexes("tiktok", "active")
-      .sort((a, b) => b - a)
-      .forEach((index) => removeAccountRow("tiktok", index, "批量删除"));
-    const result = await persistAccountTables("account_batch_delete");
-    setAccountStatus("tiktok", `批量删除已保存: ${result.backup_path || "-"}`);
+  refs.accountsTikTokApplyBatchBtn.addEventListener("click", () => {
+    withBusyButton(refs.accountsTikTokApplyBatchBtn, "替换中", async () => {
+      const field = refs.accountsTikTokBatchField.value;
+      const value = refs.accountsTikTokBatchValue.value;
+      const resultState = applyBatchField("tiktok", field, value);
+      if (resultState.error) {
+        setAccountStatus("tiktok", resultState.error);
+        return;
+      }
+      const result = await persistAccountTables("account_batch_replace");
+      setAccountStatus(
+        "tiktok",
+        `已批量替换 ${resultState.updated} 行 ${field}: ${result.backup_path || "-"}`,
+      );
+    });
   });
 
-  refs.deletedDouyinRestoreSelectedBtn.addEventListener("click", async () => {
-    selectedIndexes("douyin", "deleted")
-      .sort((a, b) => b - a)
-      .forEach((index) => restoreDeletedRow("douyin", index));
-    const result = await persistAccountTables("account_batch_restore");
-    setAccountStatus("douyin", `批量撤销已保存: ${result.backup_path || "-"}`);
+  refs.accountsDouyinDeleteSelectedBtn.addEventListener("click", () => {
+    withBusyButton(refs.accountsDouyinDeleteSelectedBtn, "删除中", async () => {
+      selectedIndexes("douyin", "active")
+        .sort((a, b) => b - a)
+        .forEach((index) => removeAccountRow("douyin", index, "批量删除"));
+      const result = await persistAccountTables("account_batch_delete");
+      setAccountStatus("douyin", `批量删除已保存: ${result.backup_path || "-"}`);
+    });
   });
-  refs.deletedTikTokRestoreSelectedBtn.addEventListener("click", async () => {
-    selectedIndexes("tiktok", "deleted")
-      .sort((a, b) => b - a)
-      .forEach((index) => restoreDeletedRow("tiktok", index));
-    const result = await persistAccountTables("account_batch_restore");
-    setAccountStatus("tiktok", `批量撤销已保存: ${result.backup_path || "-"}`);
+  refs.accountsTikTokDeleteSelectedBtn.addEventListener("click", () => {
+    withBusyButton(refs.accountsTikTokDeleteSelectedBtn, "删除中", async () => {
+      selectedIndexes("tiktok", "active")
+        .sort((a, b) => b - a)
+        .forEach((index) => removeAccountRow("tiktok", index, "批量删除"));
+      const result = await persistAccountTables("account_batch_delete");
+      setAccountStatus("tiktok", `批量删除已保存: ${result.backup_path || "-"}`);
+    });
+  });
+
+  refs.deletedDouyinRestoreSelectedBtn.addEventListener("click", () => {
+    withBusyButton(refs.deletedDouyinRestoreSelectedBtn, "撤销中", async () => {
+      selectedIndexes("douyin", "deleted")
+        .sort((a, b) => b - a)
+        .forEach((index) => restoreDeletedRow("douyin", index));
+      const result = await persistAccountTables("account_batch_restore");
+      setAccountStatus("douyin", `批量撤销已保存: ${result.backup_path || "-"}`);
+    });
+  });
+  refs.deletedTikTokRestoreSelectedBtn.addEventListener("click", () => {
+    withBusyButton(refs.deletedTikTokRestoreSelectedBtn, "撤销中", async () => {
+      selectedIndexes("tiktok", "deleted")
+        .sort((a, b) => b - a)
+        .forEach((index) => restoreDeletedRow("tiktok", index));
+      const result = await persistAccountTables("account_batch_restore");
+      setAccountStatus("tiktok", `批量撤销已保存: ${result.backup_path || "-"}`);
+    });
   });
 
   refs.boardPlatform.addEventListener("change", () => {
@@ -3723,7 +3805,7 @@ function bindEvents() {
   });
 
   refs.boardReloadBtn.addEventListener("click", () => {
-    loadAccountBoard(false);
+    withBusyButton(refs.boardReloadBtn, "刷新中", () => loadAccountBoard(false));
   });
 
   refs.boardAvatarPageBtn.addEventListener("click", () => {
@@ -3735,7 +3817,7 @@ function bindEvents() {
   });
 
   refs.boardPinAllBtn.addEventListener("click", () => {
-    pinCurrentBoardPage();
+    withBusyButton(refs.boardPinAllBtn, "Pin 中", pinCurrentBoardPage);
   });
 
   refs.boardGrid.addEventListener("click", (event) => {
@@ -3782,15 +3864,15 @@ function bindEvents() {
   });
 
   refs.filesPinProfileBtn.addEventListener("click", () => {
-    pinFromFileBrowser();
+    withBusyButton(refs.filesPinProfileBtn, "设置中", pinFromFileBrowser);
   });
 
   refs.filesGenerateAvatarBtn.addEventListener("click", () => {
-    generateAvatarFromFileBrowser();
+    withBusyButton(refs.filesGenerateAvatarBtn, "生成中", generateAvatarFromFileBrowser);
   });
 
   refs.filesPinAvatarBtn.addEventListener("click", () => {
-    pinAvatarFromFileBrowser();
+    withBusyButton(refs.filesPinAvatarBtn, "设置中", pinAvatarFromFileBrowser);
   });
 
   refs.filesScope.addEventListener("change", () => {
@@ -3810,8 +3892,10 @@ function bindEvents() {
   });
 
   refs.filesOpenBtn.addEventListener("click", () => {
-    state.currentPath = refs.filesPath.value.trim();
-    loadFiles();
+    withBusyButton(refs.filesOpenBtn, "打开中", async () => {
+      state.currentPath = refs.filesPath.value.trim();
+      await loadFiles();
+    });
   });
 
   refs.filesUpBtn.addEventListener("click", () => {
@@ -3821,15 +3905,15 @@ function bindEvents() {
   });
 
   refs.filesRefreshBtn.addEventListener("click", () => {
-    loadFiles();
+    withBusyButton(refs.filesRefreshBtn, "刷新中", loadFiles);
   });
 
   refs.filesStatsRefreshBtn.addEventListener("click", () => {
-    loadFileStats();
+    withBusyButton(refs.filesStatsRefreshBtn, "统计中", loadFileStats);
   });
 
   refs.shareResolveBtn.addEventListener("click", () => {
-    resolveShareLink();
+    withBusyButton(refs.shareResolveBtn, "解析中", resolveShareLink);
   });
 
   refs.shareCopyBtn.addEventListener("click", () => {
@@ -3837,27 +3921,27 @@ function bindEvents() {
   });
 
   refs.workflowAccountRunBtn.addEventListener("click", () => {
-    runWorkflowAccountTask();
+    withBusyButton(refs.workflowAccountRunBtn, "入队中", runWorkflowAccountTask);
   });
 
   refs.workflowDetailRunBtn.addEventListener("click", () => {
-    runWorkflowDetailTask();
+    withBusyButton(refs.workflowDetailRunBtn, "入队中", runWorkflowDetailTask);
   });
 
   refs.scheduleCreateBtn.addEventListener("click", () => {
-    createSchedule();
+    withBusyButton(refs.scheduleCreateBtn, "创建中", createSchedule);
   });
 
   refs.scheduleRefreshBtn.addEventListener("click", () => {
-    loadSchedules();
+    withBusyButton(refs.scheduleRefreshBtn, "刷新中", loadSchedules);
   });
 
   refs.monitorCreateBtn.addEventListener("click", () => {
-    createCollectMonitor();
+    withBusyButton(refs.monitorCreateBtn, "创建中", createCollectMonitor);
   });
 
   refs.monitorRefreshBtn.addEventListener("click", () => {
-    loadCollectMonitors();
+    withBusyButton(refs.monitorRefreshBtn, "刷新中", loadCollectMonitors);
   });
 
   refs.taskEndpoint.addEventListener("change", () => {
@@ -3869,7 +3953,7 @@ function bindEvents() {
   });
 
   refs.taskRunBtn.addEventListener("click", () => {
-    runTaskRequest();
+    withBusyButton(refs.taskRunBtn, "入队中", runTaskRequest);
   });
 
   refs.taskCopyBtn.addEventListener("click", () => {
@@ -3877,7 +3961,7 @@ function bindEvents() {
   });
 
   refs.taskQueueRefreshBtn.addEventListener("click", () => {
-    loadTaskList();
+    withBusyButton(refs.taskQueueRefreshBtn, "刷新中", loadTaskList);
   });
 
   window.addEventListener("resize", () => {

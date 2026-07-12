@@ -195,6 +195,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "pytest-asyncio" },
 ]
 
 [package.metadata]
@@ -214,13 +215,16 @@ requires-dist = [
     { name = "pyperclip", specifier = ">=1.11.0" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "rookiepy", specifier = ">=0.5.6" },
-    { name = "tiktokapi", specifier = ">=7.3.2" },
+    { name = "tiktokapi", editable = "vendor/TikTok-Api" },
     { name = "uvicorn", specifier = ">=0.38.0" },
     { name = "websockets", specifier = ">=15.0.1" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.3.5" }]
+dev = [
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
+]
 
 [[package]]
 name = "emoji"
@@ -701,6 +705,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-asyncio"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/90/2c/8af215c0f776415f3590cac4f9086ccefd6fd463befeae41cd4d3f193e5a/pytest_asyncio-1.3.0.tar.gz", hash = "sha256:d7f52f36d231b80ee124cd216ffb19369aa168fc10095013c6b014a34d3ee9e5", size = 50087, upload-time = "2025-11-10T16:07:47.256Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/35/f8b19922b6a25bc0880171a2f1a003eaeb93657475193ab516fd87cac9da/pytest_asyncio-1.3.0-py3-none-any.whl", hash = "sha256:611e26147c7f77640e6d0a92a38ed17c3e9848063698d5c93d5aa7aa11cebff5", size = 15075, upload-time = "2025-11-10T16:07:45.537Z" },
+]
+
+[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 source = { registry = "https://pypi.org/simple" }
@@ -805,16 +822,22 @@ wheels = [
 [[package]]
 name = "tiktokapi"
 version = "7.3.2"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "vendor/TikTok-Api" }
 dependencies = [
+    { name = "cloakbrowser" },
     { name = "httpx" },
     { name = "playwright" },
     { name = "proxyproviders" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/30/81/53eba7226009ac71b870e172ea7aaedd6ba7065417983e70be79cc1e0101/tiktokapi-7.3.2.tar.gz", hash = "sha256:abbbed55dcd7bc1c29a2c9ea4e386adc3d9e37f932e40a4941fab3dc03e0fda5", size = 49262, upload-time = "2026-03-17T22:34:59.822Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/99/a4a242ba67de03abeb75140cb7575e4d12dc93744a196025d1e36bcbfe62/tiktokapi-7.3.2-py3-none-any.whl", hash = "sha256:89ec514566fea27ee2ace19d79151e9b89f0fcb169e6cf6b9b30126025b16d36", size = 65460, upload-time = "2026-03-17T22:34:58.819Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "cloakbrowser", specifier = ">=0.3.18,<1.0" },
+    { name = "httpx", specifier = ">=0.27.0,<1.0" },
+    { name = "playwright", specifier = ">=1.36.0,<2.0" },
+    { name = "proxyproviders", specifier = ">=0.2.1,<0.3.0" },
+    { name = "requests", specifier = ">=2.31.0,<3.0" },
 ]
 
 [[package]]
