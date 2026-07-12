@@ -9,15 +9,31 @@ services:
 
     working_dir: /app
     command: ["uv", "run", "--no-sync", "main_webui.py"]
+    init: true
     restart: unless-stopped
+    stop_grace_period: 30s
 
     environment:
-      TZ: America/Los_Angeles
+      TZ: ${TZ:-Asia/Shanghai}
+      DOUK_ENCIPHER_PATH: /app/settings/encipher.py
       NVIDIA_VISIBLE_DEVICES: void
 
     ports:
-      - "5555:5555"
+      - "${WEBUI_PORT:-5555}:5555"
 
     volumes:
-      - ./settings:/app/settings
-      - ./downloads:/app/downloads
+      - "${SETTINGS_DIR:-./settings}:/app/settings"
+      - "${DOWNLOADS_DIR:-./downloads}:/app/downloads"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5555/docs', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

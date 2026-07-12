@@ -187,6 +187,15 @@ demo()
 
 ### Docker 容器
 
+<p><b>NAS 推荐使用本仓库的 Docker Compose：</b></p>
+
+```shell
+cp .env.example .env
+docker compose up -d --build
+```
+
+<p>启动后访问 <code>http://NAS_IP:5555/ui</code>。可在 <code>.env</code> 修改宿主机端口、时区及持久化目录；Compose 会自动健康检查并在 NAS 重启后恢复服务。</p>
+
 <ol>
 <li>获取镜像</li>
 <ul>
@@ -202,6 +211,7 @@ demo()
 <li>如需进入终端交互菜单模式，可覆盖启动命令：<code>docker run -it --rm &lt;镜像名称&gt; uv run --no-sync main.py</code></li>
 </ol>
 <p>Docker 容器无法直接访问宿主机的文件系统，部分功能不可用，例如：<code>从浏览器读取 Cookie</code>；其他功能如有异常请反馈！</p>
+<p>在 WebUI 中将 <code>root</code> 设置为 <code>/app/downloads</code>，下载文件才会写入 Compose 挂载的下载目录。若使用外部签名实现，请放到宿主机的 <code>settings/encipher.py</code>；容器通过 <code>DOUK_ENCIPHER_PATH</code> 自动加载。</p>
 <hr>
 
 ## 路径参数说明（root / folder_name / settings）
@@ -274,7 +284,7 @@ demo()
 ```
 
 <ul>
-<li><b>加密参数接口支持外部实现。</b> 如内置 <code>a_bogus</code>、<code>X-Bogus</code> 或 <code>X-Gnarly</code> 失效，可复制 <code>encipher_example.py</code> 为项目根目录下的 <code>encipher.py</code> 并实现所需类。该文件会以应用自身权限执行，只能使用可信代码。</li>
+<li><b>加密参数接口支持外部实现。</b> 如内置 <code>a_bogus</code>、<code>X-Bogus</code> 或 <code>X-Gnarly</code> 失效，可复制 <code>encipher_example.py</code> 为源码根目录下的 <code>encipher.py</code>（Docker/NAS 使用 <code>settings/encipher.py</code>）并实现所需类。该文件会以应用自身权限执行，只能使用可信代码。</li>
 <li><b>浏览器兼容桥默认关闭。</b> 只有显式设置 <code>tiktok_bridge_fallback_enabled: true</code> 时，旧版接口失败或媒体直链返回 403 后才会尝试原 TikTokApi 浏览器方案。</li>
 <li><b><code>request_delay</code> 是平均请求间隔秒数。</b> 默认值 <code>6</code> 使用更接近人工操作的随机分布；设置为 <code>0</code> 可关闭等待。</li>
 <li><b>必须使用已登录的 TikTok Web Cookie。</b> 仅有 <code>msToken</code>、<code>ttwid</code> 等访客态参数时，可能只能拿到不完整列表，或者直接出现 <code>empty response</code>、验证码、下载 <code>403</code>。</li>

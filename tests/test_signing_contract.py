@@ -126,6 +126,7 @@ def test_builtin_x_gnarly_accepts_form_body():
 
 def test_dynamic_loader_uses_documented_encipher_filename(tmp_path, monkeypatch):
     console = _Console()
+    monkeypatch.delenv("DOUK_ENCIPHER_PATH", raising=False)
     (tmp_path / "encipher.py").write_text(
         "class XBogus:\n"
         "    def get_x_bogus(self, **kwargs):\n"
@@ -143,6 +144,28 @@ def test_dynamic_loader_uses_documented_encipher_filename(tmp_path, monkeypatch)
     assert set(objects) == {"XBogus"}
     assert objects["XBogus"]().get_x_bogus() == "external"
     assert console.errors == []
+
+
+def test_dynamic_loader_supports_nas_settings_mount(tmp_path, monkeypatch):
+    console = _Console()
+    settings_dir = tmp_path / "settings"
+    settings_dir.mkdir()
+    (settings_dir / "encipher.py").write_text(
+        "class XBogus:\n"
+        "    def get_x_bogus(self, **kwargs):\n"
+        "        return 'nas-external'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("DOUK_ENCIPHER_PATH", raising=False)
+    monkeypatch.setattr(dynamic_import, "get_base_dir", lambda: tmp_path)
+
+    objects = dynamic_import.load_objects_from_external_py(
+        "encipher.py",
+        ["XBogus"],
+        console,
+    )
+
+    assert objects["XBogus"]().get_x_bogus() == "nas-external"
 
 
 def test_dynamic_loader_falls_back_after_module_error(tmp_path, monkeypatch):
