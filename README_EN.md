@@ -185,6 +185,15 @@ demo()
 
 ### Docker Container
 
+<p><b>For NAS deployment, use this repository's Docker Compose setup:</b></p>
+
+```shell
+cp .env.example .env
+docker compose up -d --build
+```
+
+<p>Open <code>http://NAS_IP:5555/ui</code> after startup. The host port, timezone, and persistent directories can be changed in <code>.env</code>. Compose includes a health check and restarts the service after a NAS reboot.</p>
+
 <ol>
 <li>Get the image</li>
 <ul>
@@ -200,6 +209,7 @@ demo()
 <li>If you need terminal interactive mode, override command: <code>docker run -it --rm &lt;image name&gt; uv run --no-sync main.py</code></li>
 </ol>
 <p>Docker containers cannot directly access the host machine's file system, and some features may be unavailable, for example: <code>Get Cookie from Browser</code>; if there are any other issues, please report!</p>
+<p>Set <code>root</code> to <code>/app/downloads</code> in the WebUI so downloaded files use the Compose download mount. For an external signer, place the trusted implementation at <code>settings/encipher.py</code>; the container loads it through <code>DOUK_ENCIPHER_PATH</code>.</p>
 <hr>
 
 ## Profile Avatar Setting
@@ -266,7 +276,7 @@ demo()
 ```
 
 <ul>
-<li><b>External signing implementations are supported.</b> If the bundled <code>a_bogus</code>, <code>X-Bogus</code>, or <code>X-Gnarly</code> implementation expires, copy <code>encipher_example.py</code> to <code>encipher.py</code> in the project root and implement the required classes. This file runs with the application's permissions, so only use trusted code.</li>
+<li><b>External signing implementations are supported.</b> If the bundled <code>a_bogus</code>, <code>X-Bogus</code>, or <code>X-Gnarly</code> implementation expires, copy <code>encipher_example.py</code> to <code>encipher.py</code> in the source root (use <code>settings/encipher.py</code> for Docker/NAS) and implement the required classes. This file runs with the application's permissions, so only use trusted code.</li>
 <li><b>The browser compatibility bridge is disabled by default.</b> The previous TikTokApi browser path is attempted after a legacy request failure or media 403 only when <code>tiktok_bridge_fallback_enabled</code> is explicitly set to <code>true</code>.</li>
 <li><b><code>request_delay</code> is the average request interval in seconds.</b> The default <code>6</code> uses a human-like random distribution; set it to <code>0</code> to disable waiting.</li>
 <li><b>You should use a logged-in TikTok Web cookie.</b> Visitor-only values such as <code>msToken</code> or <code>ttwid</code> may lead to incomplete lists, <code>empty response</code>, captcha, or download <code>403</code>.</li>

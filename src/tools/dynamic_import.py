@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -27,10 +28,17 @@ def load_objects_from_external_py(
     Import and execution errors are reported and treated as an empty module so the
     caller can fall back to the built-in implementations.
     """
-    file_path = get_base_dir() / file_name
-    if not file_path.suffix:
-        file_path = file_path.with_suffix(".py")
-    if not file_path.is_file():
+    base_dir = get_base_dir()
+    configured_path = os.environ.get("DOUK_ENCIPHER_PATH", "").strip()
+    candidates = []
+    if configured_path:
+        candidates.append(Path(configured_path).expanduser())
+    candidates.extend((base_dir / file_name, base_dir / "settings" / file_name))
+    normalized_candidates = [
+        path if path.suffix else path.with_suffix(".py") for path in candidates
+    ]
+    file_path = next((path for path in normalized_candidates if path.is_file()), None)
+    if file_path is None:
         console.info(_("未检测到外部加密参数代码，将使用项目内置实现。"))
         return {}
 

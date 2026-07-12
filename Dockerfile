@@ -81,6 +81,7 @@ COPY static /app/static
 COPY license /app/license
 COPY main.py /app/main.py
 COPY main_webui.py /app/main_webui.py
+COPY encipher_example.py /app/encipher_example.py
 COPY pyproject.toml /app/pyproject.toml
 COPY uv.lock /app/uv.lock
 
@@ -88,7 +89,7 @@ COPY uv.lock /app/uv.lock
 EXPOSE 5555
 
 # 创建挂载点
-VOLUME /app/settings
+VOLUME ["/app/settings", "/app/downloads"]
 
 # 设置容器启动命令（默认直接启动 WebUI 服务）
 CMD ["uv", "run", "--no-sync", "main_webui.py"]
