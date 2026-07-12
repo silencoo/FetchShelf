@@ -1347,6 +1347,7 @@ class TikTokAPIBridge:
         tab: str = "post",
         pages: int | None = None,
         cursor: int = 0,
+        count: int | None = None,
         url: str = "",
     ) -> tuple[list[dict], str, str]:
         if not sec_user_id:
@@ -1373,6 +1374,7 @@ class TikTokAPIBridge:
         page_limit = self._get_int_setting("max_pages", 0)
         if isinstance(pages, int) and pages > 0:
             page_limit = pages
+        page_size = count if isinstance(count, int) and count > 0 else self.page_size
 
         async def _callback(api):
             items: list[dict] = []
@@ -1387,7 +1389,7 @@ class TikTokAPIBridge:
                     url=endpoint,
                     params={
                         "secUid": sec_user_id,
-                        "count": self.page_size,
+                        "count": page_size,
                         "cursor": next_cursor,
                     },
                 )
