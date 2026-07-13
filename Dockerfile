@@ -92,4 +92,4 @@ EXPOSE 5555
 VOLUME ["/app/settings", "/app/downloads"]
 
 # 设置容器启动命令（默认直接启动 WebUI 服务）
-CMD ["uv", "run", "--no-sync", "main_webui.py"]
+CMD ["python", "main_webui.py"]
