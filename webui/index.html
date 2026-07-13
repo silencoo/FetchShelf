@@ -8,6 +8,36 @@
       content="DouK-Downloader 的自托管下载、账户监控与媒体管理控制台。"
     />
     <meta name="theme-color" content="#090b10" />
+    <script>
+      (() => {
+        const storageKey = "webui.theme";
+        const allowedPreferences = new Set(["system", "light", "dark"]);
+        let preference = "system";
+
+        try {
+          const storedPreference = window.localStorage.getItem(storageKey);
+          if (storedPreference && allowedPreferences.has(storedPreference)) {
+            preference = storedPreference;
+          }
+        } catch {
+          // Storage can be unavailable in strict privacy modes; system theme remains usable.
+        }
+
+        const resolvedTheme =
+          preference === "system"
+            ? window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : preference;
+
+        document.documentElement.dataset.theme = resolvedTheme;
+        document.documentElement.dataset.themePreference = preference;
+        document.documentElement.style.colorScheme = resolvedTheme;
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute("content", resolvedTheme === "light" ? "#eef3f7" : "#090b10");
+      })();
+    </script>
     <title>DouK-Downloader WebUI</title>
   </head>
   <body>
@@ -107,7 +137,8 @@
             <h1 class="command-title">DouK-Downloader WebUI</h1>
             <p class="command-subtitle">统一管理下载队列、账户更新与本地媒体。</p>
           </div>
-          <div class="topbar-tools" aria-label="连接与鉴权">
+          <div class="topbar-tools" aria-label="外观、连接与鉴权">
+            <div id="theme-control-root" class="theme-control-root"></div>
             <label class="field compact token-field">
               <span>访问 Token</span>
               <input id="token-input" type="text" placeholder="可选" autocomplete="off" />
