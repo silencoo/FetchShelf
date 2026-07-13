@@ -20,6 +20,7 @@ const state = {
     mark: "",
   },
   selectedTaskId: "",
+  taskListLoading: false,
   settingsData: {},
   accountRows: {
     douyin: [],
@@ -178,7 +179,9 @@ const refs = {
   workflowAccountSummary: document.getElementById("workflow-account-summary"),
 
   workflowDetailPlatform: document.getElementById("workflow-detail-platform"),
+  workflowDetailForm: document.getElementById("workflow-detail-form"),
   workflowDetailLinks: document.getElementById("workflow-detail-links"),
+  workflowDetailCount: document.getElementById("workflow-detail-count"),
   workflowDetailCookie: document.getElementById("workflow-detail-cookie"),
   workflowDetailProxy: document.getElementById("workflow-detail-proxy"),
   workflowDetailRunBtn: document.getElementById("workflow-detail-run-btn"),
@@ -221,6 +224,7 @@ const refs = {
   taskPayload: document.getElementById("task-payload"),
   taskTemplateBtn: document.getElementById("task-template-btn"),
   taskRunBtn: document.getElementById("task-run-btn"),
+  taskLabStatus: document.getElementById("task-lab-status"),
   taskCopyBtn: document.getElementById("task-copy-btn"),
   taskStatus: document.getElementById("task-status"),
   taskSummary: document.getElementById("task-summary"),
@@ -664,6 +668,9 @@ function switchTab(tab) {
   }
   if (nextTab === "files") {
     updateFilesAccountContext();
+  }
+  if (nextTab === "workbench" && !document.hidden) {
+    loadTaskList();
   }
 }
 
@@ -2820,7 +2827,8 @@ function getTaskTemplate(endpoint) {
 
 function loadTaskTemplate() {
   refs.taskPayload.value = getTaskTemplate(refs.taskEndpoint.value);
-  refs.taskStatus.textContent = "已加载模板，可直接修改后执行";
+  refs.taskLabStatus.textContent = "已加载模板，可直接修改后执行";
+  delete refs.taskLabStatus.dataset.state;
 }
 
 function summarizeTaskResponse(payload) {
@@ -2871,23 +2879,22 @@ async function enqueueTaskRequest(endpoint, payload) {
 
 async function runTaskRequest() {
   const endpoint = refs.taskEndpoint.value;
-  refs.taskStatus.textContent = "任务入队中…";
-  refs.taskSummary.textContent = "";
+  refs.taskLabStatus.textContent = "任务入队中…";
+  delete refs.taskLabStatus.dataset.state;
   try {
     const payload = parseTaskPayload(refs.taskPayload.value);
     const task = await enqueueTaskRequest(endpoint, payload);
     state.selectedTaskId = task?.task_id || "";
-    refs.taskStatus.textContent = `已入队: ${state.selectedTaskId || endpoint}`;
-    refs.taskSummary.textContent = task
-      ? `${task.task_id} · ${task.status} · ${task.endpoint}`
-      : "";
+    refs.taskLabStatus.textContent = `任务已入队：${state.selectedTaskId || endpoint}`;
+    refs.taskLabStatus.dataset.state = "success";
     if (task) {
-      refs.taskResult.textContent = JSON.stringify(task, null, 2);
+      renderTaskResult(task);
     }
     await loadTaskList();
     setApiStatus("就绪", "ok");
   } catch (error) {
-    refs.taskStatus.textContent = `执行失败: ${error.message}`;
+    refs.taskLabStatus.textContent = `执行失败：${error.message}`;
+    refs.taskLabStatus.dataset.state = "error";
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -2944,15 +2951,101 @@ function parseWorkflowLinks(text) {
     .filter(Boolean);
 }
 
+function detectWorkflowLinkPlatform(value) {
+  const text = String(value || "");
+  const hasTikTok = /(?:^|[\s/:.])(?:vm\.|vt\.|www\.)?tiktok\.com(?:[\s/?#:]|$)/i.test(text);
+  const hasDouyin = /(?:^|[\s/:.])(?:(?:v|www)\.)?douyin\.com(?:[\s/?#:]|$)|iesdouyin\.com/i.test(text);
+  if (hasTikTok && hasDouyin) {
+    return "mixed";
+  }
+  if (hasTikTok) {
+    return "tiktok";
+  }
+  if (hasDouyin) {
+    return "douyin";
+  }
+  return "";
+}
+
+function resolveWorkflowDetailPlatform(links) {
+  const selected = refs.workflowDetailPlatform.value;
+  if (selected === "douyin" || selected === "tiktok") {
+    return { platform: selected, error: "" };
+  }
+  const detected = new Set();
+  for (const link of links) {
+    const platform = detectWorkflowLinkPlatform(link);
+    if (platform === "mixed") {
+      detected.add("douyin");
+      detected.add("tiktok");
+    } else if (platform) {
+      detected.add(platform);
+    }
+  }
+  if (detected.size > 1) {
+    return {
+      platform: "",
+      error: "检测到抖音和 TikTok 链接，请按平台分两批提交",
+    };
+  }
+  if (detected.size === 0) {
+    return {
+      platform: "",
+      error: "暂时无法识别平台，请手动选择抖音或 TikTok",
+    };
+  }
+  return { platform: Array.from(detected)[0], error: "" };
+}
+
+function workflowPlatformLabel(platform) {
+  return platform === "tiktok" ? "TikTok" : "抖音";
+}
+
+function setWorkflowDetailStatus(text, kind = "") {
+  refs.workflowDetailStatus.textContent = text;
+  if (kind) {
+    refs.workflowDetailStatus.dataset.state = kind;
+  } else {
+    delete refs.workflowDetailStatus.dataset.state;
+  }
+}
+
+function syncWorkflowDetailInputState() {
+  const links = parseWorkflowLinks(refs.workflowDetailLinks.value);
+  if (refs.workflowDetailStatus.dataset.state) {
+    setWorkflowDetailStatus(links.length ? "等待提交" : "等待输入");
+    refs.workflowDetailSummary.textContent = "";
+  }
+  if (!links.length) {
+    refs.workflowDetailCount.textContent = "等待输入链接";
+    return;
+  }
+  const resolution = resolveWorkflowDetailPlatform(links);
+  if (resolution.error) {
+    refs.workflowDetailCount.textContent = `${links.length} 条 · ${resolution.error}`;
+    return;
+  }
+  const mode = refs.workflowDetailPlatform.value === "auto" ? "已识别" : "已指定";
+  refs.workflowDetailCount.textContent = `${links.length} 条 · ${mode} ${workflowPlatformLabel(
+    resolution.platform,
+  )}`;
+}
+
 async function runWorkflowDetailTask() {
-  const platform = refs.workflowDetailPlatform.value;
   const links = parseWorkflowLinks(refs.workflowDetailLinks.value);
   if (!links.length) {
-    refs.workflowDetailStatus.textContent = "请至少输入一条链接";
+    setWorkflowDetailStatus("请至少输入一条链接", "error");
     refs.workflowDetailSummary.textContent = "";
     return;
   }
-  refs.workflowDetailStatus.textContent = "正在创建链接下载任务…";
+  const resolution = resolveWorkflowDetailPlatform(links);
+  if (resolution.error) {
+    setWorkflowDetailStatus(resolution.error, "error");
+    refs.workflowDetailSummary.textContent = "";
+    return;
+  }
+  const platform = resolution.platform;
+  setWorkflowDetailStatus("正在创建链接下载任务…");
   refs.workflowDetailSummary.textContent = "";
   try {
     const endpoint = workflowDetailEndpoint(platform);
@@ -2963,8 +3056,10 @@ async function runWorkflowDetailTask() {
     };
     const task = await enqueueTaskRequest(endpoint, payload);
     state.selectedTaskId = task?.task_id || "";
-    refs.workflowDetailStatus.textContent = `任务已入队: ${task?.task_id || endpoint}`;
-    refs.workflowDetailSummary.textContent = `${task?.status || "pending"} · ${
+    setWorkflowDetailStatus(`任务已入队: ${task?.task_id || endpoint}`, "success");
+    refs.workflowDetailSummary.textContent = `${workflowPlatformLabel(platform)} · ${
+      task?.status || "pending"
+    } · ${
       task?.endpoint || endpoint
     } · ${links.length} 条链接`;
     if (task) {
@@ -2973,7 +3068,7 @@ async function runWorkflowDetailTask() {
     await loadTaskList();
     setApiStatus("就绪", "ok");
   } catch (error) {
-    refs.workflowDetailStatus.textContent = `创建失败: ${error.message}`;
+    setWorkflowDetailStatus(`创建失败: ${error.message}`, "error");
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -3312,16 +3407,50 @@ function formatWorkflowAccountSummary(task) {
   return parts.join(" · ");
 }
 
+const TASK_STATUS_LABELS = {
+  pending: "排队中",
+  running: "执行中",
+  canceling: "取消中",
+  canceled: "已取消",
+  success: "成功",
+  failed: "失败",
+};
+
+function taskStatusLabel(status) {
+  const normalized = String(status || "");
+  return TASK_STATUS_LABELS[normalized] || normalized || "未知";
+}
+
+function syncSelectedTaskRow() {
+  refs.taskQueueList.querySelectorAll(".task-row[data-task-id]").forEach((row) => {
+    const selected = row.dataset.taskId === state.selectedTaskId;
+    row.classList.toggle("active", selected);
+    const mainButton = row.querySelector(".task-main-button");
+    if (mainButton) {
+      mainButton.setAttribute("aria-current", selected ? "true" : "false");
+    }
+  });
+}
+
 function renderTaskResult(task) {
   if (!task) {
     return;
   }
   state.selectedTaskId = task.task_id || "";
-  refs.taskSummary.textContent = `${task.task_id || "-"} · ${task.status || "-"} · ${
+  const status = String(task.status || "");
+  refs.taskSummary.textContent = `${task.task_id || "-"} · ${taskStatusLabel(status)} · ${
     task.endpoint || "-"
   }`;
   refs.taskStatus.textContent =
-    task.message || task.error || `任务状态: ${task.status || "-"}`;
+    task.message || task.error || `任务状态：${taskStatusLabel(status)}`;
+  if (["failed", "canceled"].includes(status)) {
+    refs.taskStatus.dataset.state = "error";
+  } else if (status === "success") {
+    refs.taskStatus.dataset.state = "success";
+  } else {
+    delete refs.taskStatus.dataset.state;
+  }
+  syncSelectedTaskRow();
   const workflowSummary = formatWorkflowAccountSummary(task);
   if (workflowSummary && refs.workflowAccountSummary) {
     refs.workflowAccountSummary.textContent = workflowSummary;
@@ -3358,16 +3487,25 @@ async function taskControl(taskId, action) {
     await loadTaskList();
     setApiStatus("就绪", "ok");
   } catch (error) {
-    refs.taskStatus.textContent = `${action} 失败: ${error.message}`;
+    const actionLabel = action === "cancel" ? "取消" : "重试";
+    refs.taskStatus.textContent = `${actionLabel}失败：${error.message}`;
+    refs.taskStatus.dataset.state = "error";
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
 
 function renderTaskList(items) {
+  const previousScrollTop = refs.taskQueueList.scrollTop;
+  const activeElement = document.activeElement;
+  const focusedRow = activeElement?.closest?.(".task-row[data-task-id]");
+  const focusedTaskId = focusedRow?.dataset.taskId || "";
+  const focusedTaskAction = activeElement?.dataset?.taskAction || "";
   refs.taskQueueList.innerHTML = "";
   if (!Array.isArray(items) || !items.length) {
-    refs.taskQueueList.innerHTML =
-      '<div class="task-row"><div class="task-main"><span class="task-endpoint">暂无任务</span></div></div>';
+    const emptyState = document.createElement("div");
+    emptyState.className = "empty-state";
+    emptyState.textContent = "还没有任务。粘贴作品链接后，任务会显示在这里。";
+    refs.taskQueueList.appendChild(emptyState);
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -3377,18 +3515,32 @@ function renderTaskList(items) {
     const row = document.createElement("div");
     row.className = "task-row";
     row.dataset.taskId = task.task_id || "";
+    row.classList.toggle("active", row.dataset.taskId === state.selectedTaskId);
 
     const status = document.createElement("span");
     status.className = `task-status ${taskStatusClass}`;
-    status.textContent = taskStatus || "-";
+    status.textContent = taskStatusLabel(taskStatus);
 
-    const main = document.createElement("div");
-    main.className = "task-main";
+    const main = document.createElement("button");
+    main.type = "button";
+    main.className = "task-main task-main-button";
+    main.dataset.taskAction = "main";
+    main.setAttribute(
+      "aria-label",
+      `查看任务 ${task.endpoint || "未知端点"}，状态${taskStatusLabel(taskStatus)}`,
+    );
+    main.setAttribute(
+      "aria-current",
+      row.dataset.taskId === state.selectedTaskId ? "true" : "false",
+    );
     main.innerHTML = `
       <span class="task-id">${escapeHtml(task.task_id || "-")}</span>
       <span class="task-endpoint">${escapeHtml(task.endpoint || "-")}</span>
       <span class="task-time">${escapeHtml(task.updated_at || task.created_at || "")}</span>
     `;
+    main.addEventListener("click", () => {
+      renderTaskResult(task);
+    });
 
     const actions = document.createElement("div");
     actions.className = "task-actions";
@@ -3396,31 +3548,39 @@ function renderTaskList(items) {
     const viewBtn = document.createElement("button");
     viewBtn.type = "button";
     viewBtn.className = "btn ghost";
+    viewBtn.dataset.taskAction = "view";
     viewBtn.textContent = "查看";
-    viewBtn.addEventListener("click", (event) => {
-      event.stopPropagation();
+    viewBtn.addEventListener("click", () => {
       renderTaskResult(task);
     });
     actions.appendChild(viewBtn);
 
-    if (["pending", "running", "canceling"].includes(taskStatus)) {
+    if (["pending", "running"].includes(taskStatus)) {
       const cancelBtn = document.createElement("button");
       cancelBtn.type = "button";
       cancelBtn.className = "btn ghost";
+      cancelBtn.dataset.taskAction = "cancel";
       cancelBtn.textContent = "取消";
-      cancelBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        taskControl(task.task_id, "cancel");
+      cancelBtn.addEventListener("click", () => {
+        withBusyButton(cancelBtn, "取消中", () => taskControl(task.task_id, "cancel"));
       });
       actions.appendChild(cancelBtn);
-    } else {
+    } else if (taskStatus === "canceling") {
+      const cancelingBtn = document.createElement("button");
+      cancelingBtn.type = "button";
+      cancelingBtn.className = "btn ghost";
+      cancelingBtn.dataset.taskAction = "cancel";
+      cancelingBtn.textContent = "取消中";
+      cancelingBtn.disabled = true;
+      actions.appendChild(cancelingBtn);
+    } else if (["failed", "canceled"].includes(taskStatus)) {
       const retryBtn = document.createElement("button");
       retryBtn.type = "button";
       retryBtn.className = "btn ghost";
+      retryBtn.dataset.taskAction = "retry";
       retryBtn.textContent = "重试";
-      retryBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        taskControl(task.task_id, "retry");
+      retryBtn.addEventListener("click", () => {
+        withBusyButton(retryBtn, "重试中", () => taskControl(task.task_id, "retry"));
       });
       actions.appendChild(retryBtn);
     }
@@ -3428,17 +3588,49 @@ function renderTaskList(items) {
     row.appendChild(status);
     row.appendChild(main);
     row.appendChild(actions);
-
-    row.addEventListener("click", () => {
-      renderTaskResult(task);
-    });
-
     fragment.appendChild(row);
   }
   refs.taskQueueList.appendChild(fragment);
+  refs.taskQueueList.scrollTop = previousScrollTop;
+  if (focusedTaskId) {
+    const nextFocusedRow = Array.from(
+      refs.taskQueueList.querySelectorAll(".task-row[data-task-id]"),
+    ).find((row) => row.dataset.taskId === focusedTaskId);
+    const matchingAction = Array.from(
+      nextFocusedRow?.querySelectorAll("[data-task-action]") || [],
+    ).find(
+      (element) =>
+        element.dataset.taskAction === focusedTaskAction && !element.disabled,
+    );
+    const focusTarget = matchingAction || nextFocusedRow?.querySelector(".task-main-button");
+    focusTarget?.focus({ preventScroll: true });
+  }
+}
+
+function renderTaskListError(message) {
+  refs.taskQueueList.innerHTML = "";
+  const errorState = document.createElement("div");
+  errorState.className = "error-state";
+  const errorText = document.createElement("span");
+  errorText.textContent = `任务加载失败：${message}`;
+  const retryBtn = document.createElement("button");
+  retryBtn.type = "button";
+  retryBtn.className = "btn ghost";
+  retryBtn.textContent = "重试";
+  retryBtn.addEventListener("click", () => {
+    withBusyButton(retryBtn, "重试中", loadTaskList);
+  });
+  errorState.appendChild(errorText);
+  errorState.appendChild(retryBtn);
+  refs.taskQueueList.appendChild(errorState);
 }
 
 async function loadTaskList() {
+  if (state.taskListLoading) {
+    return;
+  }
+  state.taskListLoading = true;
+  refs.taskQueueList.setAttribute("aria-busy", "true");
   try {
     const payload = await fetchJson("/ui/api/tasks?limit=120", {
       method: "GET",
@@ -3446,9 +3638,23 @@ async function loadTaskList() {
     });
     const items = payload?.items || [];
     renderTaskList(items);
-    refs.taskQueueMeta.textContent = `任务: ${payload?.count ?? items.length} · pending: ${
-      payload?.pending ?? 0
-    } · running: ${payload?.running ?? 0}`;
+    const counts = items.reduce(
+      (summary, task) => {
+        const status = String(task.status || "");
+        if (["pending", "running", "canceling"].includes(status)) {
+          summary.active += 1;
+        } else if (status === "success") {
+          summary.success += 1;
+        } else if (["failed", "canceled"].includes(status)) {
+          summary.failed += 1;
+        }
+        return summary;
+      },
+      { active: 0, success: 0, failed: 0 },
+    );
+    refs.taskQueueMeta.textContent = `任务: ${payload?.count ?? items.length} · 进行中 ${
+      counts.active
+    } · 成功 ${counts.success} · 失败/取消 ${counts.failed}`;
     if (state.selectedTaskId) {
       const selected = items.find((item) => item.task_id === state.selectedTaskId);
       if (selected) {
@@ -3456,8 +3662,12 @@ async function loadTaskList() {
       }
     }
   } catch (error) {
-    refs.taskQueueMeta.textContent = `队列加载失败: ${error.message}`;
+    refs.taskQueueMeta.textContent = "任务: 0 · 队列暂时无法加载";
+    renderTaskListError(error.message);
     setApiStatus(`异常: ${error.message}`, "error");
+  } finally {
+    state.taskListLoading = false;
+    refs.taskQueueList.setAttribute("aria-busy", "false");
   }
 }
 
@@ -4028,8 +4238,18 @@ function bindEvents() {
     withBusyButton(refs.workflowAccountRunBtn, "入队中", runWorkflowAccountTask);
   });
 
-  refs.workflowDetailRunBtn.addEventListener("click", () => {
+  refs.workflowDetailForm.addEventListener("submit", (event) => {
+    event.preventDefault();
     withBusyButton(refs.workflowDetailRunBtn, "入队中", runWorkflowDetailTask);
+  });
+
+  refs.workflowDetailLinks.addEventListener("input", syncWorkflowDetailInputState);
+  refs.workflowDetailPlatform.addEventListener("change", syncWorkflowDetailInputState);
+  refs.workflowDetailLinks.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      refs.workflowDetailForm.requestSubmit();
+    }
   });
 
   refs.scheduleCreateBtn.addEventListener("click", () => {
@@ -4068,6 +4288,12 @@ function bindEvents() {
     withBusyButton(refs.taskQueueRefreshBtn, "刷新中", loadTaskList);
   });
 
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && state.activeTab === "workbench") {
+      loadTaskList();
+    }
+  });
+
   window.addEventListener("resize", () => {
     applyBoardColumns(false);
     syncTabOrientation();
@@ -4090,7 +4316,9 @@ function startLogFallbackPolling() {
 
 function startTaskPolling() {
   setInterval(() => {
-    loadTaskList();
+    if (!document.hidden && state.activeTab === "workbench") {
+      loadTaskList();
+    }
   }, 2000);
 }
 
@@ -4145,6 +4373,7 @@ function bootstrap() {
   setAccountRows("tiktok", []);
   setDeletedRows("douyin", []);
   setDeletedRows("tiktok", []);
+  syncWorkflowDetailInputState();
   loadTaskTemplate();
   connectLogSocket();
   startLogFallbackPolling();

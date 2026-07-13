@@ -75,6 +75,10 @@ def test_webui_bundle_keeps_core_interaction_hooks():
         'id="monitor-list"',
         'id="schedule-list"',
         'id="task-queue-list"',
+        'id="workflow-detail-form"',
+        'id="workbench-task-center"',
+        'id="workbench-automation"',
+        'id="workbench-developer-tools"',
         'id="command-title"',
         'id="magic-grid-root"',
         'id="magic-metrics-root"',
@@ -173,3 +177,46 @@ def test_webui_source_contains_every_legacy_dom_reference_once():
     tab_targets = set(findall(r'data-tab-target="([^"]+)"', index))
     panel_targets = set(findall(r'data-tab-panel="([^"]+)"', index))
     assert tab_targets == panel_targets
+
+
+def test_webui_source_prioritizes_the_download_workflow():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+
+    quick_download = index.index('id="workflow-detail-form"')
+    task_center = index.index('id="workbench-task-center"')
+    automation = index.index('id="workbench-automation"')
+    developer_tools = index.index('id="workbench-developer-tools"')
+    assert quick_download < task_center < automation < developer_tools
+
+    assert index.count('id="workflow-detail-count"') == 1
+    assert '<option value="auto">自动识别</option>' in index
+    assert 'id="workflow-detail-status"' in index
+    assert 'role="status"' in index
+    assert 'aria-live="polite"' in index
+
+    for details_id in ("workbench-automation", "workbench-developer-tools"):
+        opening_tag = index[index.index(f'<details id="{details_id}"') :]
+        opening_tag = opening_tag[: opening_tag.index(">") + 1]
+        assert " open" not in opening_tag
+        assert "<summary>" in index[index.index(opening_tag) : index.index(opening_tag) + 300]
+
+    for retired_copy in (
+        "DOWNLOAD OPERATIONS",
+        "DAILY AUTOMATION",
+        "ACCOUNT BATCH",
+        "LINK INGEST",
+        "API LAB",
+        "LINK RESOLVER",
+    ):
+        assert retired_copy not in index
+
+    assert "function detectWorkflowLinkPlatform" in script
+    assert 'state.activeTab === "workbench"' in script
+    assert "!document.hidden" in script
+    assert 'main.className = "task-main task-main-button"' in script
+    assert '["failed", "canceled"].includes(taskStatus)' in script
+    assert "const focusedTaskId =" in script
+    assert "focusTarget?.focus({ preventScroll: true })" in script
