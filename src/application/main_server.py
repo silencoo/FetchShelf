@@ -115,6 +115,24 @@ class APIServer(TikTok):
     COLLECT_MONITOR_SCHEDULE = "collect_monitor"
     COLLECT_MONITOR_PAGE_COUNT = 20
     COLLECT_MONITOR_MAX_PAGES = 30
+    UI_TASK_SENSITIVE_FIELDS = frozenset(
+        {
+            "api_key",
+            "api_token",
+            "authorization",
+            "bark_url",
+            "client_secret",
+            "cookie",
+            "cookies",
+            "password",
+            "proxy",
+            "proxy_tiktok",
+            "refresh_token",
+            "secret",
+            "token",
+            "uptime_kuma_url",
+        }
+    )
 
     def __init__(
         self,
@@ -173,10 +191,31 @@ class APIServer(TikTok):
         self.ui_tasks[task["task_id"]] = task
         return task
 
-    @staticmethod
-    def _public_ui_task(task: dict) -> dict:
+    @classmethod
+    def _redact_ui_task_value(cls, value, key: str = ""):
+        normalized_key = str(key).strip().lower().replace("-", "_")
+        is_sensitive = (
+            normalized_key in cls.UI_TASK_SENSITIVE_FIELDS
+            or normalized_key.startswith(("cookie_", "proxy_"))
+            or normalized_key.endswith(
+                ("_cookie", "_password", "_proxy", "_secret", "_token")
+            )
+        )
+        if is_sensitive:
+            return "[REDACTED]" if value is not None and value != "" else value
+        if isinstance(value, dict):
+            return {
+                item_key: cls._redact_ui_task_value(item_value, item_key)
+                for item_key, item_value in value.items()
+            }
+        if isinstance(value, list):
+            return [cls._redact_ui_task_value(item) for item in value]
+        return value
+
+    @classmethod
+    def _public_ui_task(cls, task: dict) -> dict:
         return {
-            key: value
+            key: cls._redact_ui_task_value(value, key)
             for key, value in task.items()
             if not key.startswith("_")
         }
