@@ -377,7 +377,7 @@ svg {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 276px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
   min-height: 100dvh;
 }
 
@@ -394,42 +394,33 @@ svg {
   background:
     linear-gradient(180deg, var(--bg-sidebar-sheen), transparent 34%),
     var(--bg-sidebar);
-  padding: 22px 18px 18px;
+  padding: 18px 16px;
 }
 
 .sidebar-brand {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
-  padding: 2px 4px 22px;
+  padding: 0 4px 18px;
   border-bottom: 1px solid var(--line-soft);
 }
 
 .brand-mark {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border: 1px solid var(--primary-line);
-  border-radius: 11px;
-  background:
-    linear-gradient(145deg, var(--primary-soft), var(--bg-primary-faint)),
-    var(--bg-brand);
-  color: var(--text-accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 18px;
-  font-weight: 800;
-  box-shadow: var(--button-highlight);
+  display: block;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
 }
 
-.brand-copy {
-  min-width: 0;
+.brand-logo,
+.command-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
-.eyebrow,
 .nav-kicker,
-.command-kicker,
 .section-eyebrow,
 .tool-eyebrow {
   margin: 0;
@@ -443,27 +434,34 @@ svg {
 }
 
 .brand-name {
-  margin: 3px 0 0;
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 4px;
+  margin: 0;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 14px;
-  font-weight: 750;
+  font-size: 15px;
   letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.brand-tagline {
-  margin: 3px 0 0;
-  color: var(--text-faint);
-  font-size: 10px;
-  line-height: 1.35;
+.brand-name-primary {
+  font-weight: 800;
+}
+
+.brand-suffix {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-weight: 620;
+  text-overflow: ellipsis;
 }
 
 .sidebar-nav {
   min-height: 0;
   flex: 1;
-  padding-top: 22px;
+  padding-top: 18px;
 }
 
 .nav-kicker {
@@ -639,33 +637,36 @@ svg {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 22px;
-  min-height: 102px;
+  gap: 16px;
+  min-height: 76px;
   margin: 0 -24px;
-  padding: 18px 24px;
+  padding: 10px 24px;
   border-bottom: 1px solid var(--line);
   background: var(--bg-topbar);
   backdrop-filter: blur(18px) saturate(120%);
 }
 
 .command-copy {
-  min-width: 240px;
+  display: flex;
+  min-width: 160px;
+  align-items: center;
+  gap: 10px;
+}
+
+.command-logo {
+  display: none;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
 }
 
 .command-title {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--text-strong);
-  font-size: clamp(21px, 2vw, 28px);
-  font-weight: 760;
-  letter-spacing: -0.035em;
-  line-height: 1.15;
-}
-
-.command-subtitle {
-  max-width: 62ch;
-  margin: 5px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
+  font-size: clamp(18px, 1.4vw, 22px);
+  font-weight: 740;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
 }
 
 .topbar-tools {
@@ -2166,7 +2167,7 @@ input:-webkit-autofill:focus {
 
 @media (max-width: 1380px) {
   .app-shell {
-    grid-template-columns: 248px minmax(0, 1fr);
+    grid-template-columns: 236px minmax(0, 1fr);
   }
 
   .app-sidebar,
@@ -2174,7 +2175,6 @@ input:-webkit-autofill:focus {
     padding-inline: 14px;
   }
 
-  .brand-tagline,
   .nav-description {
     display: none;
   }
@@ -2208,29 +2208,24 @@ input:-webkit-autofill:focus {
   }
 
   .sidebar-brand {
-    grid-template-columns: 36px minmax(0, 1fr);
-    min-width: 184px;
+    grid-template-columns: 34px minmax(0, 1fr);
+    min-width: 172px;
     gap: 9px;
     border-bottom: 0;
     padding: 0;
   }
 
   .brand-mark {
-    width: 36px;
-    height: 36px;
-    border-radius: 9px;
-    font-size: 15px;
+    width: 34px;
+    height: 34px;
   }
 
-  .eyebrow,
-  .brand-tagline,
   .nav-kicker,
   .sidebar-footer {
     display: none;
   }
 
   .brand-name {
-    margin: 0;
     font-size: 13px;
   }
 
@@ -2390,15 +2385,17 @@ input:-webkit-autofill:focus {
   }
 
   .command-title {
-    font-size: 21px;
+    font-size: 19px;
   }
 
-  .command-subtitle {
-    font-size: 11px;
+  .command-logo {
+    display: block;
   }
 
   .topbar-tools {
+    display: flex;
     align-items: stretch;
+    gap: 8px;
   }
 
   .theme-control-root,
@@ -2408,7 +2405,23 @@ input:-webkit-autofill:focus {
   }
 
   .theme-control-root {
-    flex: 1 1 100%;
+    width: auto;
+    flex: 1 1 154px;
+    order: 1;
+  }
+
+  .theme-control {
+    gap: 0;
+  }
+
+  .theme-control-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .theme-options {
@@ -2416,20 +2429,32 @@ input:-webkit-autofill:focus {
   }
 
   .theme-option {
-    min-height: 40px;
+    min-height: 36px;
+  }
+
+  .token-field {
+    width: auto;
+    flex: 1 1 220px;
+    order: 3;
   }
 
   .topbar-tools > .btn {
+    align-self: end;
+    flex: 0 0 auto;
     min-height: 40px;
+    order: 4;
   }
 
   .status-cluster {
-    width: 100%;
+    width: auto;
+    align-self: end;
+    flex: 0 0 auto;
     margin-left: 0;
+    order: 2;
   }
 
   .status-cluster .badge {
-    flex: 1;
+    min-height: 36px;
     justify-content: center;
   }
 
@@ -2547,19 +2572,18 @@ input:-webkit-autofill:focus {
 }
 
 @media (max-width: 460px) {
-  .command-kicker,
-  .command-subtitle {
-    display: none;
-  }
-
   .command-title {
-    font-size: 19px;
+    font-size: 18px;
   }
 
   .field.compact,
   .token-field {
-    min-width: 100%;
-    flex-basis: 100%;
+    min-width: 0;
+    flex-basis: auto;
+  }
+
+  .topbar-tools .token-field {
+    flex: 1 1 200px;
   }
 
   .theme-option {
@@ -2567,7 +2591,7 @@ input:-webkit-autofill:focus {
   }
 
   .topbar-tools > .btn {
-    width: 100%;
+    width: auto;
   }
 
   .profile-board {

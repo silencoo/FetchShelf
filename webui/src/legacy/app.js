@@ -56,6 +56,7 @@ const state = {
 
 const refs = {
   tabButtons: Array.from(document.querySelectorAll(".tab-btn")),
+  commandTitle: document.getElementById("command-title"),
   tokenInput: document.getElementById("token-input"),
   applyTokenBtn: document.getElementById("apply-token-btn"),
   wsStatus: document.getElementById("ws-status"),
@@ -647,6 +648,14 @@ function switchTab(tab) {
     button.setAttribute("aria-selected", String(isActive));
     button.tabIndex = isActive ? 0 : -1;
   });
+  const activeButton = refs.tabButtons.find(
+    (button) => button.dataset.tabTarget === nextTab,
+  );
+  const activeLabel = activeButton?.querySelector(".nav-label")?.textContent?.trim();
+  if (activeLabel && refs.commandTitle) {
+    refs.commandTitle.textContent = activeLabel;
+    document.title = `${activeLabel} · DouK Downloader`;
+  }
   try {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, nextTab);
   } catch {}

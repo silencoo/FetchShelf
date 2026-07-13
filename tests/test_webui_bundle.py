@@ -75,6 +75,7 @@ def test_webui_bundle_keeps_core_interaction_hooks():
         'id="monitor-list"',
         'id="schedule-list"',
         'id="task-queue-list"',
+        'id="command-title"',
         'id="magic-grid-root"',
         'id="magic-metrics-root"',
         'id="theme-control-root"',
@@ -128,6 +129,34 @@ def test_webui_production_bundle_includes_theme_runtime_and_styles():
     assert all(preference in scripts for preference in ("system", "light", "dark"))
     assert ':root[data-theme="light"]' in styles or ":root[data-theme=light]" in styles
     assert "color-scheme:light" in styles
+
+
+def test_webui_source_keeps_compact_brand_shell():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+
+    assert index.count('id="command-title"') == 1
+    for asset_name in (
+        "douk-mark-48.png",
+        "douk-mark-96.png",
+        "douk-favicon-32.png",
+        "douk-touch-icon-180.png",
+    ):
+        assert asset_name in index
+        assert SOURCE_ROOT.joinpath("src", "assets", "brand", asset_name).is_file()
+
+    for retired_copy in (
+        "DOUK CONTROL",
+        "OPERATIONS CONSOLE",
+        "NAS 运维控制台 · 下载、监控与媒体管理",
+        "统一管理下载队列、账户更新与本地媒体。",
+    ):
+        assert retired_copy not in index
+
+    assert 'commandTitle: document.getElementById("command-title")' in script
+    assert "document.title = `${activeLabel} · DouK Downloader`" in script
 
 
 def test_webui_source_contains_every_legacy_dom_reference_once():
