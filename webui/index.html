@@ -8,6 +8,17 @@
       content="DouK-Downloader 的自托管下载、账户监控与媒体管理控制台。"
     />
     <meta name="theme-color" content="#090b10" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/src/assets/brand/douk-favicon-32.png"
+    />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/src/assets/brand/douk-touch-icon-180.png"
+    />
     <script>
       (() => {
         const storageKey = "webui.theme";
@@ -38,19 +49,28 @@
           ?.setAttribute("content", resolvedTheme === "light" ? "#eef3f7" : "#090b10");
       })();
     </script>
-    <title>DouK-Downloader WebUI</title>
+    <title>下载工作台 · DouK Downloader</title>
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
     <div class="app-shell">
       <aside class="app-sidebar" aria-label="主导航">
         <div class="sidebar-brand">
-          <span class="brand-mark" aria-hidden="true">D</span>
-          <div class="brand-copy">
-            <p class="eyebrow">DOUK CONTROL</p>
-            <p class="brand-name">DouK-Downloader</p>
-            <p class="brand-tagline">NAS 运维控制台 · 下载、监控与媒体管理</p>
-          </div>
+          <span class="brand-mark" aria-hidden="true">
+            <img
+              class="brand-logo"
+              src="/src/assets/brand/douk-mark-48.png"
+              srcset="/src/assets/brand/douk-mark-48.png 1x, /src/assets/brand/douk-mark-96.png 2x"
+              width="40"
+              height="40"
+              alt=""
+              decoding="async"
+            />
+          </span>
+          <p class="brand-name">
+            <span class="brand-name-primary">DouK</span>
+            <span class="brand-suffix">Downloader</span>
+          </p>
         </div>
 
         <nav class="sidebar-nav" aria-label="功能导航">
@@ -133,9 +153,17 @@
       <div class="app-main">
         <header class="topbar command-header">
           <div class="command-copy">
-            <p class="command-kicker">OPERATIONS CONSOLE</p>
-            <h1 class="command-title">DouK-Downloader WebUI</h1>
-            <p class="command-subtitle">统一管理下载队列、账户更新与本地媒体。</p>
+            <img
+              class="command-logo"
+              src="/src/assets/brand/douk-mark-48.png"
+              srcset="/src/assets/brand/douk-mark-48.png 1x, /src/assets/brand/douk-mark-96.png 2x"
+              width="34"
+              height="34"
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+            />
+            <h1 id="command-title" class="command-title">下载工作台</h1>
           </div>
           <div class="topbar-tools" aria-label="外观、连接与鉴权">
             <div id="theme-control-root" class="theme-control-root"></div>
