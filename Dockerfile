@@ -82,7 +82,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ldconfig -p | grep -q "libxcb.so.1" \
     && pip install --no-cache-dir uv
 COPY --from=builder /opt/venv /opt/venv
-RUN python -m playwright install chromium webkit
+RUN python -m playwright install chromium
 
 # 复制你的应用程序代码和相关文件
 COPY src /app/src

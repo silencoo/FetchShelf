@@ -6,6 +6,8 @@ import { NumberTicker } from "@/components/ui/number-ticker";
 import "@/styles.css";
 
 type MetricKey = "logs" | "tasks" | "accounts" | "files";
+type Theme = "light" | "dark";
+type ThemePreference = Theme | "system";
 
 interface Metrics {
   logs: number;
@@ -26,6 +28,17 @@ const INITIAL_METRICS: Metrics = {
   accounts: 0,
   files: 0,
 };
+
+const THEME_STORAGE_KEY = "webui.theme";
+const THEME_OPTIONS: Array<{
+  value: ThemePreference;
+  label: string;
+  title: string;
+}> = [
+  { value: "system", label: "自动", title: "跟随系统主题" },
+  { value: "light", label: "浅色", title: "使用浅色主题" },
+  { value: "dark", label: "深色", title: "使用深色主题" },
+];
 
 const METRIC_CONFIG: Array<{
   key: MetricKey;
@@ -77,6 +90,116 @@ function usePrefersReducedMotion() {
   }, []);
 
   return reduced;
+}
+
+function isThemePreference(value: string | null | undefined): value is ThemePreference {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+function resolveTheme(preference: ThemePreference, systemPrefersDark: boolean): Theme {
+  if (preference === "system") {
+    return systemPrefersDark ? "dark" : "light";
+  }
+  return preference;
+}
+
+function readInitialThemePreference(): ThemePreference {
+  const bootstrappedPreference = document.documentElement.dataset.themePreference;
+  if (isThemePreference(bootstrappedPreference)) {
+    return bootstrappedPreference;
+  }
+
+  try {
+    const storedPreference = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (isThemePreference(storedPreference)) {
+      return storedPreference;
+    }
+  } catch {
+    // Storage can be unavailable in strict privacy modes.
+  }
+
+  return "system";
+}
+
+function applyTheme(preference: ThemePreference, systemPrefersDark: boolean) {
+  const resolvedTheme = resolveTheme(preference, systemPrefersDark);
+  const root = document.documentElement;
+  root.dataset.theme = resolvedTheme;
+  root.dataset.themePreference = preference;
+  root.style.colorScheme = resolvedTheme;
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", resolvedTheme === "light" ? "#eef3f7" : "#090b10");
+}
+
+function ThemeControl() {
+  const [preference, setPreference] = useState<ThemePreference>(readInitialThemePreference);
+
+  useEffect(() => {
+    const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateTheme = () => applyTheme(preference, colorScheme.matches);
+    updateTheme();
+
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, preference);
+    } catch {
+      // Theme selection still applies for the current page when storage is blocked.
+    }
+
+    if (preference !== "system") {
+      return;
+    }
+
+    colorScheme.addEventListener("change", updateTheme);
+    return () => colorScheme.removeEventListener("change", updateTheme);
+  }, [preference]);
+
+  useEffect(() => {
+    const syncPreference = (event: StorageEvent) => {
+      if (event.key !== THEME_STORAGE_KEY) {
+        return;
+      }
+
+      if (event.newValue === null) {
+        setPreference("system");
+      } else if (isThemePreference(event.newValue)) {
+        setPreference(event.newValue);
+      }
+    };
+    window.addEventListener("storage", syncPreference);
+    return () => window.removeEventListener("storage", syncPreference);
+  }, []);
+
+  const selectTheme = (nextPreference: ThemePreference) => {
+    applyTheme(
+      nextPreference,
+      window.matchMedia("(prefers-color-scheme: dark)").matches,
+    );
+    setPreference(nextPreference);
+  };
+
+  return (
+    <div className="theme-control" role="group" aria-label="界面主题">
+      <span className="theme-control-label" aria-hidden="true">
+        主题
+      </span>
+      <div className="theme-options">
+        {THEME_OPTIONS.map(({ value, label, title }) => (
+          <button
+            className="theme-option"
+            data-theme-option={value}
+            key={value}
+            type="button"
+            aria-pressed={preference === value}
+            title={title}
+            onClick={() => selectTheme(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function AccessibleTicker({ value, label }: { value: number; label: string }) {
@@ -162,6 +285,7 @@ function mountMagicUi() {
     />,
   );
   renderRoot("magic-metrics-root", <OperationsMetrics />);
+  renderRoot("theme-control-root", <ThemeControl />);
 }
 
 mountMagicUi();
