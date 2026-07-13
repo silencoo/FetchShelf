@@ -92,7 +92,7 @@
 
 ![WebUI模式截图](docs/screenshot/WebAPI模式截图CN1.png)
 
-> **启动该模式后，访问 `http://127.0.0.1:5555/ui` 可使用 Card 模块化 Web UI（内置实时日志、配置编辑、文件 Gallery 与链接解析工具）。**
+> **启动该模式后，访问 `http://127.0.0.1:5555/ui` 可使用面向 NAS 的深色运维控制台（内置下载队列、定时任务、账户监控、实时日志、配置编辑、文件预览与账户媒体看板）。**
 
 - 日志面板支持“显示调试”开关：默认隐藏 DEBUG / 请求参数噪声，按需一键展开。
 - 使用账号批量下载时，若某行 `mark` 为空，程序会自动用解析到的昵称回填并写回 `settings.json`，避免后续改名导致重复下载。
@@ -102,6 +102,8 @@
 - 若不启用自动更新且账号 `earliest` 留空，程序会按默认最早日期 `2016/09/20` 继续翻页采集，再由下载记录过滤已存在文件；这会产生更多历史请求。
 - `settings.json Editor` 下新增“登录信息快捷编辑”面板，可直接编辑 `cookie`、`cookie_tiktok`、`browser_info_tiktok.device_id`、`browser_info_tiktok.User-Agent`，不用在大段 JSON 中来回查找。
 - 账户看板支持“视频优先刷新”、卡片密度滑块；文件浏览支持目录统计（文件/图片/视频/体积）与当前目录搜索过滤。
+
+WebUI 源码位于 `webui/`，生产静态资源位于 `src/webui/static/`。本地修改前端后可运行 `npm ci --prefix webui && npm run build --prefix webui`；Docker 构建会在独立的 Node 阶段自动完成该步骤，最终 Python 运行镜像不包含前端 Node 工具链或 `node_modules`。
 
 ## Web API 接口模式
 

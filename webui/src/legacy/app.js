@@ -10,6 +10,7 @@ const state = {
   logRecords: [],
   fileEntries: [],
   fileSearch: "",
+  focusFilesAfterLoad: false,
   currentScope: "download",
   currentPath: "",
   selectedFilePath: "",
@@ -365,6 +366,17 @@ function setWsStatus(text, kind = "") {
   setBadge(refs.wsStatus, `日志: ${text}`, kind);
 }
 
+function syncTabOrientation() {
+  const tabList = document.querySelector(".top-tabs");
+  if (!tabList) {
+    return;
+  }
+  tabList.setAttribute(
+    "aria-orientation",
+    window.matchMedia("(max-width: 1180px)").matches ? "horizontal" : "vertical",
+  );
+}
+
 async function withBusyButton(button, busyText, action) {
   if (!button || button.disabled) {
     return;
@@ -372,6 +384,7 @@ async function withBusyButton(button, busyText, action) {
   const previousText = button.textContent;
   button.disabled = true;
   button.classList.add("busy");
+  button.setAttribute("aria-busy", "true");
   if (busyText) {
     button.textContent = busyText;
   }
@@ -379,6 +392,7 @@ async function withBusyButton(button, busyText, action) {
     await action();
   } finally {
     button.classList.remove("busy");
+    button.removeAttribute("aria-busy");
     button.disabled = false;
     button.textContent = previousText;
   }
@@ -623,10 +637,15 @@ function switchTab(tab) {
     : fallbackTab;
   state.activeTab = nextTab;
   document.querySelectorAll(".tab-panel").forEach((panel) => {
-    panel.classList.toggle("hidden-panel", panel.dataset.tabPanel !== nextTab);
+    const isHidden = panel.dataset.tabPanel !== nextTab;
+    panel.classList.toggle("hidden-panel", isHidden);
+    panel.hidden = isHidden;
   });
   refs.tabButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.tabTarget === nextTab);
+    const isActive = button.dataset.tabTarget === nextTab;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+    button.tabIndex = isActive ? 0 : -1;
   });
   try {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, nextTab);
@@ -1760,15 +1779,22 @@ function renderFiles() {
   refs.filesList.innerHTML = "";
   if (!entries.length) {
     const tip = state.fileSearch.trim() ? "无匹配文件" : "目录为空";
-    refs.filesList.innerHTML = `<div class="file-row"><span class="file-name">${tip}</span></div>`;
+    refs.filesList.innerHTML = `<div class="file-row" role="status"><span class="file-name">${tip}</span></div>`;
+    if (state.focusFilesAfterLoad) {
+      state.focusFilesAfterLoad = false;
+      refs.filesList.focus();
+    }
     return;
   }
 
   const fragment = document.createDocumentFragment();
-  for (const entry of entries) {
+  for (const [entryIndex, entry] of entries.entries()) {
     const row = document.createElement("div");
     row.className = "file-row";
     row.dataset.path = entry.path || "";
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", "false");
+    row.tabIndex = entryIndex === 0 ? 0 : -1;
 
     const icon = document.createElement("span");
     icon.className = "file-icon";
@@ -1786,11 +1812,14 @@ function renderFiles() {
     row.appendChild(name);
     row.appendChild(kind);
 
-    row.addEventListener("click", () => {
-      for (const active of refs.filesList.querySelectorAll(".file-row.active")) {
-        active.classList.remove("active");
+    const activateRow = (focusAfterLoad = false) => {
+      for (const candidate of refs.filesList.querySelectorAll('.file-row[role="option"]')) {
+        candidate.classList.remove("active");
+        candidate.setAttribute("aria-selected", "false");
+        candidate.tabIndex = candidate === row ? 0 : -1;
       }
       row.classList.add("active");
+      row.setAttribute("aria-selected", "true");
       state.selectedFilePath = entry.path || "";
       updateFilesAccountContext();
 
@@ -1798,16 +1827,52 @@ function renderFiles() {
         state.currentPath = entry.path || "";
         refs.filesPath.value = state.currentPath;
         state.selectedFilePath = "";
+        state.focusFilesAfterLoad = focusAfterLoad;
         updateFilesAccountContext();
         loadFiles();
       } else {
         renderFilePreview(entry);
+      }
+    };
+
+    row.addEventListener("click", () => activateRow(false));
+    row.addEventListener("keydown", (event) => {
+      if (["Enter", " "].includes(event.key)) {
+        event.preventDefault();
+        activateRow(true);
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        return;
+      }
+      event.preventDefault();
+      const rows = Array.from(refs.filesList.querySelectorAll('.file-row[role="option"]'));
+      const index = rows.indexOf(row);
+      let nextIndex = index;
+      if (event.key === "ArrowDown") {
+        nextIndex = Math.min(rows.length - 1, index + 1);
+      } else if (event.key === "ArrowUp") {
+        nextIndex = Math.max(0, index - 1);
+      } else if (event.key === "Home") {
+        nextIndex = 0;
+      } else if (event.key === "End") {
+        nextIndex = rows.length - 1;
+      }
+      const nextRow = rows[nextIndex];
+      if (nextRow) {
+        row.tabIndex = -1;
+        nextRow.tabIndex = 0;
+        nextRow.focus();
       }
     });
 
     fragment.appendChild(row);
   }
   refs.filesList.appendChild(fragment);
+  if (state.focusFilesAfterLoad) {
+    state.focusFilesAfterLoad = false;
+    refs.filesList.querySelector('.file-row[role="option"]')?.focus();
+  }
 }
 
 function updateFilesAccountContext() {
@@ -2955,11 +3020,11 @@ function renderScheduleList(items) {
     ).padStart(2, "0")} · 下次 ${escapeHtml(item.next_run_at || "-")}</span>
       </div>
       <div class="task-actions">
-        <button class="btn ghost" data-action="run">立即执行</button>
-        <button class="btn ghost" data-action="toggle">${
+        <button class="btn ghost" type="button" data-action="run">立即执行</button>
+        <button class="btn ghost" type="button" data-action="toggle">${
           isEnabled ? "停用" : "启用"
         }</button>
-        <button class="btn ghost danger" data-action="delete">删除</button>
+        <button class="btn ghost danger" type="button" data-action="delete">删除</button>
       </div>
     `;
     row.querySelector('[data-action="run"]')?.addEventListener("click", () => {
@@ -3106,9 +3171,9 @@ function renderCollectMonitorList(items) {
         </span>
       </div>
       <div class="task-actions">
-        <button class="btn ghost" data-action="run">立即执行</button>
-        <button class="btn ghost" data-action="toggle">${isEnabled ? "停用" : "启用"}</button>
-        <button class="btn ghost danger" data-action="delete">删除</button>
+        <button class="btn ghost" type="button" data-action="run">立即执行</button>
+        <button class="btn ghost" type="button" data-action="toggle">${isEnabled ? "停用" : "启用"}</button>
+        <button class="btn ghost danger" type="button" data-action="delete">删除</button>
       </div>
     `;
     row.querySelector('[data-action="run"]')?.addEventListener("click", () => {
@@ -3320,6 +3385,7 @@ function renderTaskList(items) {
     actions.className = "task-actions";
 
     const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
     viewBtn.className = "btn ghost";
     viewBtn.textContent = "查看";
     viewBtn.addEventListener("click", (event) => {
@@ -3330,6 +3396,7 @@ function renderTaskList(items) {
 
     if (["pending", "running", "canceling"].includes(taskStatus)) {
       const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
       cancelBtn.className = "btn ghost";
       cancelBtn.textContent = "取消";
       cancelBtn.addEventListener("click", (event) => {
@@ -3339,6 +3406,7 @@ function renderTaskList(items) {
       actions.appendChild(cancelBtn);
     } else {
       const retryBtn = document.createElement("button");
+      retryBtn.type = "button";
       retryBtn.className = "btn ghost";
       retryBtn.textContent = "重试";
       retryBtn.addEventListener("click", (event) => {
@@ -3399,9 +3467,28 @@ async function copyTaskResult() {
 }
 
 function bindEvents() {
-  refs.tabButtons.forEach((button) => {
+  refs.tabButtons.forEach((button, index) => {
     button.addEventListener("click", () => {
       switchTab(button.dataset.tabTarget || "workbench");
+    });
+    button.addEventListener("keydown", (event) => {
+      if (!["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft", "Home", "End"].includes(event.key)) {
+        return;
+      }
+      event.preventDefault();
+      let nextIndex = index;
+      if (["ArrowDown", "ArrowRight"].includes(event.key)) {
+        nextIndex = (index + 1) % refs.tabButtons.length;
+      } else if (["ArrowUp", "ArrowLeft"].includes(event.key)) {
+        nextIndex = (index - 1 + refs.tabButtons.length) % refs.tabButtons.length;
+      } else if (event.key === "Home") {
+        nextIndex = 0;
+      } else if (event.key === "End") {
+        nextIndex = refs.tabButtons.length - 1;
+      }
+      const nextButton = refs.tabButtons[nextIndex];
+      switchTab(nextButton.dataset.tabTarget || "workbench");
+      nextButton.focus();
     });
   });
 
@@ -3974,6 +4061,7 @@ function bindEvents() {
 
   window.addEventListener("resize", () => {
     applyBoardColumns(false);
+    syncTabOrientation();
   });
 }
 
@@ -3999,6 +4087,7 @@ function startTaskPolling() {
 
 function bootstrap() {
   bindEvents();
+  syncTabOrientation();
   setBoardAvatarBatchBusy(false);
   syncBatchValuePlaceholder("douyin");
   syncBatchValuePlaceholder("tiktok");
@@ -4061,3 +4150,5 @@ function bootstrap() {
 }
 
 bootstrap();
+
+export {};

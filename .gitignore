@@ -25,3 +25,5 @@ repos
 demo
 /encipher.py
 /settings/
+node_modules/
+webui/node_modules/

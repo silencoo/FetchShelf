@@ -1,5 +1,16 @@
-# ---- 阶段 1: 构建器 (Builder) ----
-FROM python:3.12-bullseye as builder
+# ---- 阶段 1: WebUI 构建器 ----
+FROM node:22-bookworm-slim AS webui-builder
+
+WORKDIR /app
+
+COPY webui/package.json webui/package-lock.json /app/webui/
+RUN npm ci --prefix /app/webui
+
+COPY webui /app/webui
+RUN npm run build --prefix /app/webui
+
+# ---- 阶段 2: Python 构建器 ----
+FROM python:3.12-bullseye AS builder
 
 # 安装编译依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,7 +30,7 @@ COPY vendor/TikTok-Api /app/vendor/TikTok-Api
 RUN pip install --no-cache-dir uv \
     && uv sync --frozen --no-dev --no-install-project
 
-# ---- 阶段 2: 最终镜像 (Final Image) ----
+# ---- 阶段 3: 最终镜像 (Final Image) ----
 FROM python:3.12-slim
 
 # 设置工作目录
@@ -75,6 +86,7 @@ RUN python -m playwright install chromium webkit
 
 # 复制你的应用程序代码和相关文件
 COPY src /app/src
+COPY --from=webui-builder /app/src/webui/static /app/src/webui/static
 COPY vendor /app/vendor
 COPY locale /app/locale
 COPY static /app/static
