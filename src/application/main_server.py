@@ -2616,7 +2616,10 @@ class APIServer(TikTok):
                     status_code=404,
                     detail="Web UI resources not found.",
                 )
-            return FileResponse(index_file)
+            return FileResponse(
+                index_file,
+                headers={"Cache-Control": "no-cache"},
+            )
 
         @self.server.get(
             "/ui/api/files",
