@@ -124,6 +124,39 @@ def test_builtin_x_gnarly_accepts_form_body():
     assert result
 
 
+def test_api_request_params_are_isolated_per_identity():
+    template = API.params.copy()
+    first = SimpleNamespace(
+        headers={"User-Agent": "first"},
+        logger=None,
+        ab=None,
+        console=None,
+        max_retry=1,
+        timeout=10,
+        request_delay=6,
+        client=None,
+        proxy=None,
+        api_params={"browser_language": "zh-CN", "uifid": "first-id"},
+    )
+    second = SimpleNamespace(
+        **{
+            **vars(first),
+            "headers": {"User-Agent": "second"},
+            "api_params": {"browser_language": "en-US", "uifid": "second-id"},
+        }
+    )
+
+    first_api = API(first)
+    second_api = API(second)
+    first_api.params["cursor"] = "100"
+
+    assert first_api.params["uifid"] == "first-id"
+    assert second_api.params["uifid"] == "second-id"
+    assert second_api.params["browser_language"] == "en-US"
+    assert "cursor" not in second_api.params
+    assert API.params == template
+
+
 def test_dynamic_loader_uses_documented_encipher_filename(tmp_path, monkeypatch):
     console = _Console()
     monkeypatch.delenv("DOUK_ENCIPHER_PATH", raising=False)

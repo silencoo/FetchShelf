@@ -2,7 +2,7 @@ from time import time
 from typing import TYPE_CHECKING, Callable, Coroutine, Type, Union
 from urllib.parse import quote, urlencode
 
-from httpx import AsyncClient, get, post
+from httpx import AsyncClient
 from rich.progress import (
     BarColumn,
     Progress,
@@ -11,7 +11,13 @@ from rich.progress import (
 )
 
 from ..custom import PROGRESS, USERAGENT, wait
-from ..tools import DownloaderError, FakeProgress, Retry, capture_error_request
+from ..tools import (
+    DownloaderError,
+    FakeProgress,
+    Retry,
+    capture_error_request,
+    create_client,
+)
 from ..translation import _
 
 if TYPE_CHECKING:
@@ -72,6 +78,11 @@ class API:
         **kwargs,
     ):
         self.headers = params.headers.copy()
+        # API.params is retained as the default template for backwards
+        # compatibility, but a running request must never mutate or reuse the
+        # dictionary belonging to another collector identity.
+        self.params = type(self).params.copy()
+        self.params.update(getattr(params, "api_params", {}) or {})
         self.log = params.logger
         self.ab = params.ab
         self.console = params.console
@@ -79,8 +90,10 @@ class API:
         self.proxy = proxy
         self.max_retry = params.max_retry
         self.timeout = params.timeout
+        self.request_delay = getattr(params, "request_delay", None)
         self.cookie = cookie
         self.client: AsyncClient = params.client
+        self._client_proxy = getattr(params, "proxy", None)
         self.pages = 99999
         self.cursor = 0
         self.response = []
@@ -323,11 +336,20 @@ class API:
             headers,
             **kwargs,
         )
-        response = await self.client.get(
-            f"{url}?{params}",
-            headers=headers,
-            **kwargs,
-        )
+        client = self.client
+        owned_client = None
+        if self.proxy != self._client_proxy:
+            owned_client = create_client(timeout=self.timeout, proxy=self.proxy)
+            client = owned_client
+        try:
+            response = await client.get(
+                f"{url}?{params}",
+                headers=headers,
+                **kwargs,
+            )
+        finally:
+            if owned_client is not None:
+                await owned_client.aclose()
         return await self.__return_response(response)
 
     @Retry.retry
@@ -347,13 +369,9 @@ class API:
             headers,
             **kwargs,
         )
-        response = get(
+        response = await self.client.get(
             f"{url}?{params}",
             headers=headers,
-            proxy=self.proxy,
-            follow_redirects=True,
-            verify=False,
-            timeout=self.timeout,
             **kwargs,
         )
         return await self.__return_response(response)
@@ -361,6 +379,35 @@ class API:
     @Retry.retry
     @capture_error_request
     async def request_data_post(
+        self, url: str, params: str, data: dict, headers: dict, finished=False, **kwargs
+    ):
+        self.__record_request_messages(
+            url,
+            params,
+            data,
+            headers,
+            **kwargs,
+        )
+        client = self.client
+        owned_client = None
+        if self.proxy != self._client_proxy:
+            owned_client = create_client(timeout=self.timeout, proxy=self.proxy)
+            client = owned_client
+        try:
+            response = await client.post(
+                f"{url}?{params}",
+                data=data,
+                headers=headers,
+                **kwargs,
+            )
+        finally:
+            if owned_client is not None:
+                await owned_client.aclose()
+        return await self.__return_response(response)
+
+    @Retry.retry
+    @capture_error_request
+    async def request_data_post_proxy(
         self, url: str, params: str, data: dict, headers: dict, finished=False, **kwargs
     ):
         self.__record_request_messages(
@@ -378,30 +425,6 @@ class API:
         )
         return await self.__return_response(response)
 
-    @Retry.retry
-    @capture_error_request
-    async def request_data_post_proxy(
-        self, url: str, params: str, data: dict, headers: dict, finished=False, **kwargs
-    ):
-        self.__record_request_messages(
-            url,
-            params,
-            data,
-            headers,
-            **kwargs,
-        )
-        response = post(
-            f"{url}?{params}",
-            data=data,
-            headers=headers,
-            proxy=self.proxy,
-            follow_redirects=True,
-            verify=False,
-            timeout=self.timeout,
-            **kwargs,
-        )
-        return await self.__return_response(response)
-
     async def __return_response(self, response):
         self.log.info(f"Response URL: {response.url}", False)
         self.log.info(f"Response Code: {response.status_code}", False)
@@ -409,7 +432,7 @@ class API:
         # 记录请求体数据会导致日志文件体积过大，仅在必要时记录
         # self.log.info(f"Response Content: {response.content}", False)
         response.raise_for_status()
-        await wait()
+        await wait(self.request_delay)
         # if response.status_code != 200:
         #     self.log.error(f"请求 {url} 失败，响应码 {response.status_code}")
         #     return
@@ -557,11 +580,13 @@ class APITikTok(API):
         **kwargs,
     ):
         super().__init__(params, cookie, proxy, *args, **kwargs)
+        self.params.update(getattr(params, "api_params_tiktok", {}) or {})
         self.xb = params.xb
         self.xg = params.xg
         self.headers = params.headers_tiktok.copy()
         self.cookie = cookie
         self.client: AsyncClient = params.client_tiktok
+        self._client_proxy = getattr(params, "proxy_tiktok", None)
         self.set_temp_cookie(cookie)
 
     async def request_data(

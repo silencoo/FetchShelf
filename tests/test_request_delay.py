@@ -45,13 +45,32 @@ async def test_wait_sleeps_once_with_sampled_delay(monkeypatch):
 
     previous = function._REQUEST_DELAY_MEAN
     monkeypatch.setattr(function, "sleep", fake_sleep)
-    monkeypatch.setattr(function, "get_wait_time", lambda: 2.75)
+    monkeypatch.setattr(function, "get_wait_time", lambda avg_delay=None: 2.75)
     try:
         await function.wait()
     finally:
         function.configure_wait(previous)
 
     assert calls == [2.75]
+
+
+@pytest.mark.asyncio
+async def test_wait_can_use_identity_specific_delay(monkeypatch):
+    requested = []
+
+    async def fake_sleep(delay):
+        requested.append(delay)
+
+    monkeypatch.setattr(function, "sleep", fake_sleep)
+    monkeypatch.setattr(
+        function,
+        "get_wait_time",
+        lambda avg_delay=None: float(avg_delay),
+    )
+
+    await function.wait(8.5)
+
+    assert requested == [8.5]
 
 
 def test_parameter_runtime_delay_update_reconfigures_wait():

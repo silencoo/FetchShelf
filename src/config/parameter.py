@@ -138,13 +138,16 @@ class Parameter:
         self.ms_token = ""
         self.ms_token_tiktok = ""
 
-        self.headers = DATA_HEADERS
-        self.headers_tiktok = DATA_HEADERS_TIKTOK
-        self.headers_download = DOWNLOAD_HEADERS
-        self.headers_download_tiktok = DOWNLOAD_HEADERS_TIKTOK
-        self.headers_params = PARAMS_HEADERS
-        self.headers_params_tiktok = PARAMS_HEADERS_TIKTOK
-        self.headers_qrcode = QRCODE_HEADERS
+        # Request state must be owned by this Parameter instance.  Reusing the
+        # module-level dictionaries makes two collector identities overwrite
+        # each other's Cookie, User-Agent and signing inputs.
+        self.headers = DATA_HEADERS.copy()
+        self.headers_tiktok = DATA_HEADERS_TIKTOK.copy()
+        self.headers_download = DOWNLOAD_HEADERS.copy()
+        self.headers_download_tiktok = DOWNLOAD_HEADERS_TIKTOK.copy()
+        self.headers_params = PARAMS_HEADERS.copy()
+        self.headers_params_tiktok = PARAMS_HEADERS_TIKTOK.copy()
+        self.headers_qrcode = QRCODE_HEADERS.copy()
 
         self.accounts_urls: list[SimpleNamespace] = self.check_urls_params(
             accounts_urls

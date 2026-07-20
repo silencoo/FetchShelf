@@ -17,12 +17,10 @@ class Database:
     ):
         self.file = PROJECT_ROOT.joinpath(self.__FILE)
         self.database = None
-        self.cursor = None
 
     async def __connect_database(self):
         self.database = await connect(self.file)
         self.database.row_factory = Row
-        self.cursor = await self.database.cursor()
         await self.__create_table()
         await self.__write_default_config()
         await self.__write_default_option()
@@ -59,12 +57,12 @@ class Database:
                             VALUES ('Language', 'zh_CN');""")
 
     async def read_config_data(self):
-        await self.cursor.execute("SELECT * FROM config_data")
-        return await self.cursor.fetchall()
+        async with self.database.execute("SELECT * FROM config_data") as cursor:
+            return await cursor.fetchall()
 
     async def read_option_data(self):
-        await self.cursor.execute("SELECT * FROM option_data")
-        return await self.cursor.fetchall()
+        async with self.database.execute("SELECT * FROM option_data") as cursor:
+            return await cursor.fetchall()
 
     async def update_config_data(
         self,
@@ -94,14 +92,16 @@ class Database:
         await self.database.commit()
 
     async def read_mapping_data(self, id_: str):
-        await self.cursor.execute(
+        async with self.database.execute(
             "SELECT NAME, MARK FROM mapping_data WHERE ID=?", (id_,)
-        )
-        return await self.cursor.fetchone()
+        ) as cursor:
+            return await cursor.fetchone()
 
     async def has_download_data(self, id_: str) -> bool:
-        await self.cursor.execute("SELECT ID FROM download_data WHERE ID=?", (id_,))
-        return bool(await self.cursor.fetchone())
+        async with self.database.execute(
+            "SELECT ID FROM download_data WHERE ID=?", (id_,)
+        ) as cursor:
+            return bool(await cursor.fetchone())
 
     async def write_download_data(self, id_: str):
         await self.database.execute(
@@ -131,8 +131,7 @@ class Database:
 
     async def close(self):
         with suppress(CancelledError):
-            await self.cursor.close()
-        await self.database.close()
+            await self.database.close()
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         await self.close()

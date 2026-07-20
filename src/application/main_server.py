@@ -10,6 +10,7 @@ from shutil import copy2
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from uuid import uuid4
 
 from fastapi import (
     Depends,
@@ -17,11 +18,13 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     Body,
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from uvicorn import Config, Server
@@ -33,6 +36,34 @@ from ..custom import (
     SERVER_PORT,
     VERSION_BETA,
     is_valid_token,
+)
+from ..collector import (
+    AESGCMSecretCodec,
+    AssignmentSource,
+    BindingFailureMode,
+    CollectorAssignment,
+    CollectorCredentials,
+    CollectorIdentity,
+    CollectorPlatform,
+    CollectorPolicy,
+    CollectorRuntimeState,
+    CollectorStore,
+    IdentityInUseError,
+    IdentityLeaseManager,
+    IdentityNotFoundError,
+    IdentityPlatformError,
+    IdentityStatus,
+    LeaseConfigurationError,
+    RouteTarget,
+    RouteUnavailable,
+    RoutingStrategy,
+    SecretCodecError,
+    SecretCodecUnavailable,
+    UnavailableSecretCodec,
+    build_collector_runtime,
+    candidate_available,
+    migrate_legacy_settings,
+    plan_routes,
 )
 from ..models import (
     Account,
@@ -57,6 +88,13 @@ from ..models import (
 from ..tools import create_client, cookie_dict_to_str
 from ..interface import CollectsDetail
 from ..translation import _
+from ..webui_security import (
+    WEBUI_SENSITIVE_FIELDS,
+    is_protected_project_path,
+    redact_webui_json_text,
+    redact_webui_value,
+    restore_redacted_values,
+)
 from ..webui.files import (
     IMAGE_SUFFIXES,
     ScopeType,
@@ -90,8 +128,12 @@ if TYPE_CHECKING:
 __all__ = ["APIServer"]
 
 
-def token_dependency(token: str = Header(None)):
-    if not is_valid_token(token):
+def token_dependency(
+    request: Request,
+    token: str | None = Header(None),
+):
+    client_host = request.client.host if request.client else ""
+    if not is_valid_token(token, client_host):
         raise HTTPException(
             status_code=403,
             detail=_("验证失败！"),
@@ -115,24 +157,7 @@ class APIServer(TikTok):
     COLLECT_MONITOR_SCHEDULE = "collect_monitor"
     COLLECT_MONITOR_PAGE_COUNT = 20
     COLLECT_MONITOR_MAX_PAGES = 30
-    UI_TASK_SENSITIVE_FIELDS = frozenset(
-        {
-            "api_key",
-            "api_token",
-            "authorization",
-            "bark_url",
-            "client_secret",
-            "cookie",
-            "cookies",
-            "password",
-            "proxy",
-            "proxy_tiktok",
-            "refresh_token",
-            "secret",
-            "token",
-            "uptime_kuma_url",
-        }
-    )
+    UI_TASK_SENSITIVE_FIELDS = WEBUI_SENSITIVE_FIELDS
 
     def __init__(
         self,
@@ -153,6 +178,18 @@ class APIServer(TikTok):
         self.ui_schedules: dict[str, dict] = {}
         self.ui_schedule_tasks: dict[str, Any] = {}
         self.ui_schedule_counter = 0
+        self.collector_vault_error = ""
+        try:
+            collector_codec = AESGCMSecretCodec.from_environment()
+        except (SecretCodecError, SecretCodecUnavailable) as error:
+            collector_codec = UnavailableSecretCodec()
+            self.collector_vault_error = str(error)
+        self.collector_store = CollectorStore.in_settings_dir(
+            self.parameter.settings.path.parent,
+            codec=collector_codec,
+        )
+        self.collector_leases = IdentityLeaseManager()
+        self._initialize_legacy_collectors()
 
     @staticmethod
     def _now_text() -> str:
@@ -165,6 +202,215 @@ class APIServer(TikTok):
     def _new_schedule_id(self) -> str:
         self.ui_schedule_counter += 1
         return f"S{self.ui_schedule_counter:06d}"
+
+    @staticmethod
+    def _collector_timestamp() -> str:
+        return datetime.now().astimezone().isoformat(timespec="seconds")
+
+    @staticmethod
+    def _collector_platform(value: Any) -> CollectorPlatform:
+        try:
+            return CollectorPlatform(str(value or "").strip().lower())
+        except ValueError as error:
+            raise HTTPException(
+                status_code=400,
+                detail="platform must be douyin or tiktok.",
+            ) from error
+
+    def _initialize_legacy_collectors(self) -> None:
+        migration = migrate_legacy_settings(self.parameter.get_settings_data())
+        if not migration.migrated:
+            return
+        existing = {
+            item.identity_id: item
+            for item in self.collector_store.list_public()
+        }
+        if not existing:
+            # Persist non-secret metadata even when the vault is locked. Legacy
+            # settings remain the execution fallback until a key is supplied.
+            for identity in migration.identities:
+                self.collector_store.upsert_identity(identity)
+            for policy in migration.policies:
+                self.collector_store.upsert_policy(policy)
+            existing = {
+                item.identity_id: item
+                for item in self.collector_store.list_public()
+            }
+        if self.collector_vault_error:
+            return
+        for identity_id, credentials in migration.credentials.items():
+            public = existing.get(identity_id)
+            if public and credentials.configured and not public.credential_configured:
+                self.collector_store.write_credentials(identity_id, credentials)
+
+    async def _configure_collector_leases(self) -> None:
+        for identity in self.collector_store.list_identities():
+            await self.collector_leases.configure(
+                identity.identity_id,
+                identity.max_concurrency,
+            )
+        for platform in CollectorPlatform:
+            policy = self.collector_store.get_policy(platform)
+            await self.collector_leases.configure(
+                f"platform:{platform.value}",
+                policy.global_max_parallel,
+            )
+
+    @staticmethod
+    def _collector_public_data(value) -> dict:
+        return value.model_dump(mode="json")
+
+    @staticmethod
+    def _safe_validation_errors(error: ValidationError | RequestValidationError) -> list[dict]:
+        return [
+            {
+                "type": item.get("type", "validation_error"),
+                "loc": item.get("loc", ()),
+                "msg": item.get("msg", "Invalid value."),
+            }
+            for item in error.errors()
+        ]
+
+    @staticmethod
+    def _collector_http_error(error: Exception) -> HTTPException:
+        if isinstance(error, IdentityNotFoundError):
+            return HTTPException(status_code=404, detail=str(error))
+        if isinstance(error, IdentityInUseError):
+            return HTTPException(status_code=409, detail=str(error))
+        if isinstance(error, (IdentityPlatformError, LeaseConfigurationError)):
+            return HTTPException(status_code=409, detail=str(error))
+        if isinstance(error, (SecretCodecError, SecretCodecUnavailable)):
+            return HTTPException(
+                status_code=423,
+                detail=(
+                    "Collector credential vault is locked. Configure "
+                    "DOUK_IDENTITY_KEY_FILE or DOUK_IDENTITY_KEY."
+                ),
+            )
+        if isinstance(error, ValidationError):
+            # Pydantic's default error payload contains ``input`` values, which
+            # may be a Cookie, authenticated proxy URL, or browser fingerprint.
+            # Keep the useful field path while never echoing submitted secrets.
+            details = APIServer._safe_validation_errors(error)
+            return HTTPException(status_code=422, detail=details)
+        return HTTPException(
+            status_code=400,
+            detail="Collector request failed.",
+        )
+
+    def _collector_identity_from_body(
+        self,
+        body: dict,
+        *,
+        current: CollectorIdentity | None = None,
+    ) -> CollectorIdentity:
+        data = current.model_dump(mode="json") if current else {}
+        for key in (
+            "identity_id",
+            "name",
+            "platform",
+            "enabled",
+            "weight",
+            "request_delay",
+            "max_concurrency",
+        ):
+            if key in body:
+                data[key] = body[key]
+        if current:
+            data["identity_id"] = current.identity_id
+            data["platform"] = current.platform.value
+        else:
+            data["identity_id"] = self._normalize_string(
+                data.get("identity_id")
+            ) or f"ci_{uuid4().hex[:16]}"
+        return CollectorIdentity.model_validate(data)
+
+    def _collector_credentials_from_body(
+        self,
+        identity_id: str,
+        body: dict,
+    ) -> CollectorCredentials:
+        public = next(
+            (
+                item
+                for item in self.collector_store.list_public()
+                if item.identity_id == identity_id
+            ),
+            None,
+        )
+        current = (
+            self.collector_store.load_credentials(identity_id)
+            if public and public.credential_configured
+            else CollectorCredentials()
+        )
+        data = current.model_dump(mode="json")
+        for key in ("cookie", "proxy", "user_agent", "device_id", "browser_info"):
+            if key not in body:
+                continue
+            value = body[key]
+            data[key] = {} if key == "browser_info" and value is None else value or ""
+        return CollectorCredentials.model_validate(data)
+
+    async def _probe_collector_identity(
+        self,
+        identity_id: str,
+        *,
+        require_proxy: bool = False,
+    ) -> dict:
+        identity = self.collector_store.get_identity(identity_id)
+        credentials = self.collector_store.load_credentials(identity_id)
+        if require_proxy and not credentials.proxy:
+            raise HTTPException(status_code=400, detail="Proxy is not configured.")
+        if not require_proxy and not credentials.cookie:
+            raise HTTPException(status_code=400, detail="Cookie is not configured.")
+        headers = {}
+        if credentials.user_agent:
+            headers["User-Agent"] = credentials.user_agent
+        if credentials.cookie:
+            headers["Cookie"] = credentials.cookie
+        client = create_client(
+            user_agent=(
+                credentials.user_agent
+                or (
+                    self.parameter.headers_tiktok.get("User-Agent", "")
+                    if identity.platform == CollectorPlatform.TIKTOK
+                    else self.parameter.headers.get("User-Agent", "")
+                )
+            ),
+            timeout=min(max(int(self.parameter.timeout), 5), 20),
+            proxy=credentials.proxy or None,
+        )
+        url = (
+            "https://www.tiktok.com/"
+            if identity.platform == CollectorPlatform.TIKTOK
+            else "https://www.douyin.com/"
+        )
+        try:
+            response = await client.get(url, headers=headers or None)
+            response.raise_for_status()
+        finally:
+            await client.aclose()
+        state = self.collector_store.get_runtime(identity_id)
+        now = self._collector_timestamp()
+        # A homepage request verifies the network/proxy/session material can be
+        # loaded, but it cannot prove the account is logged in. Actual target
+        # success promotes the identity to healthy.
+        state.status = IdentityStatus.WARNING
+        state.last_validated_at = now
+        state.last_error_code = "login_state_pending_target_check"
+        self.collector_store.save_runtime(state)
+        return {
+            "ok": True,
+            "identity_id": identity_id,
+            "platform": identity.platform.value,
+            "status_code": response.status_code,
+            "validation_level": "connectivity",
+            "message": (
+                "代理连通性测试成功。"
+                if require_proxy
+                else "网络与凭据加载成功；登录态将在首次目标采集时确认。"
+            ),
+        }
 
     def _build_ui_task(
         self,
@@ -193,32 +439,21 @@ class APIServer(TikTok):
 
     @classmethod
     def _redact_ui_task_value(cls, value, key: str = ""):
-        normalized_key = str(key).strip().lower().replace("-", "_")
-        is_sensitive = (
-            normalized_key in cls.UI_TASK_SENSITIVE_FIELDS
-            or normalized_key.startswith(("cookie_", "proxy_"))
-            or normalized_key.endswith(
-                ("_cookie", "_password", "_proxy", "_secret", "_token")
-            )
-        )
-        if is_sensitive:
-            return "[REDACTED]" if value is not None and value != "" else value
-        if isinstance(value, dict):
-            return {
-                item_key: cls._redact_ui_task_value(item_value, item_key)
-                for item_key, item_value in value.items()
-            }
-        if isinstance(value, list):
-            return [cls._redact_ui_task_value(item) for item in value]
-        return value
+        return redact_webui_value(value, key)
 
     @classmethod
     def _public_ui_task(cls, task: dict) -> dict:
-        return {
-            key: cls._redact_ui_task_value(value, key)
-            for key, value in task.items()
-            if not key.startswith("_")
-        }
+        return cls._redact_ui_task_value(
+            {
+                key: value
+                for key, value in task.items()
+                if not key.startswith("_")
+            }
+        )
+
+    @classmethod
+    def _public_settings(cls, settings: dict) -> dict:
+        return cls._redact_ui_task_value(settings)
 
     @staticmethod
     def _ui_task_sort_key(item: dict) -> int:
@@ -348,11 +583,11 @@ class APIServer(TikTok):
             task["status"] = "failed" if self._is_failed_response(result) else "success"
         except CancelledError:
             task["status"] = "canceled"
-            task["error"] = "Task canceled"
+            task["error"] = "task_canceled"
             task["message"] = _("任务已取消")
-        except ValidationError as error:
+        except ValidationError:
             task["status"] = "failed"
-            task["error"] = str(error)
+            task["error"] = "validation_error"
             task["message"] = _("参数校验失败！")
         except Exception as error:
             message = str(error)
@@ -386,10 +621,10 @@ class APIServer(TikTok):
                         "failed" if self._is_failed_response(retry_result) else "success"
                     )
                     return
-                except Exception as retry_error:
-                    message = str(retry_error)
+                except Exception:
+                    pass
             task["status"] = "failed"
-            task["error"] = message
+            task["error"] = "task_execution_failed"
             task["message"] = _("任务执行失败！")
         finally:
             task["finished_at"] = self._now_text()
@@ -417,72 +652,29 @@ class APIServer(TikTok):
         if endpoint == "/douyin/account":
             return await self.handle_account(Account(**payload), False)
         if endpoint == "/douyin/mix":
-            extract = Mix(**payload)
-            is_mix, id_ = self.generate_mix_params(
-                extract.mix_id,
-                extract.detail_id,
-            )
-            if not isinstance(is_mix, bool):
-                return DataResponse(
-                    message=_("参数错误！"),
-                    data=None,
-                    params=extract.model_dump(),
-                )
-            if data := await self.deal_mix_detail(
-                is_mix,
-                id_,
-                api=True,
-                source=extract.source,
-                cookie=extract.cookie,
-                proxy=extract.proxy,
-                cursor=extract.cursor,
-                count=extract.count,
-            ):
-                return self.success_response(extract, data)
-            return self.failed_response(extract)
+            return await self._handle_mix_request(Mix(**payload), False)
         if endpoint == "/douyin/live":
-            extract = Live(**payload)
-            if data := await self.handle_live(extract, False):
-                return self.success_response(extract, data[0])
-            return self.failed_response(extract)
+            return await self._handle_live_request(Live(**payload), False)
         if endpoint == "/douyin/comment":
-            extract = Comment(**payload)
-            if data := await self.comment_handle_single(
-                extract.detail_id,
-                cookie=extract.cookie,
-                proxy=extract.proxy,
-                source=extract.source,
-                pages=extract.pages,
-                cursor=extract.cursor,
-                count=extract.count,
-                count_reply=extract.count_reply,
-                reply=extract.reply,
-            ):
-                return self.success_response(extract, data)
-            return self.failed_response(extract)
+            return await self._handle_comment_request(Comment(**payload))
+        if endpoint == "/douyin/reply":
+            return await self._handle_reply_request(Reply(**payload))
+        if endpoint == "/douyin/search/general":
+            return await self.handle_search(GeneralSearch(**payload))
+        if endpoint == "/douyin/search/video":
+            return await self.handle_search(VideoSearch(**payload))
+        if endpoint == "/douyin/search/user":
+            return await self.handle_search(UserSearch(**payload))
+        if endpoint == "/douyin/search/live":
+            return await self.handle_search(LiveSearch(**payload))
         if endpoint == "/tiktok/detail":
             return await self.handle_detail(DetailTikTok(**payload), True)
         if endpoint == "/tiktok/account":
             return await self.handle_account(AccountTiktok(**payload), True)
         if endpoint == "/tiktok/mix":
-            extract = MixTikTok(**payload)
-            if data := await self.deal_mix_detail(
-                True,
-                extract.mix_id,
-                api=True,
-                source=extract.source,
-                cookie=extract.cookie,
-                proxy=extract.proxy,
-                cursor=extract.cursor,
-                count=extract.count,
-            ):
-                return self.success_response(extract, data)
-            return self.failed_response(extract)
+            return await self._handle_mix_request(MixTikTok(**payload), True)
         if endpoint == "/tiktok/live":
-            extract = LiveTikTok(**payload)
-            if data := await self.handle_live(extract, True):
-                return self.success_response(extract, data[0])
-            return self.failed_response(extract)
+            return await self._handle_live_request(LiveTikTok(**payload), True)
         if endpoint == "/workflow/douyin/account_batch":
             return await self._run_ui_account_batch(payload, False)
         if endpoint == "/workflow/tiktok/account_batch":
@@ -503,6 +695,50 @@ class APIServer(TikTok):
         }.get(scope, self.parameter.root)
 
     @staticmethod
+    def _is_protected_file_scope_path(
+        scope: ScopeType,
+        root: Path,
+        target: Path,
+    ) -> bool:
+        return scope == "project" and is_protected_project_path(root, target)
+
+    def _is_runtime_debug_capture_path(self, target: Path) -> bool:
+        parameter = getattr(self, "parameter", None)
+        configured = self._normalize_string(
+            getattr(parameter, "tiktok_api_debug_capture_dir", "")
+        )
+        settings = getattr(parameter, "settings", None)
+        settings_path = getattr(settings, "path", None)
+        if not configured or not settings_path:
+            return False
+        try:
+            debug_root = Path(configured).expanduser()
+            if not debug_root.is_absolute():
+                debug_root = Path(settings_path).expanduser().resolve().parent / debug_root
+            debug_root = debug_root.resolve()
+            target.expanduser().resolve().relative_to(debug_root)
+            return True
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+    def _ensure_public_file_scope_path(
+        self,
+        scope: ScopeType,
+        root: Path,
+        target: Path,
+    ) -> None:
+        if self._is_protected_file_scope_path(
+            scope,
+            root,
+            target,
+        ) or self._is_runtime_debug_capture_path(target):
+            # Do not reveal whether a protected settings/profile path exists.
+            raise HTTPException(
+                status_code=404,
+                detail="File does not exist.",
+            )
+
+    @staticmethod
     def _human_size(value: int) -> str:
         size = max(0, int(value or 0))
         if size < 1024:
@@ -517,14 +753,22 @@ class APIServer(TikTok):
             unit = next_unit
         return f"{number:.2f} {unit}"
 
-    def _collect_scope_stats(self, current: Path) -> dict[str, Any]:
+    def _collect_scope_stats(
+        self,
+        current: Path,
+        scope: ScopeType = "download",
+        scope_root: Path | None = None,
+    ) -> dict[str, Any]:
         folders = 0
         files = 0
         images = 0
         videos = 0
         total_size = 0
+        root = scope_root or current
         for path in current.rglob("*"):
             try:
+                if self._is_protected_file_scope_path(scope, root, path):
+                    continue
                 if path.is_dir():
                     folders += 1
                     continue
@@ -556,6 +800,11 @@ class APIServer(TikTok):
             "/douyin/mix",
             "/douyin/live",
             "/douyin/comment",
+            "/douyin/reply",
+            "/douyin/search/general",
+            "/douyin/search/video",
+            "/douyin/search/user",
+            "/douyin/search/live",
             "/tiktok/detail",
             "/tiktok/account",
             "/tiktok/mix",
@@ -574,6 +823,11 @@ class APIServer(TikTok):
             "/douyin/mix": Mix,
             "/douyin/live": Live,
             "/douyin/comment": Comment,
+            "/douyin/reply": Reply,
+            "/douyin/search/general": GeneralSearch,
+            "/douyin/search/video": VideoSearch,
+            "/douyin/search/user": UserSearch,
+            "/douyin/search/live": LiveSearch,
             "/tiktok/detail": DetailTikTok,
             "/tiktok/account": AccountTiktok,
             "/tiktok/mix": MixTikTok,
@@ -826,6 +1080,7 @@ class APIServer(TikTok):
         for key in (
             "cookie",
             "proxy",
+            "identity_id",
         ):
             value = payload.get(key)
             if value is not None and not isinstance(value, str):
@@ -853,6 +1108,7 @@ class APIServer(TikTok):
         for key in (
             "cookie",
             "proxy",
+            "identity_id",
         ):
             value = payload.get(key)
             if value is not None and not isinstance(value, str):
@@ -1485,7 +1741,7 @@ class APIServer(TikTok):
         move_deleted = payload.get("move_deleted", True)
         if not isinstance(move_deleted, bool):
             raise ValueError("move_deleted must be bool.")
-        for key in ("cookie", "proxy"):
+        for key in ("cookie", "proxy", "identity_id"):
             value = payload.get(key)
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"{key} must be string or null.")
@@ -1562,6 +1818,21 @@ class APIServer(TikTok):
         uptime_kuma_url = payload.get("uptime_kuma_url")
         if uptime_kuma_url is not None and not isinstance(uptime_kuma_url, str):
             raise ValueError("uptime_kuma_url must be string or null.")
+        identity_id = payload.get("identity_id")
+        if identity_id is not None and not isinstance(identity_id, str):
+            raise ValueError("identity_id must be string or null.")
+
+    def _validate_schedule_identity_reference(self, payload: dict) -> None:
+        identity_id = self._normalize_string(payload.get("identity_id"))
+        if not identity_id:
+            return
+        try:
+            identity = self.collector_store.get_identity(identity_id)
+        except IdentityNotFoundError:
+            raise ValueError("identity_id does not reference an existing identity.") from None
+        platform = self._normalize_string(payload.get("platform")) or "douyin"
+        if identity.platform.value != platform:
+            raise ValueError("identity_id belongs to another platform.")
 
     @staticmethod
     def _validate_collect_monitor_payload(payload: dict) -> None:
@@ -1587,17 +1858,22 @@ class APIServer(TikTok):
         ):
             if key in payload and not isinstance(payload.get(key), bool):
                 raise ValueError(f"{key} must be bool.")
-        for key in ("cookie", "proxy", "bark_url"):
+        for key in ("cookie", "proxy", "bark_url", "identity_id"):
             value = payload.get(key)
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"{key} must be string or null.")
 
-    def _schedule_public(self, schedule: dict) -> dict:
+    @staticmethod
+    def _schedule_serializable(schedule: dict) -> dict:
         return {
             key: value
             for key, value in schedule.items()
             if key not in {"_runner"}
         }
+
+    @classmethod
+    def _schedule_public(cls, schedule: dict) -> dict:
+        return redact_webui_value(cls._schedule_serializable(schedule))
 
     def _normalize_collect_monitor_payload(self, payload: dict) -> dict:
         now = self._now_text()
@@ -1633,6 +1909,7 @@ class APIServer(TikTok):
                 payload.get("default_auto_update_earliest"),
                 default=False,
             ),
+            "identity_id": self._normalize_string(payload.get("identity_id")),
             "cookie": self._normalize_string(payload.get("cookie")),
             "proxy": self._normalize_string(payload.get("proxy")),
             "bark_url": self._normalize_string(payload.get("bark_url")),
@@ -1686,6 +1963,7 @@ class APIServer(TikTok):
             "enabled": self._normalize_bool(payload.get("enabled"), default=True),
             "use_settings": use_settings,
             "items": items,
+            "identity_id": self._normalize_string(payload.get("identity_id")),
             "cookie": self._normalize_string(payload.get("cookie")),
             "proxy": self._normalize_string(payload.get("proxy")),
             "uptime_kuma_url": self._normalize_string(payload.get("uptime_kuma_url")),
@@ -1730,6 +2008,7 @@ class APIServer(TikTok):
         payload = {
             "use_settings": schedule["use_settings"],
             "items": schedule.get("items", []) if not schedule["use_settings"] else [],
+            "identity_id": self._normalize_string(schedule.get("identity_id")),
             "cookie": schedule.get("cookie", ""),
             "proxy": schedule.get("proxy", ""),
         }
@@ -1762,7 +2041,10 @@ class APIServer(TikTok):
         cookie: str,
         proxy: str | None,
         limit: int,
+        *,
+        parameter=None,
     ) -> list[dict]:
+        runtime_parameter = parameter or self.parameter
         target = self._normalize_collect_limit(limit, default=10)
         cursor = 0
         page_count = self._collect_monitor_page_count(target)
@@ -1778,7 +2060,7 @@ class APIServer(TikTok):
 
         for page_index in range(max_pages):
             collector = CollectsDetail(
-                self.parameter,
+                runtime_parameter,
                 cookie=cookie,
                 proxy=proxy,
                 collects_id=collect_id,
@@ -1915,73 +2197,124 @@ class APIServer(TikTok):
                 "ok": False,
                 "error": "collect_id must be numeric",
             }
-        cookie = self._resolve_runtime_douyin_cookie(schedule.get("cookie", ""))
-        if not cookie:
-            return {
-                "ok": False,
-                "error": _("未配置抖音 Cookie，无法访问收藏夹接口"),
-            }
-        proxy = self._normalize_string(schedule.get("proxy")) or None
         count = self._normalize_collect_limit(schedule.get("limit"), default=10)
-        aweme_items = await self._collect_monitor_fetch_aweme_items(
-            collect_id=collect_id,
-            cookie=cookie,
-            proxy=proxy,
-            limit=count,
-        )
-        sec_uids = self._extract_collect_monitor_sec_uids(aweme_items)
 
-        existing_rows = self._normalize_account_items(self._account_rows(False))
-        seen_urls = {
-            self._normalize_account_url(item.get("url", ""))
-            for item in existing_rows
-            if self._normalize_account_url(item.get("url", ""))
-        }
-        new_rows = []
-        duplicate_accounts = 0
-        for sec_uid in sec_uids:
-            account_url = f"https://www.douyin.com/user/{sec_uid}"
-            key = self._normalize_account_url(account_url)
-            if not key or key in seen_urls:
-                duplicate_accounts += 1
-                continue
-            seen_urls.add(key)
-            new_rows.append(
+        async def operation(worker, credentials, selected_identity_id):
+            cookie = self._resolve_runtime_douyin_cookie(credentials.cookie)
+            if not cookie:
+                return (
+                    {
+                        "ok": False,
+                        "error": _("未配置抖音 Cookie，无法访问收藏夹接口"),
+                        "_new_rows": [],
+                    },
+                    0,
+                    1,
+                )
+            aweme_items = await self._collect_monitor_fetch_aweme_items(
+                collect_id=collect_id,
+                cookie=cookie,
+                proxy=credentials.proxy or None,
+                limit=count,
+                parameter=worker.parameter,
+            )
+            sec_uids = self._extract_collect_monitor_sec_uids(aweme_items)
+
+            existing_rows = self._normalize_account_items(self._account_rows(False))
+            seen_urls = {
+                self._normalize_account_url(item.get("url", ""))
+                for item in existing_rows
+                if self._normalize_account_url(item.get("url", ""))
+            }
+            new_rows = []
+            duplicate_accounts = 0
+            for sec_uid in sec_uids:
+                account_url = f"https://www.douyin.com/user/{sec_uid}"
+                key = self._normalize_account_url(account_url)
+                if not key or key in seen_urls:
+                    duplicate_accounts += 1
+                    continue
+                seen_urls.add(key)
+                new_rows.append(
+                    {
+                        "mark": "",
+                        "url": account_url,
+                        "tab": self._normalize_collect_tab(
+                            schedule.get("default_tab")
+                        ),
+                        "earliest": self._normalize_string(
+                            schedule.get("default_earliest")
+                        ),
+                        "latest": self._normalize_string(
+                            schedule.get("default_latest")
+                        ),
+                        "enable": self._normalize_bool(
+                            schedule.get("account_enable"),
+                            default=True,
+                        ),
+                        "auto_update_earliest": self._normalize_bool(
+                            schedule.get("default_auto_update_earliest"),
+                            default=False,
+                        ),
+                    }
+                )
+
+            if new_rows:
+                # Keep monitor-added accounts at top, matching manual insertion.
+                self._set_account_rows(False, [*new_rows, *existing_rows])
+                self.parameter.settings.update(self.parameter.get_settings_data())
+
+            return (
                 {
-                    "mark": "",
-                    "url": account_url,
-                    "tab": self._normalize_collect_tab(schedule.get("default_tab")),
-                    "earliest": self._normalize_string(schedule.get("default_earliest")),
-                    "latest": self._normalize_string(schedule.get("default_latest")),
-                    "enable": self._normalize_bool(
-                        schedule.get("account_enable"),
-                        default=True,
-                    ),
-                    "auto_update_earliest": self._normalize_bool(
-                        schedule.get("default_auto_update_earliest"),
-                        default=False,
-                    ),
-                }
+                    "ok": True,
+                    "collect_id": collect_id,
+                    "fetched_aweme": len(aweme_items),
+                    "sec_uid_count": len(sec_uids),
+                    "added_accounts": len(new_rows),
+                    "duplicate_accounts": duplicate_accounts,
+                    "_new_rows": new_rows,
+                },
+                1,
+                0,
             )
 
-        if new_rows:
-            # Keep monitor-added accounts at top, same as manual "新增一行" behavior.
-            merged_rows = [*new_rows, *existing_rows]
-            self._set_account_rows(False, merged_rows)
-            self.parameter.settings.update(self.parameter.get_settings_data())
-
+        summary, selected_identity_id, selected_by = (
+            await self._execute_collector_operation(
+                platform=CollectorPlatform.DOUYIN,
+                target_type="collect",
+                target_key=collect_id,
+                identity_id=self._normalize_string(schedule.get("identity_id")),
+                cookie=self._normalize_string(schedule.get("cookie")),
+                proxy=self._normalize_string(schedule.get("proxy")),
+                operation=operation,
+                failure_error_code="collect_monitor_failed",
+            )
+        )
+        new_rows = summary.pop("_new_rows", [])
         immediate_result: dict[str, Any] = {}
         immediate_crawl = self._normalize_bool(
             schedule.get("immediate_crawl"),
             default=False,
         )
-        if new_rows and immediate_crawl:
+        if summary.get("ok") and new_rows and immediate_crawl:
+            scheduled_identity_id = self._normalize_string(
+                schedule.get("identity_id")
+            )
             batch = await self._run_ui_account_batch(
                 payload={
                     "use_settings": False,
                     "items": new_rows,
-                    "cookie": self._normalize_string(schedule.get("cookie")),
-                    "proxy": self._normalize_string(schedule.get("proxy")),
+                    "identity_id": scheduled_identity_id,
+                    "cookie": (
+                        ""
+                        if scheduled_identity_id
+                        else self._normalize_string(schedule.get("cookie"))
+                    ),
+                    "proxy": (
+                        ""
+                        if scheduled_identity_id
+                        else self._normalize_string(schedule.get("proxy"))
+                    ),
                 },
                 tiktok=False,
             )
@@ -1989,28 +2322,33 @@ class APIServer(TikTok):
                 "message": batch.message,
                 "data": batch.data,
             }
-
-        summary = {
-            "ok": True,
-            "collect_id": collect_id,
-            "fetched_aweme": len(aweme_items),
-            "sec_uid_count": len(sec_uids),
-            "added_accounts": len(new_rows),
-            "duplicate_accounts": duplicate_accounts,
-            "immediate_crawl": immediate_crawl,
-            "immediate_result": immediate_result,
-        }
-        self.logger.info(
-            _(
-                "收藏夹监控完成: collect_id={collect} 作品={works} sec_uid={sec} 新增账号={added} 去重={dup}"
-            ).format(
-                collect=collect_id,
-                works=summary["fetched_aweme"],
-                sec=summary["sec_uid_count"],
-                added=summary["added_accounts"],
-                dup=summary["duplicate_accounts"],
-            )
+        summary.update(
+            {
+                "immediate_crawl": immediate_crawl,
+                "immediate_result": immediate_result,
+                "selected_identity_id": selected_identity_id,
+                "selected_by": selected_by,
+            }
         )
+        if summary.get("ok"):
+            self.logger.info(
+                _(
+                    "收藏夹监控完成: collect_id={collect} 作品={works} sec_uid={sec} 新增账号={added} 去重={dup}"
+                ).format(
+                    collect=collect_id,
+                    works=summary.get("fetched_aweme", 0),
+                    sec=summary.get("sec_uid_count", 0),
+                    added=summary.get("added_accounts", 0),
+                    dup=summary.get("duplicate_accounts", 0),
+                )
+            )
+        else:
+            self.logger.warning(
+                _("收藏夹监控失败: collect_id={collect} 错误={error}").format(
+                    collect=collect_id,
+                    error=summary.get("error", "unknown"),
+                )
+            )
         return summary
 
     def _start_single_schedule_runner(self, schedule_id: str) -> None:
@@ -2055,10 +2393,11 @@ class APIServer(TikTok):
             if schedule_type == self.COLLECT_MONITOR_SCHEDULE:
                 try:
                     result = await self._run_collect_monitor_once(schedule)
-                except Exception as error:  # noqa: BLE001
+                except Exception:  # noqa: BLE001
                     result = {
                         "ok": False,
-                        "error": str(error),
+                        "error_code": "monitor_execution_failed",
+                        "error": _("收藏夹监控执行失败"),
                     }
                 schedule["last_result"] = result
                 if result.get("ok", False):
@@ -2096,14 +2435,15 @@ class APIServer(TikTok):
                     schedule["minute"],
                 )
             self.parameter.ui_schedules = [
-                self._schedule_public(item) for item in self.ui_schedules.values()
+                self._schedule_serializable(item)
+                for item in self.ui_schedules.values()
             ]
             self.parameter.settings.update(self.parameter.get_settings_data())
         self.ui_schedule_tasks.pop(schedule_id, None)
 
     def _persist_ui_schedules(self) -> None:
         self.parameter.ui_schedules = [
-            self._schedule_public(item)
+            self._schedule_serializable(item)
             for item in sorted(
                 self.ui_schedules.values(),
                 key=lambda item: item.get("schedule_id", ""),
@@ -2134,6 +2474,425 @@ class APIServer(TikTok):
             return None
         return schedule
 
+    def _plan_collector_routes(
+        self,
+        platform: CollectorPlatform,
+        items: list[dict],
+        *,
+        target_type: str,
+        target_key_getter=None,
+        forced_identity_id: str = "",
+        persist_assignments: bool = True,
+        strategy_override: RoutingStrategy | None = None,
+    ) -> list[dict]:
+        forced_identity_id = self._normalize_string(forced_identity_id)
+        if forced_identity_id:
+            identity = self.collector_store.get_identity(forced_identity_id)
+            if identity.platform != platform:
+                raise IdentityPlatformError(
+                    "selected collector identity belongs to another platform"
+                )
+        public = {
+            item.identity_id: item
+            for item in self.collector_store.list_public(platform)
+            if item.cookie_configured
+        }
+        candidates = [
+            item
+            for item in self.collector_store.route_candidates(platform)
+            if item.identity_id in public
+        ]
+        if forced_identity_id and forced_identity_id not in public:
+            raise RouteUnavailable(
+                "selected collector identity is unavailable or has no credentials",
+                identity_id=forced_identity_id,
+            )
+        if not candidates:
+            return []
+
+        policy = self.collector_store.get_policy(platform)
+        strategy = strategy_override or policy.strategy
+        eligible_ids = {
+            candidate.identity_id
+            for candidate in candidates
+            if candidate_available(candidate, platform=platform)
+        }
+
+        def fallback_identity(excluded: str = "") -> str:
+            preferred = [
+                *policy.fallback_identity_ids,
+                policy.default_identity_id,
+            ]
+            return next(
+                (
+                    identity_id
+                    for identity_id in preferred
+                    if identity_id
+                    and identity_id != excluded
+                    and identity_id in eligible_ids
+                ),
+                "",
+            )
+
+        targets = []
+        reasons = []
+        sticky_flags = []
+        for item in items:
+            raw_target_key = (
+                target_key_getter(item)
+                if target_key_getter is not None
+                else item.get("target_key", "")
+            )
+            target_key = self._normalize_string(raw_target_key)
+            if target_type == "account":
+                target_key = self._normalize_account_url(target_key) or target_key
+            if not target_key:
+                raise RouteUnavailable("collector target key is empty")
+            explicit_identity_id = forced_identity_id
+            reason = "task_override" if forced_identity_id else strategy.value
+            persist_sticky = False
+            if not explicit_identity_id:
+                assignment = self.collector_store.get_assignment(
+                    platform,
+                    target_type,
+                    target_key,
+                )
+                if assignment:
+                    assigned_available = assignment.identity_id in eligible_ids
+                    if assignment.source == AssignmentSource.EXPLICIT:
+                        explicit_identity_id = assignment.identity_id
+                        reason = "fixed_binding"
+                        if (
+                            not assigned_available
+                            and policy.binding_failure
+                            == BindingFailureMode.FALLBACK
+                        ):
+                            explicit_identity_id = fallback_identity(
+                                assignment.identity_id
+                            )
+                            reason = "binding_fallback"
+                    elif strategy == RoutingStrategy.LEAST_LOADED:
+                        # Policy-generated sticky history must not freeze a
+                        # least-loaded policy after its first execution.
+                        explicit_identity_id = ""
+                        reason = strategy.value
+                    elif assigned_available:
+                        explicit_identity_id = assignment.identity_id
+                        reason = "existing_sticky"
+                    else:
+                        # A policy-created sticky assignment is not a hard
+                        # binding. Rebalance it when its identity is cooling,
+                        # disabled, deleted from the candidate set, or invalid.
+                        explicit_identity_id = fallback_identity(
+                            assignment.identity_id
+                        )
+                        reason = "sticky_rebalanced"
+                        persist_sticky = target_type == "account"
+                elif policy.default_identity_id:
+                    if policy.default_identity_id in eligible_ids:
+                        explicit_identity_id = policy.default_identity_id
+                        reason = "default_identity"
+                    else:
+                        explicit_identity_id = fallback_identity(
+                            policy.default_identity_id
+                        )
+                        reason = "default_fallback"
+                else:
+                    # Rendezvous hashing is already deterministic. Persist only
+                    # account affinity, which has an exposed binding lifecycle;
+                    # one-off details/searches must not create hidden DB growth.
+                    persist_sticky = (
+                        target_type == "account"
+                        and strategy == RoutingStrategy.STICKY_BALANCED
+                    )
+            targets.append(
+                RouteTarget(
+                    target_key=target_key,
+                    explicit_identity_id=explicit_identity_id,
+                )
+            )
+            reasons.append(reason)
+            sticky_flags.append(persist_sticky)
+
+        decisions = plan_routes(
+            platform=platform,
+            targets=targets,
+            candidates=candidates,
+            strategy=strategy,
+        )
+        sticky_updates = []
+        planned = []
+        for item, decision, reason, persist_sticky in zip(
+            items,
+            decisions,
+            reasons,
+            sticky_flags,
+        ):
+            planned.append(
+                {
+                    "item": item,
+                    "identity_id": decision.identity_id,
+                    "target_key": decision.target_key,
+                    "reason": reason,
+                }
+            )
+            if persist_sticky and not forced_identity_id:
+                sticky_updates.append(
+                    CollectorAssignment(
+                        platform=platform,
+                        target_type=target_type,
+                        target_key=decision.target_key,
+                        identity_id=decision.identity_id,
+                        source=AssignmentSource.POLICY,
+                    )
+                )
+        if sticky_updates and persist_assignments:
+            self.collector_store.upsert_assignments(sticky_updates)
+        return planned
+
+    def _plan_collector_account_routes(
+        self,
+        platform: CollectorPlatform,
+        items: list[dict],
+        *,
+        forced_identity_id: str = "",
+        persist_assignments: bool = True,
+        strategy_override: RoutingStrategy | None = None,
+    ) -> list[dict]:
+        """Backward-compatible account facade over the generic planner."""
+
+        return self._plan_collector_routes(
+            platform,
+            items,
+            target_type="account",
+            target_key_getter=lambda item: item.get("url", ""),
+            forced_identity_id=forced_identity_id,
+            persist_assignments=persist_assignments,
+            strategy_override=strategy_override,
+        )
+
+    def _update_collector_runtime_after_group(
+        self,
+        identity_id: str,
+        *,
+        active_leases: int,
+        successes: int = 0,
+        failures: int = 0,
+        error_code: str = "",
+    ) -> None:
+        state = self.collector_store.get_runtime(identity_id)
+        now = self._collector_timestamp()
+        state.active_leases = max(0, active_leases)
+        systemic_failure = (
+            bool(failures)
+            and error_code == "identity_runtime_close_failed"
+        )
+        if successes:
+            state.total_successes += successes
+            state.last_success_at = now
+            if not systemic_failure:
+                state.status = IdentityStatus.HEALTHY
+                state.consecutive_failures = 0
+                state.cooldown_until = ""
+                state.last_error_code = ""
+        if failures:
+            state.total_failures += failures
+            state.last_failure_at = now
+            state.last_error_code = error_code or "collector_request_failed"
+            # A partial success proves the identity can still reach the target
+            # platform, so target-specific misses must not trip risk cooldown.
+            if not successes or error_code == "identity_runtime_close_failed":
+                state.status = IdentityStatus.WARNING
+                state.consecutive_failures += failures
+                identity = self.collector_store.get_identity(identity_id)
+                policy = self.collector_store.get_policy(identity.platform)
+                if (
+                    state.consecutive_failures >= policy.failure_threshold
+                    and policy.cooldown_seconds > 0
+                ):
+                    state.status = IdentityStatus.COOLDOWN
+                    state.cooldown_until = (
+                        datetime.now().astimezone()
+                        + timedelta(seconds=policy.cooldown_seconds)
+                    ).isoformat(timespec="seconds")
+        self.collector_store.save_runtime(state)
+
+    async def _execute_collector_identity_operation(
+        self,
+        platform: CollectorPlatform,
+        identity_id: str,
+        operation,
+        *,
+        failure_error_code: str = "collector_request_failed",
+    ):
+        """Run one callback inside the selected identity's isolated runtime.
+
+        ``operation`` receives ``(worker, credentials, identity_id)`` and must
+        return ``(result, successes, failures)``.  This is the single lease,
+        runtime lifecycle and health-accounting boundary shared by every
+        collector-backed endpoint.
+        """
+
+        identity = self.collector_store.get_identity(identity_id)
+        if identity.platform != platform:
+            raise IdentityPlatformError(
+                "selected collector identity belongs to another platform"
+            )
+        credentials = self.collector_store.load_credentials(identity_id)
+        if not credentials.cookie:
+            raise RouteUnavailable(
+                "selected collector identity has no cookie",
+                identity_id=identity_id,
+            )
+        policy = self.collector_store.get_policy(platform)
+        await self.collector_leases.configure(
+            identity.identity_id,
+            identity.max_concurrency,
+        )
+        await self.collector_leases.configure(
+            f"platform:{platform.value}",
+            policy.global_max_parallel,
+        )
+
+        successes = 0
+        failures = 0
+        error_code = ""
+        result = None
+        acquired_identity = False
+        try:
+            # Acquire the narrow identity gate first. A queued second request
+            # for identity A must not occupy a platform slot and block an idle
+            # identity B (head-of-line blocking).
+            async with self.collector_leases.lease(identity_id):
+                async with self.collector_leases.lease(f"platform:{platform.value}"):
+                    acquired_identity = True
+                    snapshot = await self.collector_leases.snapshot(identity_id)
+                    self._update_collector_runtime_after_group(
+                        identity_id,
+                        active_leases=snapshot.active,
+                    )
+                    runtime = None
+                    try:
+                        settings_path = getattr(
+                            getattr(self.parameter, "settings", None),
+                            "path",
+                            PROJECT_ROOT.joinpath("settings.json"),
+                        )
+                        runtime = build_collector_runtime(
+                            self.parameter,
+                            identity,
+                            credentials,
+                            settings_dir=Path(settings_path).parent,
+                        )
+                        worker = TikTok(
+                            runtime.parameter,
+                            self.database,
+                            server_mode=True,
+                        )
+                        result, successes, failures = await operation(
+                            worker,
+                            credentials,
+                            identity_id,
+                        )
+                        successes = max(0, int(successes or 0))
+                        failures = max(0, int(failures or 0))
+                        if failures:
+                            error_code = failure_error_code
+                    except CancelledError:
+                        error_code = "task_cancelled"
+                        raise
+                    except Exception:
+                        failures = max(1, failures)
+                        error_code = failure_error_code
+                        raise
+                    finally:
+                        if runtime is not None:
+                            try:
+                                await runtime.close()
+                            except Exception:
+                                failures = max(1, failures)
+                                error_code = "identity_runtime_close_failed"
+        finally:
+            if acquired_identity:
+                snapshot = await self.collector_leases.snapshot(identity_id)
+                self._update_collector_runtime_after_group(
+                    identity_id,
+                    active_leases=snapshot.active,
+                    successes=successes,
+                    failures=failures,
+                    error_code=error_code,
+                )
+        return result
+
+    async def _execute_collector_operation(
+        self,
+        *,
+        platform: CollectorPlatform,
+        target_type: str,
+        target_key: str,
+        identity_id: str = "",
+        cookie: str = "",
+        proxy: str = "",
+        operation,
+        failure_error_code: str = "collector_request_failed",
+    ) -> tuple[Any, str, str]:
+        """Resolve legacy overrides or a policy route, then execute once.
+
+        Precedence is explicit identity, explicit cookie/proxy legacy override,
+        automatic identity-pool routing, then the original global Parameter.
+        Identity credentials are passed separately and are never written into
+        the request model returned by API responses.
+        """
+
+        forced_identity_id = self._normalize_string(identity_id)
+        override_credentials = CollectorCredentials(
+            cookie=self._normalize_string(cookie),
+            proxy=self._normalize_string(proxy),
+        )
+        legacy_override = bool(
+            override_credentials.cookie or override_credentials.proxy
+        ) and not forced_identity_id
+
+        if legacy_override:
+            result, _, _ = await operation(self, override_credentials, "")
+            return result, "", "legacy_override"
+
+        try:
+            routes = self._plan_collector_routes(
+                platform,
+                [{"target_key": self._normalize_string(target_key)}],
+                target_type=target_type,
+                forced_identity_id=forced_identity_id,
+            )
+            pool_has_cookie = any(
+                item.cookie_configured
+                for item in self.collector_store.list_public(platform)
+            )
+            if routes:
+                route = routes[0]
+                result = await self._execute_collector_identity_operation(
+                    platform,
+                    route["identity_id"],
+                    operation,
+                    failure_error_code=failure_error_code,
+                )
+                return result, route["identity_id"], route["reason"]
+            if forced_identity_id or pool_has_cookie:
+                raise RouteUnavailable(
+                    "no eligible collector identity",
+                    target_key=self._normalize_string(target_key),
+                    identity_id=forced_identity_id,
+                )
+        except IdentityNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from None
+        except IdentityPlatformError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except RouteUnavailable as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+
+        result, _, _ = await operation(self, CollectorCredentials(), "")
+        return result, "", "global_fallback"
+
     async def _run_ui_account_batch(
         self,
         payload: dict,
@@ -2142,6 +2901,10 @@ class APIServer(TikTok):
         use_settings = payload.get("use_settings", True)
         cookie = self._normalize_string(payload.get("cookie")) or None
         proxy = self._normalize_string(payload.get("proxy")) or None
+        forced_identity_id = self._normalize_string(payload.get("identity_id"))
+        platform_value = (
+            CollectorPlatform.TIKTOK if tiktok else CollectorPlatform.DOUYIN
+        )
         platform = "tiktok" if tiktok else "douyin"
 
         settings_rows = (
@@ -2180,82 +2943,233 @@ class APIServer(TikTok):
 
         success = 0
         failed = 0
-        failed_streak = 0
-        failed_streak_max = 0
         failures = []
         auto_filled_mark = 0
         auto_updated_earliest = 0
         earliest_days = self._normalize_earliest_update_days(
             getattr(self.parameter, "earliest_update_days", 0)
         )
-        for index, item in enumerate(queued_items, start=1):
-            if not (sec_user_id := await self.check_sec_user_id(item["url"], tiktok)):
+        legacy_override = bool(cookie or proxy) and not forced_identity_id
+        routes = (
+            []
+            if legacy_override
+            else self._plan_collector_account_routes(
+                platform_value,
+                queued_items,
+                forced_identity_id=forced_identity_id,
+            )
+        )
+        pool_has_credentials = any(
+            item.cookie_configured
+            for item in self.collector_store.list_public(platform_value)
+        )
+        if not routes and not legacy_override and (
+            forced_identity_id or pool_has_credentials
+        ):
+            raise RouteUnavailable("no eligible collector identity")
+
+        async def run_entries(
+            worker: "TikTok",
+            entries: list[tuple[int, dict, str, str]],
+            *,
+            identity_id: str = "",
+            identity_cookie: str | None = None,
+            identity_proxy: str | None = None,
+        ) -> list[dict]:
+            results = []
+            for index, item, route_reason, target_key in entries:
+                try:
+                    sec_user_id = await worker.check_sec_user_id(
+                        item["url"],
+                        tiktok,
+                    )
+                    if not sec_user_id:
+                        results.append(
+                            {
+                                "index": index,
+                                "item": item,
+                                "ok": False,
+                                "identity_id": identity_id,
+                                "route_reason": route_reason,
+                                "target_key": target_key,
+                                "reason": _("提取 sec_user_id 失败"),
+                            }
+                        )
+                        continue
+                    context = await worker.deal_account_detail(
+                        index,
+                        sec_user_id=sec_user_id,
+                        mark=item["mark"],
+                        url=item["url"],
+                        tab=item["tab"],
+                        earliest=item["earliest"],
+                        latest=item["latest"],
+                        pages=item["pages"],
+                        api=False,
+                        source=False,
+                        cookie=identity_cookie,
+                        proxy=identity_proxy,
+                        tiktok=tiktok,
+                        return_context=True,
+                    )
+                    results.append(
+                        {
+                            "index": index,
+                            "item": item,
+                            "ok": bool(context),
+                            "context": context or {},
+                            "identity_id": identity_id,
+                            "route_reason": route_reason,
+                            "target_key": target_key,
+                            "reason": "" if context else _("账号作品下载失败"),
+                        }
+                    )
+                except CancelledError:
+                    raise
+                except Exception:
+                    results.append(
+                        {
+                            "index": index,
+                            "item": item,
+                            "ok": False,
+                            "identity_id": identity_id,
+                            "route_reason": route_reason,
+                            "target_key": target_key,
+                            "reason": _("采集请求失败"),
+                        }
+                    )
+            return results
+
+        async def run_identity_group(identity_id: str, entries: list[tuple]) -> list[dict]:
+            async def operation(worker, credentials, selected_identity_id):
+                group_results = await run_entries(
+                    worker,
+                    entries,
+                    identity_id=selected_identity_id,
+                    identity_cookie=credentials.cookie or None,
+                    identity_proxy=credentials.proxy or None,
+                )
+                group_success = sum(
+                    1 for result in group_results if result.get("ok")
+                )
+                return (
+                    group_results,
+                    group_success,
+                    len(group_results) - group_success,
+                )
+
+            try:
+                return await self._execute_collector_identity_operation(
+                    platform_value,
+                    identity_id,
+                    operation,
+                    failure_error_code="account_collection_failed",
+                )
+            except CancelledError:
+                raise
+            except Exception:
+                return [
+                    {
+                        "index": index,
+                        "item": item,
+                        "ok": False,
+                        "identity_id": identity_id,
+                        "route_reason": reason,
+                        "target_key": target_key,
+                        "reason": _("身份运行环境执行失败"),
+                    }
+                    for index, item, reason, target_key in entries
+                ]
+
+        if routes:
+            grouped: dict[str, list[tuple]] = {}
+            for index, route in enumerate(routes, start=1):
+                grouped.setdefault(route["identity_id"], []).append(
+                    (
+                        index,
+                        route["item"],
+                        route["reason"],
+                        route["target_key"],
+                    )
+                )
+            nested_results = await gather(
+                *(
+                    run_identity_group(identity_id, entries)
+                    for identity_id, entries in grouped.items()
+                )
+            )
+            item_results = sorted(
+                (item for group in nested_results for item in group),
+                key=lambda item: item["index"],
+            )
+        else:
+            item_results = await run_entries(
+                self,
+                [
+                    (
+                        index,
+                        item,
+                        "legacy_settings",
+                        self._normalize_account_url(item["url"]) or item["url"],
+                    )
+                    for index, item in enumerate(queued_items, start=1)
+                ],
+                identity_cookie=cookie,
+                identity_proxy=proxy,
+            )
+
+        failed_streak = 0
+        failed_streak_max = 0
+        route_results = []
+        for execution in item_results:
+            item = execution["item"]
+            route_results.append(
+                {
+                    "url": item["url"],
+                    "identity_id": execution.get("identity_id", ""),
+                    "selected_by": execution.get("route_reason", ""),
+                }
+            )
+            if not execution.get("ok"):
                 failed += 1
                 failed_streak += 1
                 failed_streak_max = max(failed_streak_max, failed_streak)
                 failures.append(
                     {
-                        "index": index,
+                        "index": execution["index"],
                         "url": item["url"],
-                        "reason": _("提取 sec_user_id 失败"),
+                        "identity_id": execution.get("identity_id", ""),
+                        "reason": execution.get("reason") or _("账号作品下载失败"),
                     }
                 )
                 continue
-            result = await self.deal_account_detail(
-                index,
-                sec_user_id=sec_user_id,
-                mark=item["mark"],
-                url=item["url"],
-                tab=item["tab"],
-                earliest=item["earliest"],
-                latest=item["latest"],
-                pages=item["pages"],
-                api=False,
-                source=False,
-                cookie=cookie,
-                proxy=proxy,
-                tiktok=tiktok,
-                return_context=True,
-            )
-            if result:
-                success += 1
-                failed_streak = 0
-                row_index = item.get("_settings_index")
-                if isinstance(row_index, int) and 0 <= row_index < len(settings_rows):
-                    if (
-                        getattr(self.parameter, "auto_backfill_mark", True)
-                        and self._apply_missing_mark(
-                            settings_rows[row_index],
-                            result.get("mark", ""),
-                        )
-                    ):
-                        auto_filled_mark += 1
-                        self._persist_settings_on_mark_backfill(tiktok)
-                    if use_settings:
-                        earliest_updated, earliest_target = self._apply_auto_update_earliest(
-                            settings_rows[row_index],
-                            earliest_days,
-                        )
-                        if earliest_updated:
-                            auto_updated_earliest += 1
-                            self.logger.info(
-                                _("已更新账号 earliest: {target} -> {date}").format(
-                                    target=getattr(settings_rows[row_index], "mark", "")
-                                    or item["url"],
-                                    date=earliest_target,
-                                )
+            success += 1
+            failed_streak = 0
+            context = execution.get("context", {})
+            row_index = item.get("_settings_index")
+            if isinstance(row_index, int) and 0 <= row_index < len(settings_rows):
+                if (
+                    getattr(self.parameter, "auto_backfill_mark", True)
+                    and self._apply_missing_mark(
+                        settings_rows[row_index],
+                        context.get("mark", ""),
+                    )
+                ):
+                    auto_filled_mark += 1
+                if use_settings:
+                    earliest_updated, earliest_target = self._apply_auto_update_earliest(
+                        settings_rows[row_index],
+                        earliest_days,
+                    )
+                    if earliest_updated:
+                        auto_updated_earliest += 1
+                        self.logger.info(
+                            _("已更新账号 earliest: {target} -> {date}").format(
+                                target=getattr(settings_rows[row_index], "mark", "")
+                                or item["url"],
+                                date=earliest_target,
                             )
-                continue
-            failed += 1
-            failed_streak += 1
-            failed_streak_max = max(failed_streak_max, failed_streak)
-            failures.append(
-                {
-                    "index": index,
-                    "url": item["url"],
-                    "reason": _("账号作品下载失败"),
-                }
-            )
+                        )
         skipped = max(0, len(items) - len(queued_items))
         if success == 0:
             message = _("账号批量下载任务失败！")
@@ -2282,6 +3196,7 @@ class APIServer(TikTok):
                 "mark_backfilled": auto_filled_mark,
                 "earliest_updated": auto_updated_earliest,
                 "failures": failures,
+                "routes": route_results,
             },
             params=payload,
         )
@@ -2292,8 +3207,9 @@ class APIServer(TikTok):
         tiktok: bool,
     ) -> DataResponse:
         platform = "tiktok" if tiktok else "douyin"
-        cookie = self._normalize_string(payload.get("cookie")) or None
-        proxy = self._normalize_string(payload.get("proxy")) or None
+        platform_value = (
+            CollectorPlatform.TIKTOK if tiktok else CollectorPlatform.DOUYIN
+        )
         links = self._normalize_link_inputs(payload.get("links", []))
         if not links:
             return DataResponse(
@@ -2306,94 +3222,257 @@ class APIServer(TikTok):
                     "invalid_links": [],
                     "preview": "",
                 },
-                params=payload,
+                params=redact_webui_value(payload),
             )
 
-        parser = self.links_tiktok if tiktok else self.links
-        invalid_links = []
-        parsed_ids = []
-        parsed_urls = []
-        for text in links:
-            if tiktok:
-                if items := await self._parse_tiktok_detail_targets(text, proxy):
-                    ids, urls = self._split_tiktok_detail_targets(items)
-                    parsed_ids.extend(ids)
-                    parsed_urls.extend(urls)
-                else:
-                    invalid_links.append(text)
-                continue
-            if ids := await parser.run(text, proxy=proxy):
-                parsed_ids.extend(ids)
-            else:
-                invalid_links.append(text)
-        unique_ids = []
-        unique_urls = []
-        seen = set()
-        for index, item in enumerate(parsed_ids):
-            url = parsed_urls[index] if index < len(parsed_urls) else ""
-            key = (item, url) if tiktok else item
-            if key in seen:
-                continue
-            seen.add(key)
-            unique_ids.append(item)
-            if tiktok:
-                unique_urls.append(url)
-        if not unique_ids:
-            return DataResponse(
-                message=_("链接解析失败！"),
-                data={
-                    "platform": platform,
-                    "input_links": len(links),
-                    "parsed_ids": 0,
-                    "downloaded": 0,
-                    "invalid_links": invalid_links,
-                    "preview": "",
-                },
-                params=payload,
-            )
-
-        root, params, logger = self.record.run(self.parameter)
-        async with logger(root, console=self.console, **params) as record:
-            data = await self._handle_detail(
-                unique_ids,
-                tiktok,
-                record,
-                api=True,
-                source=False,
-                cookie=cookie,
-                proxy=proxy,
-                detail_urls=unique_urls if tiktok else None,
-            )
-        if not data:
-            return DataResponse(
-                message=_("作品下载失败！"),
-                data={
-                    "platform": platform,
-                    "input_links": len(links),
-                    "parsed_ids": len(unique_ids),
-                    "downloaded": 0,
-                    "invalid_links": invalid_links,
-                    "preview": "",
-                },
-                params=payload,
-            )
-        await self.downloader.run(data, "detail", tiktok=tiktok)
-        message = (
-            _("链接下载任务完成，部分链接未成功解析。")
-            if invalid_links
-            else _("链接下载任务完成！")
+        forced_identity_id = self._normalize_string(payload.get("identity_id"))
+        direct_credentials = CollectorCredentials(
+            cookie=self._normalize_string(payload.get("cookie")),
+            proxy=self._normalize_string(payload.get("proxy")),
         )
-        return DataResponse(
+        legacy_override = bool(
+            direct_credentials.cookie or direct_credentials.proxy
+        ) and not forced_identity_id
+        route_items = [
+            {
+                "index": index,
+                "link": link,
+                "target_key": (
+                    link
+                    if len(link) <= 2048
+                    else f"link:{md5(link.encode()).hexdigest()}"
+                ),
+            }
+            for index, link in enumerate(links)
+        ]
+        if legacy_override:
+            routes = [
+                {
+                    "item": item,
+                    "identity_id": "",
+                    "target_key": item["target_key"],
+                    "reason": "legacy_override",
+                }
+                for item in route_items
+            ]
+        else:
+            try:
+                routes = self._plan_collector_routes(
+                    platform_value,
+                    route_items,
+                    target_type="detail",
+                    target_key_getter=lambda item: item["target_key"],
+                    forced_identity_id=forced_identity_id,
+                )
+                pool_has_cookie = any(
+                    item.cookie_configured
+                    for item in self.collector_store.list_public(platform_value)
+                )
+                if not routes and (forced_identity_id or pool_has_cookie):
+                    raise RouteUnavailable("no eligible collector identity")
+            except IdentityNotFoundError as error:
+                raise HTTPException(status_code=404, detail=str(error)) from None
+            except IdentityPlatformError as error:
+                raise HTTPException(status_code=409, detail=str(error)) from None
+            except RouteUnavailable as error:
+                raise HTTPException(status_code=409, detail=str(error)) from None
+            if not routes:
+                routes = [
+                    {
+                        "item": item,
+                        "identity_id": "",
+                        "target_key": item["target_key"],
+                        "reason": "global_fallback",
+                    }
+                    for item in route_items
+                ]
+
+        grouped: dict[str, list[dict]] = {}
+        for route in routes:
+            grouped.setdefault(route["identity_id"], []).append(route)
+
+        async def run_group(
+            worker,
+            credentials,
+            selected_identity_id,
+            entries,
+        ):
+            proxy = credentials.proxy or None
+            parser = worker.links_tiktok if tiktok else worker.links
+            invalid_links = []
+            parsed_ids = []
+            parsed_urls = []
+            route_results = []
+            seen = set()
+            for route in entries:
+                text = route["item"]["link"]
+                item_ids = []
+                item_urls = []
+                if tiktok:
+                    items = await worker._parse_tiktok_detail_targets(text, proxy)
+                    if items:
+                        item_ids, item_urls = worker._split_tiktok_detail_targets(items)
+                    else:
+                        invalid_links.append(text)
+                else:
+                    item_ids = await parser.run(text, proxy=proxy) or []
+                    if not item_ids:
+                        invalid_links.append(text)
+                for item_index, detail_id in enumerate(item_ids):
+                    detail_url = (
+                        item_urls[item_index]
+                        if item_index < len(item_urls)
+                        else ""
+                    )
+                    key = (detail_id, detail_url) if tiktok else detail_id
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    parsed_ids.append(detail_id)
+                    if tiktok:
+                        parsed_urls.append(detail_url)
+                route_results.append(
+                    {
+                        "index": route["item"]["index"],
+                        "link": text,
+                        "identity_id": selected_identity_id,
+                        "selected_by": route["reason"],
+                        "parsed_ids": len(item_ids),
+                    }
+                )
+
+            data = None
+            if parsed_ids:
+                root, params, logger = worker.record.run(worker.parameter)
+                async with logger(root, console=worker.console, **params) as record:
+                    data = await worker._handle_detail(
+                        parsed_ids,
+                        tiktok,
+                        record,
+                        api=True,
+                        source=False,
+                        cookie=credentials.cookie or None,
+                        proxy=proxy,
+                        detail_urls=parsed_urls if tiktok else None,
+                    )
+                if data:
+                    await worker.downloader.run(data, "detail", tiktok=tiktok)
+            return (
+                {
+                    "parsed_ids": len(parsed_ids),
+                    "downloaded": len(data or []),
+                    "invalid_links": invalid_links,
+                    "preview": (
+                        worker._get_preview_image(data[0]) if data else ""
+                    ),
+                    "routes": route_results,
+                },
+                int(bool(data)),
+                int(bool(parsed_ids) and not bool(data)),
+            )
+
+        async def execute_group(identity_id: str, entries: list[dict]):
+            async def operation(worker, credentials, selected_identity_id):
+                return await run_group(
+                    worker,
+                    credentials,
+                    selected_identity_id,
+                    entries,
+                )
+
+            if identity_id:
+                return await self._execute_collector_identity_operation(
+                    platform_value,
+                    identity_id,
+                    operation,
+                    failure_error_code="detail_links_collection_failed",
+                )
+            return (
+                await operation(self, direct_credentials, "")
+            )[0]
+
+        group_entries = list(grouped.items())
+        group_outputs = await gather(
+            *(execute_group(identity_id, entries) for identity_id, entries in group_entries),
+            return_exceptions=True,
+        )
+        summaries = []
+        for (identity_id, entries), output in zip(group_entries, group_outputs):
+            if isinstance(output, CancelledError):
+                raise output
+            if isinstance(output, BaseException):
+                summaries.append(
+                    {
+                        "parsed_ids": 0,
+                        "downloaded": 0,
+                        "invalid_links": [entry["item"]["link"] for entry in entries],
+                        "preview": "",
+                        "routes": [
+                            {
+                                "index": entry["item"]["index"],
+                                "link": entry["item"]["link"],
+                                "identity_id": identity_id,
+                                "selected_by": entry["reason"],
+                                "parsed_ids": 0,
+                                "error": "identity_execution_failed",
+                            }
+                            for entry in entries
+                        ],
+                    }
+                )
+            else:
+                summaries.append(output)
+
+        downloaded = sum(item["downloaded"] for item in summaries)
+        parsed_count = sum(item["parsed_ids"] for item in summaries)
+        invalid_links = [
+            link for item in summaries for link in item["invalid_links"]
+        ]
+        route_results = sorted(
+            (route for item in summaries for route in item["routes"]),
+            key=lambda item: item["index"],
+        )
+        preview = next(
+            (item["preview"] for item in summaries if item["preview"]),
+            "",
+        )
+        selected_ids = {
+            route["identity_id"] for route in route_results if route["identity_id"]
+        }
+        selected_reasons = {route["selected_by"] for route in route_results}
+        selected_identity_id = (
+            next(iter(selected_ids)) if len(selected_ids) == 1 else ""
+        )
+        selected_by = (
+            next(iter(selected_reasons))
+            if len(selected_reasons) == 1
+            else "mixed"
+        )
+        if downloaded == 0:
+            message = _("作品下载失败！") if parsed_count else _("链接解析失败！")
+        elif invalid_links:
+            message = _("链接下载任务完成，部分链接未成功解析。")
+        else:
+            message = _("链接下载任务完成！")
+        response = DataResponse(
             message=message,
             data={
                 "platform": platform,
                 "input_links": len(links),
-                "parsed_ids": len(unique_ids),
-                "downloaded": len(data),
+                "parsed_ids": parsed_count,
+                "downloaded": downloaded,
                 "invalid_links": invalid_links,
-                "preview": self._get_preview_image(data[0]) if data else "",
+                "preview": preview,
+                "selected_identity_id": selected_identity_id,
+                "selected_by": selected_by,
+                "routes": route_results,
             },
-            params=payload,
+            params=redact_webui_value(payload),
+        )
+        return self._attach_collector_route(
+            response,
+            selected_identity_id,
+            selected_by,
         )
 
     async def _verify_accounts(
@@ -2408,6 +3487,10 @@ class APIServer(TikTok):
         move_deleted = payload.get("move_deleted", True)
         cookie = self._normalize_string(payload.get("cookie")) or None
         proxy = self._normalize_string(payload.get("proxy")) or None
+        forced_identity_id = self._normalize_string(payload.get("identity_id"))
+        platform_value = (
+            CollectorPlatform.TIKTOK if tiktok else CollectorPlatform.DOUYIN
+        )
         source_rows = (
             self._account_rows(tiktok)
             if use_settings
@@ -2442,13 +3525,43 @@ class APIServer(TikTok):
                     target=target_name,
                 )
             )
-            sec_user_id = await self.check_sec_user_id(url, tiktok)
+            async def operation(worker, credentials, selected_identity_id):
+                sec_user_id = await worker.check_sec_user_id(url, tiktok)
+                if not sec_user_id:
+                    return {"sec_user_id": "", "info": {}}, 0, 0
+                info = await worker.get_user_info_data(
+                    tiktok=tiktok,
+                    cookie=credentials.cookie or None,
+                    proxy=credentials.proxy or None,
+                    sec_user_id=sec_user_id,
+                )
+                return (
+                    {"sec_user_id": sec_user_id, "info": info},
+                    int(bool(info)),
+                    int(not bool(info)),
+                )
+
+            execution, selected_identity_id, selected_by = (
+                await self._execute_collector_operation(
+                    platform=platform_value,
+                    target_type="account",
+                    target_key=url,
+                    identity_id=forced_identity_id,
+                    cookie=cookie or "",
+                    proxy=proxy or "",
+                    operation=operation,
+                    failure_error_code="account_verification_failed",
+                )
+            )
+            sec_user_id = execution["sec_user_id"]
             if not sec_user_id:
                 reason = _("链接无法提取账号 ID")
                 result = {
                     "index": index,
                     "url": url,
                     "exists": False,
+                    "selected_identity_id": selected_identity_id,
+                    "selected_by": selected_by,
                     "reason": reason,
                 }
                 checked.append(result)
@@ -2460,12 +3573,7 @@ class APIServer(TikTok):
                 )
                 missing_rows.append(item | {"reason": result["reason"]})
                 continue
-            info = await self.get_user_info_data(
-                tiktok=tiktok,
-                cookie=cookie,
-                proxy=proxy,
-                sec_user_id=sec_user_id,
-            )
+            info = execution["info"]
             exists, reason = self._verify_user_info_state(
                 info,
                 sec_user_id,
@@ -2476,6 +3584,8 @@ class APIServer(TikTok):
                     "index": index,
                     "url": url,
                     "exists": False,
+                    "selected_identity_id": selected_identity_id,
+                    "selected_by": selected_by,
                     "reason": reason or _("账号主页不可访问或不存在"),
                 }
                 checked.append(result)
@@ -2492,6 +3602,8 @@ class APIServer(TikTok):
                     "index": index,
                     "url": url,
                     "exists": True,
+                    "selected_identity_id": selected_identity_id,
+                    "selected_by": selected_by,
                     "reason": "",
                 }
             )
@@ -2635,6 +3747,7 @@ class APIServer(TikTok):
             log_level=log_level,
         )
         server = Server(config)
+        await self._configure_collector_leases()
         await self._start_ui_task_workers()
         await self._start_ui_schedules()
         try:
@@ -2642,8 +3755,22 @@ class APIServer(TikTok):
         finally:
             await self._stop_ui_task_workers()
             await self._stop_ui_schedules()
+            self.collector_store.close()
 
     def setup_routes(self):
+        @self.server.exception_handler(RequestValidationError)
+        async def safe_request_validation_error(
+            request: Request,
+            error: RequestValidationError,
+        ):
+            # FastAPI's default 422 includes the rejected input verbatim. A
+            # malformed credential body could therefore echo Cookie or proxy
+            # passwords before the endpoint handler runs.
+            return JSONResponse(
+                status_code=422,
+                content={"detail": self._safe_validation_errors(error)},
+            )
+
         @self.server.get(
             "/ui",
             include_in_schema=False,
@@ -2684,6 +3811,7 @@ class APIServer(TikTok):
                     status_code=400,
                     detail="Path out of scope.",
                 )
+            self._ensure_public_file_scope_path(scope, root, current)
             if not current.exists():
                 raise HTTPException(
                     status_code=404,
@@ -2695,7 +3823,11 @@ class APIServer(TikTok):
                     detail="Path is not a directory.",
                 )
             entries = sorted(
-                (serialize_entry(root, item) for item in current.iterdir()),
+                (
+                    serialize_entry(root, item)
+                    for item in current.iterdir()
+                    if not self._is_protected_file_scope_path(scope, root, item)
+                ),
                 key=lambda item: (not item["is_dir"], item["name"].lower()),
             )
             root_path = root.expanduser().resolve()
@@ -2743,6 +3875,7 @@ class APIServer(TikTok):
                     status_code=400,
                     detail="Path out of scope.",
                 )
+            self._ensure_public_file_scope_path(scope, root, target)
             if not target.exists():
                 raise HTTPException(
                     status_code=404,
@@ -2780,6 +3913,7 @@ class APIServer(TikTok):
                     status_code=400,
                     detail="Path out of scope.",
                 )
+            self._ensure_public_file_scope_path(scope, root, current)
             if not current.exists() or not current.is_dir():
                 raise HTTPException(
                     status_code=404,
@@ -2791,7 +3925,11 @@ class APIServer(TikTok):
                 "scope": scope,
                 "root": str(root_path),
                 "path": relative_path(root_path, current_path),
-                **self._collect_scope_stats(current_path),
+                **self._collect_scope_stats(
+                    current_path,
+                    scope=scope,
+                    scope_root=root_path,
+                ),
             }
 
         @self.server.get(
@@ -2814,7 +3952,7 @@ class APIServer(TikTok):
             )
             return {
                 "path": str(settings_path),
-                "text": text,
+                "text": redact_webui_json_text(text),
                 "updated_at": updated_at,
             }
 
@@ -2847,6 +3985,7 @@ class APIServer(TikTok):
                     detail="JSON root must be an object.",
                 )
             merged = self.parameter.settings.read()
+            patch_data = restore_redacted_values(patch_data, merged)
             merged.update(patch_data)
             self.parameter.settings.update(merged)
             try:
@@ -2859,7 +3998,7 @@ class APIServer(TikTok):
                 )
             return {
                 "message": _("保存配置成功！"),
-                "settings": self.parameter.get_settings_data(),
+                "settings": self._public_settings(self.parameter.get_settings_data()),
             }
 
         @self.server.post(
@@ -2878,6 +4017,497 @@ class APIServer(TikTok):
                 "message": _("配置备份成功！"),
                 "path": backup_path,
             }
+
+        @self.server.get(
+            "/ui/api/collector-identities",
+            summary="Web UI 采集身份列表",
+            tags=[_("配置")],
+        )
+        async def webui_collector_identities(
+            platform: str = Query(""),
+            token: str = Depends(token_dependency),
+        ):
+            normalized_platform = (
+                self._collector_platform(platform) if platform else None
+            )
+            items = self.collector_store.list_public(normalized_platform)
+            return {
+                "items": [self._collector_public_data(item) for item in items],
+                "total": len(items),
+                "vault": {
+                    "locked": bool(self.collector_vault_error),
+                    "message": (
+                        "身份凭据库尚未解锁，请配置身份加密密钥。"
+                        if self.collector_vault_error
+                        else "身份凭据库已解锁。"
+                    ),
+                },
+            }
+
+        @self.server.post(
+            "/ui/api/collector-identities",
+            summary="Web UI 创建采集身份",
+            tags=[_("配置")],
+        )
+        async def webui_collector_identity_create(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                identity = self._collector_identity_from_body(body)
+                self.collector_store.save_identity(identity)
+                await self.collector_leases.configure(
+                    identity.identity_id,
+                    identity.max_concurrency,
+                )
+                public = next(
+                    item
+                    for item in self.collector_store.list_public(identity.platform)
+                    if item.identity_id == identity.identity_id
+                )
+                return {"identity": self._collector_public_data(public)}
+            except Exception as error:
+                if isinstance(error, HTTPException):
+                    raise
+                raise self._collector_http_error(error)
+
+        @self.server.patch(
+            "/ui/api/collector-identities/{identity_id}",
+            summary="Web UI 更新采集身份",
+            tags=[_("配置")],
+        )
+        async def webui_collector_identity_update(
+            identity_id: str,
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                current = self.collector_store.get_identity(identity_id)
+                identity = self._collector_identity_from_body(body, current=current)
+                await self.collector_leases.configure(
+                    identity.identity_id,
+                    identity.max_concurrency,
+                )
+                self.collector_store.save_identity(identity)
+                public = next(
+                    item
+                    for item in self.collector_store.list_public(identity.platform)
+                    if item.identity_id == identity.identity_id
+                )
+                return {"identity": self._collector_public_data(public)}
+            except Exception as error:
+                if isinstance(error, HTTPException):
+                    raise
+                raise self._collector_http_error(error)
+
+        @self.server.delete(
+            "/ui/api/collector-identities/{identity_id}",
+            summary="Web UI 删除采集身份",
+            tags=[_("配置")],
+        )
+        async def webui_collector_identity_delete(
+            identity_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            identity = None
+            try:
+                identity = self.collector_store.get_identity(identity_id)
+                schedule_references = [
+                    schedule.get("schedule_id", "")
+                    for schedule in self.ui_schedules.values()
+                    if self._normalize_string(schedule.get("identity_id"))
+                    == identity_id
+                ]
+                task_references = [
+                    task.get("task_id", "")
+                    for task in self.ui_tasks.values()
+                    if task.get("status") in {"pending", "running", "canceling"}
+                    and self._normalize_string(
+                        (task.get("payload") or {}).get("identity_id")
+                    )
+                    == identity_id
+                ]
+                if schedule_references or task_references:
+                    raise IdentityInUseError(
+                        "collector identity is referenced by an active task or schedule"
+                    )
+                await self.collector_leases.remove(identity_id)
+                try:
+                    self.collector_store.delete_identity(identity_id)
+                except Exception:
+                    # A referenced identity cannot be deleted. Restore the
+                    # runtime gate so a rejected delete never breaks routing.
+                    await self.collector_leases.configure(
+                        identity.identity_id,
+                        identity.max_concurrency,
+                    )
+                    raise
+                return {"message": _("采集身份已删除！"), "identity_id": identity_id}
+            except Exception as error:
+                raise self._collector_http_error(error)
+
+        @self.server.put(
+            "/ui/api/collector-identities/{identity_id}/credentials",
+            summary="Web UI 替换采集身份凭据",
+            description="凭据只写不回显；省略字段保持原值，null 清除单个字段",
+            tags=[_("配置")],
+        )
+        async def webui_collector_identity_credentials(
+            identity_id: str,
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                identity = self.collector_store.get_identity(identity_id)
+                credentials = self._collector_credentials_from_body(identity_id, body)
+                self.collector_store.save_identity(
+                    identity,
+                    credentials=credentials,
+                )
+                public = next(
+                    item
+                    for item in self.collector_store.list_public(identity.platform)
+                    if item.identity_id == identity_id
+                )
+                return {
+                    "message": _("采集身份凭据已安全保存！"),
+                    "identity": self._collector_public_data(public),
+                }
+            except Exception as error:
+                if isinstance(error, HTTPException):
+                    raise
+                raise self._collector_http_error(error)
+
+        @self.server.delete(
+            "/ui/api/collector-identities/{identity_id}/credentials",
+            summary="Web UI 清除采集身份凭据",
+            tags=[_("配置")],
+        )
+        async def webui_collector_identity_credentials_clear(
+            identity_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                identity = self.collector_store.get_identity(identity_id)
+                self.collector_store.save_identity(
+                    identity,
+                    credentials=CollectorCredentials(),
+                )
+                return {"message": _("采集身份凭据已清除！")}
+            except Exception as error:
+                raise self._collector_http_error(error)
+
+        async def run_collector_probe(identity_id: str, require_proxy: bool):
+            try:
+                return await self._probe_collector_identity(
+                    identity_id,
+                    require_proxy=require_proxy,
+                )
+            except HTTPException:
+                raise
+            except Exception:
+                try:
+                    state = self.collector_store.get_runtime(identity_id)
+                    state.status = IdentityStatus.WARNING
+                    state.last_validated_at = self._collector_timestamp()
+                    state.last_failure_at = state.last_validated_at
+                    state.last_error_code = (
+                        "proxy_connectivity_failed"
+                        if require_proxy
+                        else "identity_connectivity_failed"
+                    )
+                    state.consecutive_failures += 1
+                    state.total_failures += 1
+                    self.collector_store.save_runtime(state)
+                except Exception:
+                    pass
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Proxy connectivity check failed."
+                        if require_proxy
+                        else "Identity connectivity check failed."
+                    ),
+                )
+
+        @self.server.post(
+            "/ui/api/collector-identities/{identity_id}/validate",
+            summary="Web UI 验证采集身份",
+            tags=[_("配置")],
+        )
+        async def webui_collector_identity_validate(
+            identity_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            return await run_collector_probe(identity_id, False)
+
+        @self.server.post(
+            "/ui/api/collector-identities/{identity_id}/proxy-test",
+            summary="Web UI 测试身份代理",
+            tags=[_("配置")],
+        )
+        async def webui_collector_identity_proxy_test(
+            identity_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            return await run_collector_probe(identity_id, True)
+
+        @self.server.get(
+            "/ui/api/collector-policies/{platform}",
+            summary="Web UI 获取采集路由策略",
+            tags=[_("配置")],
+        )
+        async def webui_collector_policy_get(
+            platform: str,
+            token: str = Depends(token_dependency),
+        ):
+            policy = self.collector_store.get_policy(
+                self._collector_platform(platform)
+            )
+            return {"policy": self._collector_public_data(policy)}
+
+        @self.server.put(
+            "/ui/api/collector-policies/{platform}",
+            summary="Web UI 保存采集路由策略",
+            tags=[_("配置")],
+        )
+        async def webui_collector_policy_update(
+            platform: str,
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            normalized_platform = self._collector_platform(platform)
+            data = dict(body)
+            data["platform"] = normalized_platform.value
+            if data.get("default_identity_id") is None:
+                data["default_identity_id"] = ""
+            try:
+                policy = CollectorPolicy.model_validate(data)
+                for identity_id in (
+                    policy.default_identity_id,
+                    *policy.fallback_identity_ids,
+                ):
+                    if not identity_id:
+                        continue
+                    identity = self.collector_store.get_identity(identity_id)
+                    if identity.platform != normalized_platform:
+                        raise IdentityPlatformError(
+                            "policy references an identity from another platform"
+                        )
+                await self.collector_leases.configure(
+                    f"platform:{normalized_platform.value}",
+                    policy.global_max_parallel,
+                )
+                self.collector_store.upsert_policy(policy)
+                return {"policy": self._collector_public_data(policy)}
+            except Exception as error:
+                raise self._collector_http_error(error)
+
+        @self.server.get(
+            "/ui/api/collector-assignments",
+            summary="Web UI 获取目标身份绑定",
+            tags=[_("配置")],
+        )
+        async def webui_collector_assignments_get(
+            platform: str = Query(""),
+            target_type: str = Query(""),
+            token: str = Depends(token_dependency),
+        ):
+            items = self.collector_store.list_assignments(
+                self._collector_platform(platform) if platform else None,
+                target_type=target_type or None,
+            )
+            return {
+                "assignments": [
+                    self._collector_public_data(item) for item in items
+                ]
+            }
+
+        @self.server.put(
+            "/ui/api/collector-assignments",
+            summary="Web UI 保存目标身份绑定",
+            tags=[_("配置")],
+        )
+        async def webui_collector_assignments_update(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            raw_items = body.get("assignments", [])
+            if not isinstance(raw_items, list):
+                raise HTTPException(status_code=400, detail="assignments must be a list.")
+            saved = []
+            removed = 0
+            try:
+                for raw in raw_items:
+                    if not isinstance(raw, dict):
+                        raise ValueError("assignment must be an object")
+                    platform_value = self._collector_platform(raw.get("platform"))
+                    target_type_value = self._normalize_string(
+                        raw.get("target_type")
+                    ) or "account"
+                    target_key_value = self._normalize_string(raw.get("target_key"))
+                    if target_type_value == "account":
+                        target_key_value = (
+                            self._normalize_account_url(target_key_value)
+                            or target_key_value
+                        )
+                    identity_id_value = self._normalize_string(raw.get("identity_id"))
+                    if not target_key_value:
+                        raise ValueError("target_key is required")
+                    if not identity_id_value:
+                        removed += int(
+                            self.collector_store.delete_assignment(
+                                platform_value,
+                                target_type_value,
+                                target_key_value,
+                            )
+                        )
+                        continue
+                    assignment = CollectorAssignment(
+                        platform=platform_value,
+                        target_type=target_type_value,
+                        target_key=target_key_value,
+                        identity_id=identity_id_value,
+                        source=AssignmentSource.EXPLICIT,
+                    )
+                    saved.extend(self.collector_store.upsert_assignments([assignment]))
+                return {
+                    "message": _("目标身份绑定已保存！"),
+                    "assignments": [
+                        self._collector_public_data(item) for item in saved
+                    ],
+                    "removed": removed,
+                }
+            except Exception as error:
+                if isinstance(error, HTTPException):
+                    raise
+                raise self._collector_http_error(error)
+
+        @self.server.post(
+            "/ui/api/collector-policies/preview",
+            summary="Web UI 预览采集路由",
+            tags=[_("配置")],
+        )
+        async def webui_collector_policy_preview(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            platform_value = self._collector_platform(body.get("platform"))
+            target_type_value = self._normalize_string(
+                body.get("target_type")
+            ) or "account"
+            policy = self.collector_store.get_policy(platform_value)
+            try:
+                strategy = RoutingStrategy(
+                    self._normalize_string(body.get("strategy"))
+                    or policy.strategy.value
+                )
+                raw_targets = body.get("targets", [])
+                if not isinstance(raw_targets, list) or not raw_targets:
+                    raise ValueError("targets must be a non-empty list")
+                normalized_raw_targets = []
+                for raw in raw_targets:
+                    target_key = self._normalize_string(
+                        raw.get("target_key") if isinstance(raw, dict) else raw
+                    )
+                    if target_type_value == "account":
+                        target_key = self._normalize_account_url(target_key) or target_key
+                    if not target_key:
+                        raise ValueError("target_key is required")
+                    explicit = self._normalize_string(
+                        raw.get("explicit_identity_id")
+                        if isinstance(raw, dict)
+                        else ""
+                    )
+                    normalized_raw_targets.append((target_key, explicit))
+
+                # Account preview reuses the exact production planner without
+                # persisting newly calculated sticky assignments. This keeps
+                # cooldown, defaults, fixed-binding fallback, and strategy
+                # behavior identical to actual execution.
+                if target_type_value == "account" and not any(
+                    explicit for _, explicit in normalized_raw_targets
+                ):
+                    planned = self._plan_collector_account_routes(
+                        platform_value,
+                        [{"url": target_key} for target_key, _ in normalized_raw_targets],
+                        persist_assignments=False,
+                        strategy_override=strategy,
+                    )
+                    if len(planned) != len(normalized_raw_targets):
+                        raise RouteUnavailable("no eligible collector identity")
+                    return {
+                        "assignments": [
+                            {
+                                "target_key": item["target_key"],
+                                "identity_id": item["identity_id"],
+                                "strategy": strategy.value,
+                                "explicit": item["reason"]
+                                in {"fixed_binding", "default_identity"},
+                                "reason": item["reason"],
+                            }
+                            for item in planned
+                        ],
+                        "counts": {
+                            "requested": len(planned),
+                            "assigned": len(planned),
+                        },
+                    }
+                targets = []
+                reasons = {}
+                for target_key, explicit in normalized_raw_targets:
+                    reason = "explicit"
+                    if not explicit:
+                        assignment = self.collector_store.get_assignment(
+                            platform_value,
+                            target_type_value,
+                            target_key,
+                        )
+                        if assignment:
+                            explicit = assignment.identity_id
+                            reason = "stored_binding"
+                        else:
+                            reason = strategy.value
+                    targets.append(
+                        RouteTarget(
+                            target_key=target_key,
+                            explicit_identity_id=explicit,
+                        )
+                    )
+                    reasons[target_key] = reason
+                public = {
+                    item.identity_id: item
+                    for item in self.collector_store.list_public(platform_value)
+                    if item.cookie_configured
+                }
+                candidates = [
+                    item
+                    for item in self.collector_store.route_candidates(platform_value)
+                    if item.identity_id in public
+                ]
+                decisions = plan_routes(
+                    platform=platform_value,
+                    targets=targets,
+                    candidates=candidates,
+                    strategy=strategy,
+                )
+                return {
+                    "assignments": [
+                        {
+                            **self._collector_public_data(item),
+                            "reason": reasons.get(item.target_key, strategy.value),
+                        }
+                        for item in decisions
+                    ],
+                    "counts": {
+                        "requested": len(targets),
+                        "assigned": len(decisions),
+                    },
+                }
+            except RouteUnavailable as error:
+                raise HTTPException(status_code=409, detail=str(error))
+            except Exception as error:
+                raise self._collector_http_error(error)
 
         @self.server.get(
             "/ui/api/accounts",
@@ -3292,9 +4922,11 @@ class APIServer(TikTok):
             limit: int = Query(200, ge=1, le=1000),
             token: str = Depends(token_dependency),
         ):
-            items = self._fetch_logs(
-                after_id=after_id,
-                limit=self._normalize_limit(limit),
+            items = redact_webui_value(
+                self._fetch_logs(
+                    after_id=after_id,
+                    limit=self._normalize_limit(limit),
+                )
             )
             latest_id = after_id
             if items:
@@ -3334,10 +4966,18 @@ class APIServer(TikTok):
                 )
             try:
                 self._validate_ui_task_payload(endpoint, payload)
-            except (ValidationError, ValueError, TypeError) as error:
+            except ValidationError as error:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Payload validation failed: {error}",
+                    detail={
+                        "message": "Payload validation failed.",
+                        "errors": self._safe_validation_errors(error),
+                    },
+                )
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Payload validation failed.",
                 )
             task = self._enqueue_ui_task(
                 endpoint=endpoint,
@@ -3478,6 +5118,7 @@ class APIServer(TikTok):
         ):
             try:
                 self._validate_ui_schedule_payload(body)
+                self._validate_schedule_identity_reference(body)
             except ValueError as error:
                 raise HTTPException(
                     status_code=400,
@@ -3628,6 +5269,9 @@ class APIServer(TikTok):
         ):
             try:
                 self._validate_collect_monitor_payload(body)
+                self._validate_schedule_identity_reference(
+                    {**body, "platform": "douyin"}
+                )
             except ValueError as error:
                 raise HTTPException(
                     status_code=400,
@@ -3703,10 +5347,11 @@ class APIServer(TikTok):
                 raise HTTPException(status_code=404, detail="Monitor not found.")
             try:
                 result = await self._run_collect_monitor_once(schedule)
-            except Exception as error:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 result = {
                     "ok": False,
-                    "error": str(error),
+                    "error_code": "monitor_execution_failed",
+                    "error": _("收藏夹监控执行失败"),
                 }
             schedule["last_result"] = result
             schedule["last_run_at"] = self._now_text()
@@ -3729,7 +5374,7 @@ class APIServer(TikTok):
             self._persist_ui_schedules()
             return {
                 "monitor": self._schedule_public(schedule),
-                "result": result,
+                "result": redact_webui_value(result),
             }
 
         @self.server.delete(
@@ -3758,10 +5403,14 @@ class APIServer(TikTok):
 
         @self.server.websocket("/ui/ws/logs")
         async def webui_logs_ws(websocket: WebSocket):
-            token = websocket.headers.get("token") or websocket.query_params.get(
-                "token"
-            )
-            if not is_valid_token(token):
+            token = websocket.headers.get("token")
+            if not token:
+                # Compatibility only: the current plain WebSocket client cannot
+                # set custom headers. Remove this query fallback after the UI
+                # migrates to an HttpOnly session cookie or one-time WS ticket.
+                token = websocket.query_params.get("token")
+            client_host = websocket.client.host if websocket.client else ""
+            if not is_valid_token(token, client_host):
                 await websocket.close(
                     code=4403,
                     reason=_("验证失败！"),
@@ -3775,9 +5424,11 @@ class APIServer(TikTok):
                 cursor = 0
             try:
                 while True:
-                    items = self._fetch_logs(
-                        after_id=cursor,
-                        limit=500,
+                    items = redact_webui_value(
+                        self._fetch_logs(
+                            after_id=cursor,
+                            limit=500,
+                        )
                     )
                     if items:
                         cursor = max(
@@ -3842,9 +5493,17 @@ class APIServer(TikTok):
         async def handle_settings(
             extract: Settings, token: str = Depends(token_dependency)
         ):
-            await self.parameter.set_settings_data(extract.model_dump())
+            current = self.parameter.get_settings_data()
+            incoming = extract.model_dump()
+            for key in ("cookie", "cookie_tiktok", "proxy", "proxy_tiktok"):
+                if key not in extract.model_fields_set:
+                    incoming[key] = current.get(key)
+            incoming = restore_redacted_values(incoming, current)
+            await self.parameter.set_settings_data(incoming)
             self._sync_runtime_http_clients()
-            return Settings(**self.parameter.get_settings_data())
+            return Settings(
+                **self._public_settings(self.parameter.get_settings_data())
+            )
 
         @self.server.get(
             "/settings",
@@ -3854,7 +5513,9 @@ class APIServer(TikTok):
             response_model=Settings,
         )
         async def get_settings(token: str = Depends(token_dependency)):
-            return Settings(**self.parameter.get_settings_data())
+            return Settings(
+                **self._public_settings(self.parameter.get_settings_data())
+            )
 
         @self.server.post(
             "/douyin/share",
@@ -3877,12 +5538,12 @@ class APIServer(TikTok):
                 return UrlResponse(
                     message=_("请求链接成功！"),
                     url=url,
-                    params=extract.model_dump(),
+                    params=redact_webui_value(extract.model_dump()),
                 )
             return UrlResponse(
                 message=_("请求链接失败！"),
                 url=None,
-                params=extract.model_dump(),
+                params=redact_webui_value(extract.model_dump()),
             )
 
         @self.server.post(
@@ -3955,28 +5616,7 @@ class APIServer(TikTok):
             response_model=DataResponse,
         )
         async def handle_mix(extract: Mix, token: str = Depends(token_dependency)):
-            is_mix, id_ = self.generate_mix_params(
-                extract.mix_id,
-                extract.detail_id,
-            )
-            if not isinstance(is_mix, bool):
-                return DataResponse(
-                    message=_("参数错误！"),
-                    data=None,
-                    params=extract.model_dump(),
-                )
-            if data := await self.deal_mix_detail(
-                is_mix,
-                id_,
-                api=True,
-                source=extract.source,
-                cookie=extract.cookie,
-                proxy=extract.proxy,
-                cursor=extract.cursor,
-                count=extract.count,
-            ):
-                return self.success_response(extract, data)
-            return self.failed_response(extract)
+            return await self._handle_mix_request(extract, False)
 
         @self.server.post(
             "/douyin/live",
@@ -4010,11 +5650,7 @@ class APIServer(TikTok):
             #     data=None,
             #     params=extract.model_dump(),
             # )
-            if data := await self.handle_live(
-                extract,
-            ):
-                return self.success_response(extract, data[0])
-            return self.failed_response(extract)
+            return await self._handle_live_request(extract, False)
 
         @self.server.post(
             "/douyin/comment",
@@ -4040,19 +5676,7 @@ class APIServer(TikTok):
         async def handle_comment(
             extract: Comment, token: str = Depends(token_dependency)
         ):
-            if data := await self.comment_handle_single(
-                extract.detail_id,
-                cookie=extract.cookie,
-                proxy=extract.proxy,
-                source=extract.source,
-                pages=extract.pages,
-                cursor=extract.cursor,
-                count=extract.count,
-                count_reply=extract.count_reply,
-                reply=extract.reply,
-            ):
-                return self.success_response(extract, data)
-            return self.failed_response(extract)
+            return await self._handle_comment_request(extract)
 
         @self.server.post(
             "/douyin/reply",
@@ -4075,18 +5699,7 @@ class APIServer(TikTok):
             response_model=DataResponse,
         )
         async def handle_reply(extract: Reply, token: str = Depends(token_dependency)):
-            if data := await self.reply_handle(
-                extract.detail_id,
-                extract.comment_id,
-                cookie=extract.cookie,
-                proxy=extract.proxy,
-                pages=extract.pages,
-                cursor=extract.cursor,
-                count=extract.count,
-                source=extract.source,
-            ):
-                return self.success_response(extract, data)
-            return self.failed_response(extract)
+            return await self._handle_reply_request(extract)
 
         @self.server.post(
             "/douyin/search/general",
@@ -4222,12 +5835,12 @@ class APIServer(TikTok):
                 return UrlResponse(
                     message=_("请求链接成功！"),
                     url=url,
-                    params=extract.model_dump(),
+                    params=redact_webui_value(extract.model_dump()),
                 )
             return UrlResponse(
                 message=_("请求链接失败！"),
                 url=None,
-                params=extract.model_dump(),
+                params=redact_webui_value(extract.model_dump()),
             )
 
         @self.server.post(
@@ -4302,18 +5915,7 @@ class APIServer(TikTok):
         async def handle_mix_tiktok(
             extract: MixTikTok, token: str = Depends(token_dependency)
         ):
-            if data := await self.deal_mix_detail(
-                True,
-                extract.mix_id,
-                api=True,
-                source=extract.source,
-                cookie=extract.cookie,
-                proxy=extract.proxy,
-                cursor=extract.cursor,
-                count=extract.count,
-            ):
-                return self.success_response(extract, data)
-            return self.failed_response(extract)
+            return await self._handle_mix_request(extract, True)
 
         @self.server.post(
             "/tiktok/live",
@@ -4334,26 +5936,53 @@ class APIServer(TikTok):
         async def handle_live_tiktok(
             extract: LiveTikTok, token: str = Depends(token_dependency)
         ):
-            if data := await self.handle_live(
-                extract,
-                True,
-            ):
-                return self.success_response(extract, data[0])
-            return self.failed_response(extract)
+            return await self._handle_live_request(extract, True)
+
+    @staticmethod
+    def _attach_collector_route(response, identity_id: str, reason: str):
+        if isinstance(response, DataResponse):
+            params = dict(response.params or {})
+            params["selected_identity_id"] = identity_id
+            params["selected_by"] = reason
+            response.params = params
+        return response
 
     async def handle_search(self, extract):
-        if isinstance(
-            data := await self.deal_search_data(
-                extract,
-                extract.source,
-            ),
-            list,
-        ):
-            return self.success_response(
-                extract,
-                *(data, None) if any(data) else (None, _("搜索结果为空！")),
+        platform = CollectorPlatform.DOUYIN
+
+        async def operation(worker, credentials, selected_identity_id):
+            runtime_extract = extract.model_copy(
+                update={
+                    "cookie": credentials.cookie,
+                    "proxy": credentials.proxy,
+                }
             )
-        return self.failed_response(extract)
+            data = await worker.deal_search_data(
+                runtime_extract,
+                runtime_extract.source,
+            )
+            response_extract = extract.model_copy(
+                update={"identity_id": selected_identity_id or extract.identity_id}
+            )
+            if isinstance(data, list):
+                response = self.success_response(
+                    response_extract,
+                    *(data, None) if any(data) else (None, _("搜索结果为空！")),
+                )
+                return response, int(bool(data and any(data))), int(not (data and any(data)))
+            return self.failed_response(response_extract), 0, 1
+
+        response, identity_id, reason = await self._execute_collector_operation(
+            platform=platform,
+            target_type="search",
+            target_key=f"{getattr(extract, 'channel', 0)}:{extract.keyword}",
+            identity_id=extract.identity_id,
+            cookie=extract.cookie,
+            proxy=extract.proxy,
+            operation=operation,
+            failure_error_code="search_collection_failed",
+        )
+        return self._attach_collector_route(response, identity_id, reason)
 
     async def handle_detail(
         self,
@@ -4367,48 +5996,261 @@ class APIServer(TikTok):
                 extract,
                 _("detail_id 和 detail_url 不能同时为空！"),
             )
-        root, params, logger = self.record.run(self.parameter)
-        async with logger(root, console=self.console, **params) as record:
-            detail_urls = (
-                [extract.detail_url]
-                if tiktok and getattr(extract, "detail_url", "")
-                else None
+        platform = (
+            CollectorPlatform.TIKTOK if tiktok else CollectorPlatform.DOUYIN
+        )
+        target_key = (
+            getattr(extract, "detail_url", "")
+            or getattr(extract, "detail_id", "")
+        )
+
+        async def operation(worker, credentials, selected_identity_id):
+            root, params, logger = worker.record.run(worker.parameter)
+            response_extract = extract.model_copy(
+                update={"identity_id": selected_identity_id or extract.identity_id}
             )
-            if data := await self._handle_detail(
-                [extract.detail_id],
-                tiktok,
-                record,
-                True,
-                extract.source,
-                extract.cookie,
-                extract.proxy,
-                detail_urls=detail_urls,
-            ):
-                return self.success_response(extract, data[0])
-            return self.failed_response(extract)
+            detail_ids = [extract.detail_id]
+            detail_urls = None
+            if tiktok and getattr(extract, "detail_url", ""):
+                items = await worker._parse_tiktok_detail_targets(
+                    extract.detail_url,
+                    credentials.proxy or None,
+                )
+                parsed_ids, parsed_urls = worker._split_tiktok_detail_targets(items)
+                if parsed_ids:
+                    detail_ids = parsed_ids[:1]
+                    detail_urls = parsed_urls[:1]
+                else:
+                    detail_urls = [extract.detail_url]
+            async with logger(root, console=worker.console, **params) as record:
+                data = await worker._handle_detail(
+                    detail_ids,
+                    tiktok,
+                    record,
+                    True,
+                    extract.source,
+                    credentials.cookie or None,
+                    credentials.proxy or None,
+                    detail_urls=detail_urls,
+                )
+            if data:
+                return self.success_response(response_extract, data[0]), 1, 0
+            return self.failed_response(response_extract), 0, 1
+
+        response, identity_id, reason = await self._execute_collector_operation(
+            platform=platform,
+            target_type="detail",
+            target_key=target_key,
+            identity_id=extract.identity_id,
+            cookie=extract.cookie,
+            proxy=extract.proxy,
+            operation=operation,
+            failure_error_code="detail_collection_failed",
+        )
+        return self._attach_collector_route(response, identity_id, reason)
 
     async def handle_account(
         self,
         extract: Account | AccountTiktok,
         tiktok=False,
     ):
-        if data := await self.deal_account_detail(
-            0,
-            extract.sec_user_id,
-            tab=extract.tab,
-            earliest=extract.earliest,
-            latest=extract.latest,
-            pages=extract.pages,
-            api=True,
-            source=extract.source,
+        platform = (
+            CollectorPlatform.TIKTOK if tiktok else CollectorPlatform.DOUYIN
+        )
+
+        async def operation(worker, credentials, selected_identity_id):
+            data = await worker.deal_account_detail(
+                0,
+                extract.sec_user_id,
+                tab=extract.tab,
+                earliest=extract.earliest,
+                latest=extract.latest,
+                pages=extract.pages,
+                api=True,
+                source=extract.source,
+                cookie=credentials.cookie or None,
+                proxy=credentials.proxy or None,
+                tiktok=tiktok,
+                cursor=extract.cursor,
+                count=extract.count,
+            )
+            response_extract = extract.model_copy(
+                update={"identity_id": selected_identity_id or extract.identity_id}
+            )
+            if data:
+                return self.success_response(response_extract, data), 1, 0
+            return self.failed_response(response_extract), 0, 1
+
+        response, identity_id, reason = await self._execute_collector_operation(
+            platform=platform,
+            target_type="account",
+            target_key=extract.sec_user_id,
+            identity_id=extract.identity_id,
             cookie=extract.cookie,
             proxy=extract.proxy,
-            tiktok=tiktok,
-            cursor=extract.cursor,
-            count=extract.count,
-        ):
-            return self.success_response(extract, data)
-        return self.failed_response(extract)
+            operation=operation,
+            failure_error_code="account_collection_failed",
+        )
+        return self._attach_collector_route(response, identity_id, reason)
+
+    async def _handle_mix_request(self, extract: Mix | MixTikTok, tiktok=False):
+        if tiktok:
+            is_mix, target_id = True, extract.mix_id
+        else:
+            is_mix, target_id = self.generate_mix_params(
+                extract.mix_id,
+                extract.detail_id,
+            )
+            if not isinstance(is_mix, bool):
+                return DataResponse(
+                    message=_("参数错误！"),
+                    data=None,
+                    params=redact_webui_value(extract.model_dump()),
+                )
+        platform = (
+            CollectorPlatform.TIKTOK if tiktok else CollectorPlatform.DOUYIN
+        )
+
+        async def operation(worker, credentials, selected_identity_id):
+            data = await worker.deal_mix_detail(
+                is_mix,
+                target_id,
+                api=True,
+                source=extract.source,
+                cookie=credentials.cookie or None,
+                proxy=credentials.proxy or None,
+                cursor=extract.cursor,
+                count=extract.count,
+            )
+            response_extract = extract.model_copy(
+                update={"identity_id": selected_identity_id or extract.identity_id}
+            )
+            if data:
+                return self.success_response(response_extract, data), 1, 0
+            return self.failed_response(response_extract), 0, 1
+
+        response, identity_id, reason = await self._execute_collector_operation(
+            platform=platform,
+            target_type="mix",
+            target_key=f"{'mix' if is_mix else 'detail'}:{target_id}",
+            identity_id=extract.identity_id,
+            cookie=extract.cookie,
+            proxy=extract.proxy,
+            operation=operation,
+            failure_error_code="mix_collection_failed",
+        )
+        return self._attach_collector_route(response, identity_id, reason)
+
+    async def _handle_live_request(self, extract: Live | LiveTikTok, tiktok=False):
+        platform = (
+            CollectorPlatform.TIKTOK if tiktok else CollectorPlatform.DOUYIN
+        )
+        target_key = extract.room_id if tiktok else extract.web_rid
+
+        async def operation(worker, credentials, selected_identity_id):
+            if tiktok:
+                raw = await worker.get_live_data_tiktok(
+                    extract.room_id,
+                    credentials.cookie or None,
+                    credentials.proxy or None,
+                )
+            else:
+                raw = await worker.get_live_data(
+                    extract.web_rid,
+                    cookie=credentials.cookie or None,
+                    proxy=credentials.proxy or None,
+                )
+            data = (
+                [raw]
+                if extract.source
+                else await worker.extractor.run(
+                    [raw],
+                    None,
+                    "live",
+                    tiktok=tiktok,
+                )
+            )
+            response_extract = extract.model_copy(
+                update={"identity_id": selected_identity_id or extract.identity_id}
+            )
+            if data:
+                return self.success_response(response_extract, data[0]), 1, 0
+            return self.failed_response(response_extract), 0, 1
+
+        response, identity_id, reason = await self._execute_collector_operation(
+            platform=platform,
+            target_type="live",
+            target_key=target_key or "unknown-live",
+            identity_id=extract.identity_id,
+            cookie=extract.cookie,
+            proxy=extract.proxy,
+            operation=operation,
+            failure_error_code="live_collection_failed",
+        )
+        return self._attach_collector_route(response, identity_id, reason)
+
+    async def _handle_comment_request(self, extract: Comment):
+        async def operation(worker, credentials, selected_identity_id):
+            data = await worker.comment_handle_single(
+                extract.detail_id,
+                cookie=credentials.cookie or None,
+                proxy=credentials.proxy or None,
+                source=extract.source,
+                pages=extract.pages,
+                cursor=extract.cursor,
+                count=extract.count,
+                count_reply=extract.count_reply,
+                reply=extract.reply,
+            )
+            response_extract = extract.model_copy(
+                update={"identity_id": selected_identity_id or extract.identity_id}
+            )
+            if data:
+                return self.success_response(response_extract, data), 1, 0
+            return self.failed_response(response_extract), 0, 1
+
+        response, identity_id, reason = await self._execute_collector_operation(
+            platform=CollectorPlatform.DOUYIN,
+            target_type="comment",
+            target_key=extract.detail_id,
+            identity_id=extract.identity_id,
+            cookie=extract.cookie,
+            proxy=extract.proxy,
+            operation=operation,
+            failure_error_code="comment_collection_failed",
+        )
+        return self._attach_collector_route(response, identity_id, reason)
+
+    async def _handle_reply_request(self, extract: Reply):
+        async def operation(worker, credentials, selected_identity_id):
+            data = await worker.reply_handle(
+                extract.detail_id,
+                extract.comment_id,
+                cookie=credentials.cookie or None,
+                proxy=credentials.proxy or None,
+                pages=extract.pages,
+                cursor=extract.cursor,
+                count=extract.count,
+                source=extract.source,
+            )
+            response_extract = extract.model_copy(
+                update={"identity_id": selected_identity_id or extract.identity_id}
+            )
+            if data:
+                return self.success_response(response_extract, data), 1, 0
+            return self.failed_response(response_extract), 0, 1
+
+        response, identity_id, reason = await self._execute_collector_operation(
+            platform=CollectorPlatform.DOUYIN,
+            target_type="reply",
+            target_key=f"{extract.detail_id}:{extract.comment_id}",
+            identity_id=extract.identity_id,
+            cookie=extract.cookie,
+            proxy=extract.proxy,
+            operation=operation,
+            failure_error_code="reply_collection_failed",
+        )
+        return self._attach_collector_route(response, identity_id, reason)
 
     @staticmethod
     def success_response(
@@ -4419,7 +6261,7 @@ class APIServer(TikTok):
         return DataResponse(
             message=message or _("获取数据成功！"),
             data=data,
-            params=extract.model_dump(),
+            params=redact_webui_value(extract.model_dump()),
         )
 
     @staticmethod
@@ -4430,7 +6272,7 @@ class APIServer(TikTok):
         return DataResponse(
             message=message or _("获取数据失败！"),
             data=None,
-            params=extract.model_dump(),
+            params=redact_webui_value(extract.model_dump()),
         )
 
     @staticmethod
@@ -4448,6 +6290,8 @@ class APIServer(TikTok):
         return bool(web_rid or room_id and sec_user_id)
 
     async def handle_live(self, extract: Live | LiveTikTok, tiktok=False):
+        """Legacy low-level helper retained for internal compatibility."""
+
         if tiktok:
             data = await self.get_live_data_tiktok(
                 extract.room_id,

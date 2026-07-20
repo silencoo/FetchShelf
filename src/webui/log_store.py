@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from threading import Lock
 
+from ..webui_security import redact_webui_text
+
 __all__ = ["LogStore", "LOG_STORE"]
 
 
@@ -48,8 +50,12 @@ class LogStore:
     @staticmethod
     def _normalize_text(message) -> str:
         if isinstance(message, str):
-            return message.strip()
-        return str(message).strip()
+            text = message.strip()
+        else:
+            text = str(message).strip()
+        # Sanitize at ingestion so neither the in-memory ring buffer nor a
+        # future log consumer can accidentally recover raw identity material.
+        return redact_webui_text(text)
 
     def add(self, level: str, message) -> int | None:
         text = self._normalize_text(message)

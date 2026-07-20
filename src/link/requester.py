@@ -2,10 +2,10 @@ from re import compile
 from typing import TYPE_CHECKING
 
 from ..custom import wait
-from ..tools import DownloaderError, Retry, capture_error_request
+from ..tools import DownloaderError, Retry, capture_error_request, create_client
 
 if TYPE_CHECKING:
-    from httpx import AsyncClient, get, head
+    from httpx import AsyncClient
 
     from ..config import Parameter
 
@@ -26,6 +26,12 @@ class Requester:
         self.log = params.logger
         self.max_retry = params.max_retry
         self.timeout = params.timeout
+        self.request_delay = getattr(params, "request_delay", None)
+        self.configured_proxy = (
+            getattr(params, "proxy_tiktok", None)
+            if client is getattr(params, "client_tiktok", None)
+            else getattr(params, "proxy", None)
+        )
 
     async def run(
         self,
@@ -44,7 +50,7 @@ class Requester:
                 )
                 or u
             )
-            await wait()
+            await wait(self.request_delay)
         return " ".join(i for i in result if i)
 
     @Retry.retry
@@ -65,7 +71,7 @@ class Requester:
             # case True, False:
             #     response = await self.request_url_head(url)
             case True:
-                response = self.request_url_get_proxy(
+                response = await self.request_url_get_proxy(
                     url,
                     proxy,
                 )
@@ -101,19 +107,21 @@ class Requester:
             headers=self.headers,
         )
 
-    def request_url_head_proxy(
+    async def request_url_head_proxy(
         self,
         url: str,
         proxy: str,
     ):
-        return head(
-            url,
-            headers=self.headers,
-            proxy=proxy,
-            follow_redirects=True,
-            verify=False,
-            timeout=self.timeout,
-        )
+        client = self.client
+        owned_client = None
+        if proxy != self.configured_proxy:
+            owned_client = create_client(timeout=self.timeout, proxy=proxy)
+            client = owned_client
+        try:
+            return await client.head(url, headers=self.headers)
+        finally:
+            if owned_client is not None:
+                await owned_client.aclose()
 
     async def request_url_get(
         self,
@@ -126,18 +134,20 @@ class Requester:
         response.raise_for_status()
         return response
 
-    def request_url_get_proxy(
+    async def request_url_get_proxy(
         self,
         url: str,
         proxy: str,
     ):
-        response = get(
-            url,
-            headers=self.headers,
-            proxy=proxy,
-            follow_redirects=True,
-            verify=False,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        return response
+        client = self.client
+        owned_client = None
+        if proxy != self.configured_proxy:
+            owned_client = create_client(timeout=self.timeout, proxy=proxy)
+            client = owned_client
+        try:
+            response = await client.get(url, headers=self.headers)
+            response.raise_for_status()
+            return response
+        finally:
+            if owned_client is not None:
+                await owned_client.aclose()

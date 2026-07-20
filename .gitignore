@@ -24,6 +24,7 @@ repos
 .pytype
 demo
 /encipher.py
+/.env
 /settings/
 node_modules/
 webui/node_modules/

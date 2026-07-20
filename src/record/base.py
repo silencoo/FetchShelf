@@ -12,6 +12,7 @@ from ..custom import (
 )
 from ..tools import Cleaner
 from ..webui.log_store import LOG_STORE
+from ..webui_security import redact_webui_text
 
 if TYPE_CHECKING:
     from ..tools import ColorfulConsole
@@ -81,10 +82,15 @@ class BaseLogger:
         pass
 
     @staticmethod
+    def sanitize_text(text) -> str:
+        return redact_webui_text(text if isinstance(text, str) else str(text))
+
+    @staticmethod
     def push_web_log(level: str, text) -> None:
-        LOG_STORE.add(level, text)
+        LOG_STORE.add(level, BaseLogger.sanitize_text(text))
 
     def info(self, text: str, output=True, web: bool | None = None, **kwargs):
+        text = self.sanitize_text(text)
         if web is None:
             web = output
         if web:
@@ -93,6 +99,7 @@ class BaseLogger:
             self.console.print(text, style=INFO, **kwargs)
 
     def warning(self, text: str, output=True, web: bool | None = None, **kwargs):
+        text = self.sanitize_text(text)
         if web is None:
             web = output
         if web:
@@ -101,6 +108,7 @@ class BaseLogger:
             self.console.print(text, style=WARNING, **kwargs)
 
     def error(self, text: str, output=True, web: bool | None = None, **kwargs):
+        text = self.sanitize_text(text)
         if web is None:
             web = output
         if web:
@@ -110,6 +118,7 @@ class BaseLogger:
 
     def debug(self, text: str, output=True, web: bool | None = None, **kwargs):
         if self.DEBUG:
+            text = self.sanitize_text(text)
             if web is None:
                 web = output
             if web:
@@ -118,4 +127,4 @@ class BaseLogger:
                 self.console.print(text, style=DEBUG, **kwargs)
 
     def print(self, text: str, style=GENERAL, **kwargs) -> None:
-        self.console.print(text, style=style, **kwargs)
+        self.console.print(self.sanitize_text(text), style=style, **kwargs)

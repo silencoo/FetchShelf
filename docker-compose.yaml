@@ -16,6 +16,8 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       DOUK_ENCIPHER_PATH: /app/settings/encipher.py
+      DOUK_API_TOKEN: ${DOUK_API_TOKEN:-}
+      DOUK_IDENTITY_KEY: ${DOUK_IDENTITY_KEY:-}
       NVIDIA_VISIBLE_DEVICES: void
 
     ports:

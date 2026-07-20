@@ -22,6 +22,23 @@ const state = {
   selectedTaskId: "",
   taskListLoading: false,
   settingsData: {},
+  collectorIdentities: [],
+  collectMonitorItems: [],
+  collectorPolicies: {},
+  collectorAssignments: {
+    douyin: [],
+    tiktok: [],
+  },
+  collectorAssignmentsLoaded: {
+    douyin: false,
+    tiktok: false,
+  },
+  collectorAssignmentsLoading: {
+    douyin: false,
+    tiktok: false,
+  },
+  collectorListLoading: false,
+  collectorDialogRestoreFocus: null,
   accountRows: {
     douyin: [],
     tiktok: [],
@@ -96,6 +113,10 @@ const refs = {
   accountsTikTokFormatBtn: document.getElementById("accounts-tiktok-format-btn"),
   accountsDouyinCheckBtn: document.getElementById("accounts-douyin-check-btn"),
   accountsTikTokCheckBtn: document.getElementById("accounts-tiktok-check-btn"),
+  accountsDouyinIdentity: document.getElementById("accounts-douyin-identity"),
+  accountsTikTokIdentity: document.getElementById("accounts-tiktok-identity"),
+  accountsDouyinIdentityHelp: document.getElementById("accounts-douyin-identity-help"),
+  accountsTikTokIdentityHelp: document.getElementById("accounts-tiktok-identity-help"),
   accountsDouyinSelectAllBtn: document.getElementById("accounts-douyin-select-all-btn"),
   accountsDouyinClearSelectBtn: document.getElementById("accounts-douyin-clear-select-btn"),
   accountsDouyinOpenSelectedBtn: document.getElementById("accounts-douyin-open-selected-btn"),
@@ -172,8 +193,10 @@ const refs = {
 
   workflowAccountPlatform: document.getElementById("workflow-account-platform"),
   workflowAccountSource: document.getElementById("workflow-account-source"),
+  workflowAccountIdentity: document.getElementById("workflow-account-identity"),
   workflowAccountCookie: document.getElementById("workflow-account-cookie"),
   workflowAccountProxy: document.getElementById("workflow-account-proxy"),
+  workflowAccountIdentityHelp: document.getElementById("workflow-account-identity-help"),
   workflowAccountRunBtn: document.getElementById("workflow-account-run-btn"),
   workflowAccountStatus: document.getElementById("workflow-account-status"),
   workflowAccountSummary: document.getElementById("workflow-account-summary"),
@@ -182,6 +205,8 @@ const refs = {
   workflowDetailForm: document.getElementById("workflow-detail-form"),
   workflowDetailLinks: document.getElementById("workflow-detail-links"),
   workflowDetailCount: document.getElementById("workflow-detail-count"),
+  workflowDetailIdentity: document.getElementById("workflow-detail-identity"),
+  workflowDetailIdentityHelp: document.getElementById("workflow-detail-identity-help"),
   workflowDetailCookie: document.getElementById("workflow-detail-cookie"),
   workflowDetailProxy: document.getElementById("workflow-detail-proxy"),
   workflowDetailRunBtn: document.getElementById("workflow-detail-run-btn"),
@@ -191,10 +216,12 @@ const refs = {
   scheduleName: document.getElementById("schedule-name"),
   schedulePlatform: document.getElementById("schedule-platform"),
   scheduleSource: document.getElementById("schedule-source"),
+  scheduleIdentity: document.getElementById("schedule-identity"),
   scheduleHour: document.getElementById("schedule-hour"),
   scheduleMinute: document.getElementById("schedule-minute"),
   scheduleCookie: document.getElementById("schedule-cookie"),
   scheduleProxy: document.getElementById("schedule-proxy"),
+  scheduleIdentityHelp: document.getElementById("schedule-identity-help"),
   scheduleUptimeKumaUrl: document.getElementById("schedule-uptime-kuma-url"),
   scheduleCreateBtn: document.getElementById("schedule-create-btn"),
   scheduleRefreshBtn: document.getElementById("schedule-refresh-btn"),
@@ -209,6 +236,8 @@ const refs = {
   monitorDefaultEarliest: document.getElementById("monitor-default-earliest"),
   monitorDefaultLatest: document.getElementById("monitor-default-latest"),
   monitorBarkUrl: document.getElementById("monitor-bark-url"),
+  monitorIdentity: document.getElementById("monitor-identity"),
+  monitorIdentityHelp: document.getElementById("monitor-identity-help"),
   monitorCookie: document.getElementById("monitor-cookie"),
   monitorProxy: document.getElementById("monitor-proxy"),
   monitorEnabled: document.getElementById("monitor-enabled"),
@@ -220,7 +249,65 @@ const refs = {
   monitorStatus: document.getElementById("monitor-status"),
   monitorList: document.getElementById("monitor-list"),
 
+  collectorRefreshBtn: document.getElementById("collector-refresh-btn"),
+  collectorCreateBtn: document.getElementById("collector-create-btn"),
+  collectorTotalCount: document.getElementById("collector-total-count"),
+  collectorReadyCount: document.getElementById("collector-ready-count"),
+  collectorAttentionCount: document.getElementById("collector-attention-count"),
+  collectorLeaseCount: document.getElementById("collector-lease-count"),
+  collectorPlatformFilter: document.getElementById("collector-platform-filter"),
+  collectorStatusFilter: document.getElementById("collector-status-filter"),
+  collectorListStatus: document.getElementById("collector-list-status"),
+  collectorIdentityList: document.getElementById("collector-identity-list"),
+  collectorPolicyForm: document.getElementById("collector-policy-form"),
+  collectorPolicyPlatform: document.getElementById("collector-policy-platform"),
+  collectorPolicyStrategy: document.getElementById("collector-policy-strategy"),
+  collectorPolicyDefaultIdentity: document.getElementById("collector-policy-default-identity"),
+  collectorPolicyParallel: document.getElementById("collector-policy-parallel"),
+  collectorPolicyThreshold: document.getElementById("collector-policy-threshold"),
+  collectorPolicyCooldown: document.getElementById("collector-policy-cooldown"),
+  collectorPolicyBindingFailure: document.getElementById("collector-policy-binding-failure"),
+  collectorPolicySaveBtn: document.getElementById("collector-policy-save-btn"),
+  collectorPolicyStatus: document.getElementById("collector-policy-status"),
+  collectorAssignmentForm: document.getElementById("collector-assignment-form"),
+  collectorAssignmentPlatform: document.getElementById("collector-assignment-platform"),
+  collectorAssignmentType: document.getElementById("collector-assignment-type"),
+  collectorAssignmentKey: document.getElementById("collector-assignment-key"),
+  collectorAssignmentIdentity: document.getElementById("collector-assignment-identity"),
+  collectorAssignmentSaveBtn: document.getElementById("collector-assignment-save-btn"),
+  collectorAssignmentUnbindBtn: document.getElementById("collector-assignment-unbind-btn"),
+  collectorAssignmentStatus: document.getElementById("collector-assignment-status"),
+  collectorAssignmentList: document.getElementById("collector-assignment-list"),
+  collectorBindingListStatus: document.getElementById("collector-binding-list-status"),
+  collectorBindingCount: document.getElementById("collector-binding-count"),
+  collectorPreviewBtn: document.getElementById("collector-preview-btn"),
+  collectorPreviewTargets: document.getElementById("collector-preview-targets"),
+  collectorPreviewStatus: document.getElementById("collector-preview-status"),
+  collectorPreviewResult: document.getElementById("collector-preview-result"),
+  collectorIdentityDialog: document.getElementById("collector-identity-dialog"),
+  collectorIdentityForm: document.getElementById("collector-identity-form"),
+  collectorDialogTitle: document.getElementById("collector-dialog-title"),
+  collectorDialogDescription: document.getElementById("collector-dialog-description"),
+  collectorDialogCloseBtn: document.getElementById("collector-dialog-close-btn"),
+  collectorDialogCancelBtn: document.getElementById("collector-dialog-cancel-btn"),
+  collectorDialogSaveBtn: document.getElementById("collector-dialog-save-btn"),
+  collectorDialogStatus: document.getElementById("collector-dialog-status"),
+  collectorIdentityId: document.getElementById("collector-identity-id"),
+  collectorIdentityName: document.getElementById("collector-identity-name"),
+  collectorIdentityPlatform: document.getElementById("collector-identity-platform"),
+  collectorIdentityWeight: document.getElementById("collector-identity-weight"),
+  collectorIdentityDelay: document.getElementById("collector-identity-delay"),
+  collectorIdentityConcurrency: document.getElementById("collector-identity-concurrency"),
+  collectorIdentityEnabled: document.getElementById("collector-identity-enabled"),
+  collectorIdentityCookie: document.getElementById("collector-identity-cookie"),
+  collectorIdentityProxy: document.getElementById("collector-identity-proxy"),
+  collectorIdentityDeviceId: document.getElementById("collector-identity-device-id"),
+  collectorIdentityUserAgent: document.getElementById("collector-identity-user-agent"),
+  collectorTikTokCredentialFields: document.getElementById("collector-tiktok-credential-fields"),
+
   taskEndpoint: document.getElementById("task-endpoint"),
+  taskIdentity: document.getElementById("task-identity"),
+  taskIdentityHelp: document.getElementById("task-identity-help"),
   taskPayload: document.getElementById("task-payload"),
   taskTemplateBtn: document.getElementById("task-template-btn"),
   taskRunBtn: document.getElementById("task-run-btn"),
@@ -271,6 +358,67 @@ const TASK_TEMPLATES = {
     count: 20,
     count_reply: 3,
     reply: false,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/douyin/reply": {
+    detail_id: "7399999999999999999",
+    comment_id: "7399999999999999999",
+    pages: 1,
+    cursor: 0,
+    count: 3,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/douyin/search/general": {
+    keyword: "关键词",
+    pages: 1,
+    offset: 0,
+    count: 10,
+    channel: 0,
+    sort_type: 0,
+    publish_time: 0,
+    duration: 0,
+    search_range: 0,
+    content_type: 0,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/douyin/search/video": {
+    keyword: "关键词",
+    pages: 1,
+    offset: 0,
+    count: 10,
+    channel: 1,
+    sort_type: 0,
+    publish_time: 0,
+    duration: 0,
+    search_range: 0,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/douyin/search/user": {
+    keyword: "关键词",
+    pages: 1,
+    offset: 0,
+    count: 10,
+    channel: 2,
+    douyin_user_fans: 0,
+    douyin_user_type: 0,
+    cookie: "",
+    proxy: "",
+    source: false,
+  },
+  "/douyin/search/live": {
+    keyword: "关键词",
+    pages: 1,
+    offset: 0,
+    count: 10,
+    channel: 3,
     cookie: "",
     proxy: "",
     source: false,
@@ -671,6 +819,18 @@ function switchTab(tab) {
   }
   if (nextTab === "workbench" && !document.hidden) {
     loadTaskList();
+  }
+  if (nextTab === "collectors") {
+    if (!state.collectorIdentities.length) {
+      loadCollectorIdentities();
+    }
+    if (!state.collectorPolicies[refs.collectorPolicyPlatform.value]) {
+      loadCollectorPolicy(refs.collectorPolicyPlatform.value);
+    }
+    const assignmentPlatform = refs.collectorAssignmentPlatform.value;
+    if (!state.collectorAssignmentsLoaded[assignmentPlatform]) {
+      loadCollectorAssignments(assignmentPlatform);
+    }
   }
 }
 
@@ -1463,6 +1623,38 @@ function accountStatusRef(platform) {
   return platform === "tiktok" ? refs.accountsTikTokStatus : refs.accountsDouyinStatus;
 }
 
+function accountVerifyIdentityRef(platform) {
+  return platform === "tiktok" ? refs.accountsTikTokIdentity : refs.accountsDouyinIdentity;
+}
+
+function accountVerifyIdentityHelpRef(platform) {
+  return platform === "tiktok"
+    ? refs.accountsTikTokIdentityHelp
+    : refs.accountsDouyinIdentityHelp;
+}
+
+function syncAccountVerifyIdentityHelp(platform) {
+  const select = accountVerifyIdentityRef(platform);
+  const help = accountVerifyIdentityHelpRef(platform);
+  const platformLabel = workflowPlatformLabel(platform);
+  if (!select || !help) {
+    return;
+  }
+  delete help.dataset.state;
+  const identityId = select.value || "";
+  const identity = collectorIdentityById(identityId);
+  if (!identityId) {
+    help.textContent = `自动路由会按 ${platformLabel} 身份池策略逐个检测账号。`;
+    return;
+  }
+  if (!collectorIdentityIsRoutable(identity)) {
+    help.textContent = "当前选中的身份已不可路由，请改用自动路由或选择其他身份。";
+    help.dataset.state = "warning";
+    return;
+  }
+  help.textContent = `本次账号有效性检测固定使用“${identity.name}”。`;
+}
+
 function setAccountStatus(platform, text) {
   const element = accountStatusRef(platform);
   if (element) {
@@ -1492,6 +1684,12 @@ async function persistAccountTables(reason = "accounts_batch_edit") {
 }
 
 async function verifyAccounts(platform) {
+  const identitySelect = accountVerifyIdentityRef(platform);
+  if (!selectedCollectorIdentityIsRunnable(identitySelect)) {
+    setAccountStatus(platform, "当前选中的身份已不可路由，请改用自动路由或选择其他身份");
+    identitySelect.focus();
+    return;
+  }
   setAccountStatus(platform, "正在检测账号有效性…");
   try {
     await persistAccountTables("pre_verify_sync");
@@ -1499,6 +1697,7 @@ async function verifyAccounts(platform) {
       platform,
       use_settings: true,
       move_deleted: true,
+      identity_id: identitySelect.value || "",
     };
     const result = await fetchJson("/ui/api/accounts/verify", {
       method: "POST",
@@ -2825,8 +3024,74 @@ function getTaskTemplate(endpoint) {
   return JSON.stringify(template, null, 2);
 }
 
+function taskEndpointPlatform(endpoint = refs.taskEndpoint.value) {
+  return String(endpoint || "").startsWith("/tiktok/") ||
+    String(endpoint || "").startsWith("/workflow/tiktok/")
+    ? "tiktok"
+    : "douyin";
+}
+
+function applyTaskIdentityToPayload(payload) {
+  const nextPayload = { ...payload };
+  const identityId = refs.taskIdentity.value || "";
+  nextPayload.identity_id = identityId;
+  if (identityId) {
+    nextPayload.cookie = "";
+    nextPayload.proxy = "";
+  }
+  return nextPayload;
+}
+
+function syncTaskIdentityControls() {
+  const identityId = refs.taskIdentity.value || "";
+  const identity = collectorIdentityById(identityId);
+  refs.taskPayload.dataset.identityControlled = identityId ? "true" : "false";
+  delete refs.taskIdentityHelp.dataset.state;
+  if (!identityId) {
+    refs.taskIdentityHelp.textContent = `自动路由使用 ${workflowPlatformLabel(
+      taskEndpointPlatform(),
+    )} 身份池策略；Payload 中的空 identity_id 会保留自动选择。`;
+    return;
+  }
+  if (!collectorIdentityIsRoutable(identity)) {
+    refs.taskIdentityHelp.textContent = "当前身份已不可路由；仅保留用于识别，请重新选择。";
+    refs.taskIdentityHelp.dataset.state = "warning";
+    return;
+  }
+  let hasLegacyOverride = false;
+  try {
+    const payload = parseTaskPayload(refs.taskPayload.value);
+    hasLegacyOverride = Boolean(String(payload.cookie || "").trim() || String(payload.proxy || "").trim());
+  } catch {}
+  refs.taskIdentityHelp.textContent = hasLegacyOverride
+    ? `已选择“${identity.name}”；提交时会清空 Payload 中的 cookie / proxy，改用身份凭据。`
+    : `已选择“${identity.name}”；本次任务固定使用该身份，cookie / proxy 已由身份托管。`;
+  if (hasLegacyOverride) {
+    refs.taskIdentityHelp.dataset.state = "warning";
+  }
+}
+
+function rewriteTaskPayloadForIdentity() {
+  const payload = parseTaskPayload(refs.taskPayload.value);
+  const normalized = applyTaskIdentityToPayload(payload);
+  refs.taskPayload.value = JSON.stringify(normalized, null, 2);
+  syncTaskIdentityControls();
+  return normalized;
+}
+
+function syncTaskIdentitySelector() {
+  populateCollectorIdentitySelect(
+    refs.taskIdentity,
+    taskEndpointPlatform(),
+    "自动路由",
+    { preserveUnavailable: true },
+  );
+  syncTaskIdentityControls();
+}
+
 function loadTaskTemplate() {
   refs.taskPayload.value = getTaskTemplate(refs.taskEndpoint.value);
+  rewriteTaskPayloadForIdentity();
   refs.taskLabStatus.textContent = "已加载模板，可直接修改后执行";
   delete refs.taskLabStatus.dataset.state;
 }
@@ -2879,10 +3144,16 @@ async function enqueueTaskRequest(endpoint, payload) {
 
 async function runTaskRequest() {
   const endpoint = refs.taskEndpoint.value;
+  if (!selectedCollectorIdentityIsRunnable(refs.taskIdentity)) {
+    refs.taskLabStatus.textContent = "当前选中的身份已不可路由，请改用自动路由或选择其他身份";
+    refs.taskLabStatus.dataset.state = "error";
+    refs.taskIdentity.focus();
+    return;
+  }
   refs.taskLabStatus.textContent = "任务入队中…";
   delete refs.taskLabStatus.dataset.state;
   try {
-    const payload = parseTaskPayload(refs.taskPayload.value);
+    const payload = rewriteTaskPayloadForIdentity();
     const task = await enqueueTaskRequest(endpoint, payload);
     state.selectedTaskId = task?.task_id || "";
     refs.taskLabStatus.textContent = `任务已入队：${state.selectedTaskId || endpoint}`;
@@ -2899,6 +3170,1167 @@ async function runTaskRequest() {
   }
 }
 
+function collectorIdentityId(item) {
+  return String(item?.identity_id ?? item?.id ?? "").trim();
+}
+
+function normalizeCollectorIdentity(item) {
+  const identity = item && typeof item === "object" ? item : {};
+  const platform = String(identity.platform || "douyin").toLowerCase() === "tiktok"
+    ? "tiktok"
+    : "douyin";
+  const status = String(identity.status || identity.validation_status || "unknown").toLowerCase();
+  return {
+    identity_id: collectorIdentityId(identity),
+    name: String(identity.name || identity.label || collectorIdentityId(identity) || "未命名身份"),
+    platform,
+    enabled: parseBooleanValue(identity.enabled, true),
+    weight: Math.max(1, Number(identity.weight || 1)),
+    request_delay: Math.max(0, Number(identity.request_delay ?? 6)),
+    max_concurrency: Math.max(1, Number(identity.max_concurrency || 1)),
+    status,
+    credential_configured: parseBooleanValue(
+      identity.credential_configured,
+      parseBooleanValue(identity.cookie_configured, false),
+    ),
+    cookie_configured: parseBooleanValue(
+      identity.cookie_configured,
+      false,
+    ),
+    proxy_configured: parseBooleanValue(identity.proxy_configured, false),
+    user_agent_configured: parseBooleanValue(identity.user_agent_configured, false),
+    device_id_configured: parseBooleanValue(identity.device_id_configured, false),
+    active_leases: Math.max(0, Number(identity.active_leases || 0)),
+    cooldown_until: String(identity.cooldown_until || ""),
+    last_validated_at: String(identity.last_validated_at || ""),
+    // The public API exposes only a bounded error code. Never render an
+    // arbitrary backend error string here because it may contain request or
+    // credential material.
+    last_error_code: String(identity.last_error_code || ""),
+  };
+}
+
+function collectorItemsFromPayload(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (Array.isArray(payload?.items)) {
+    return payload.items;
+  }
+  if (Array.isArray(payload?.identities)) {
+    return payload.identities;
+  }
+  if (Array.isArray(payload?.data?.items)) {
+    return payload.data.items;
+  }
+  if (Array.isArray(payload?.data?.identities)) {
+    return payload.data.identities;
+  }
+  return [];
+}
+
+function collectorPlatformLabel(platform) {
+  return platform === "tiktok" ? "TikTok" : "抖音";
+}
+
+function isFutureTimestamp(value) {
+  if (!value) {
+    return false;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp > Date.now();
+}
+
+function collectorIdentityState(identity) {
+  if (!identity.enabled) {
+    return "disabled";
+  }
+  if (isFutureTimestamp(identity.cooldown_until) || identity.status === "cooldown") {
+    return "cooldown";
+  }
+  if (!identity.cookie_configured) {
+    return "unconfigured";
+  }
+  if (["ready", "valid", "healthy", "available", "idle"].includes(identity.status)) {
+    return "ready";
+  }
+  if (["invalid", "error", "failed", "blocked", "unavailable"].includes(identity.status)) {
+    return "error";
+  }
+  return "unknown";
+}
+
+function collectorStateLabel(value) {
+  return {
+    ready: "可用",
+    disabled: "已停用",
+    cooldown: "冷却中",
+    unconfigured: "待配置",
+    error: "异常",
+    unknown: "待验证",
+  }[value] || "待验证";
+}
+
+function collectorStateClass(value) {
+  if (value === "ready") {
+    return "success";
+  }
+  if (["error", "unconfigured"].includes(value)) {
+    return "failed";
+  }
+  if (value === "disabled") {
+    return "canceled";
+  }
+  return "pending";
+}
+
+function collectorTimeLabel(value) {
+  if (!value) {
+    return "—";
+  }
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function updateCollectorOverview() {
+  const identities = state.collectorIdentities;
+  const ready = identities.filter((item) => collectorIdentityState(item) === "ready").length;
+  const attention = identities.filter((item) =>
+    ["cooldown", "unconfigured", "error", "unknown"].includes(collectorIdentityState(item)),
+  ).length;
+  const leases = identities.reduce(
+    (total, item) => total + Math.max(0, Number(item.active_leases || 0)),
+    0,
+  );
+  refs.collectorTotalCount.textContent = String(identities.length);
+  refs.collectorReadyCount.textContent = String(ready);
+  refs.collectorAttentionCount.textContent = String(attention);
+  refs.collectorLeaseCount.textContent = String(leases);
+}
+
+function filteredCollectorIdentities() {
+  const platform = refs.collectorPlatformFilter.value;
+  const status = refs.collectorStatusFilter.value;
+  return state.collectorIdentities.filter((item) => {
+    const identityState = collectorIdentityState(item);
+    const platformMatches = platform === "all" || item.platform === platform;
+    const statusMatches =
+      status === "all" ||
+      (status === "ready" && identityState === "ready") ||
+      (status === "disabled" && identityState === "disabled") ||
+      (status === "attention" &&
+        ["cooldown", "unconfigured", "error", "unknown"].includes(identityState));
+    return platformMatches && statusMatches;
+  });
+}
+
+function collectorCredentialChip(label, configured) {
+  return `<span class="collector-credential-chip ${configured ? "configured" : "missing"}">${
+    configured ? "✓" : "—"
+  } ${escapeHtml(label)}</span>`;
+}
+
+function renderCollectorIdentities() {
+  const items = filteredCollectorIdentities();
+  delete refs.collectorListStatus.dataset.state;
+  refs.collectorIdentityList.innerHTML = "";
+  refs.collectorIdentityList.setAttribute("aria-busy", "false");
+  updateCollectorOverview();
+  if (!state.collectorIdentities.length) {
+    refs.collectorIdentityList.innerHTML = `
+      <div class="empty-state collector-empty-state">
+        <div>
+          <strong>还没有采集身份</strong>
+          <p>先为抖音或 TikTok 创建一个登录身份，再配置自动路由。</p>
+          <button type="button" class="btn primary" data-collector-action="create">创建第一个身份</button>
+        </div>
+      </div>
+    `;
+    refs.collectorListStatus.textContent = "暂无采集身份";
+    return;
+  }
+  if (!items.length) {
+    refs.collectorIdentityList.innerHTML = `
+      <div class="empty-state collector-empty-state">
+        <div>
+          <strong>没有匹配的身份</strong>
+          <p>调整平台或状态筛选，查看其他采集身份。</p>
+          <button type="button" class="btn ghost" data-collector-action="clear-filter">清除筛选</button>
+        </div>
+      </div>
+    `;
+    refs.collectorListStatus.textContent = `已加载 ${state.collectorIdentities.length} 个身份，当前筛选无结果`;
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  items.forEach((identity) => {
+    const visualState = collectorIdentityState(identity);
+    const card = document.createElement("article");
+    card.className = `collector-identity-card state-${visualState}`;
+    card.dataset.identityId = identity.identity_id;
+    const tiktokChips = identity.platform === "tiktok"
+      ? `${collectorCredentialChip("Device ID", identity.device_id_configured)}${collectorCredentialChip(
+          "User-Agent",
+          identity.user_agent_configured,
+        )}`
+      : "";
+    const issue = identity.last_error_code
+      ? `<p class="collector-identity-error">最近异常：${escapeHtml(identity.last_error_code)}</p>`
+      : "";
+    const cooldown = isFutureTimestamp(identity.cooldown_until)
+      ? `<span>冷却至 ${escapeHtml(collectorTimeLabel(identity.cooldown_until))}</span>`
+      : "";
+    card.innerHTML = `
+      <div class="collector-identity-head">
+        <div>
+          <div class="collector-identity-badges">
+            <span class="badge">${escapeHtml(collectorPlatformLabel(identity.platform))}</span>
+            <span class="task-status ${collectorStateClass(visualState)}">${escapeHtml(
+              collectorStateLabel(visualState),
+            )}</span>
+          </div>
+          <h4>${escapeHtml(identity.name)}</h4>
+          <span class="collector-identity-id">${escapeHtml(identity.identity_id || "—")}</span>
+        </div>
+        <span class="collector-lease-badge" title="当前占用租约">${identity.active_leases} 占用</span>
+      </div>
+      <dl class="collector-identity-meta">
+        <div><dt>权重</dt><dd>${identity.weight}</dd></div>
+        <div><dt>请求间隔</dt><dd>${identity.request_delay}s</dd></div>
+        <div><dt>最大并发</dt><dd>${identity.max_concurrency}</dd></div>
+      </dl>
+      <div class="collector-credential-list" aria-label="凭据配置状态">
+        ${collectorCredentialChip("Cookie", identity.cookie_configured || identity.credential_configured)}
+        ${collectorCredentialChip("代理", identity.proxy_configured)}
+        ${tiktokChips}
+      </div>
+      <div class="collector-identity-timeline">
+        <span>上次验证 ${escapeHtml(collectorTimeLabel(identity.last_validated_at))}</span>
+        ${cooldown}
+      </div>
+      ${issue}
+      <div class="collector-identity-actions">
+        <button type="button" class="btn ghost" data-collector-action="edit">编辑</button>
+        <button type="button" class="btn ghost" data-collector-action="validate">验证</button>
+        <button type="button" class="btn ghost" data-collector-action="proxy-test" ${
+          identity.proxy_configured ? "" : "disabled"
+        }>测代理</button>
+        <button type="button" class="btn ghost" data-collector-action="toggle">${
+          identity.enabled ? "停用" : "启用"
+        }</button>
+        <button type="button" class="btn ghost danger" data-collector-action="delete">删除</button>
+      </div>
+    `;
+    fragment.appendChild(card);
+  });
+  refs.collectorIdentityList.appendChild(fragment);
+  refs.collectorListStatus.textContent = `显示 ${items.length} / ${state.collectorIdentities.length} 个身份`;
+}
+
+function collectorOptionLabel(identity) {
+  return `${identity.name} · ${collectorStateLabel(collectorIdentityState(identity))}`;
+}
+
+function collectorIdentityIsRoutable(identity) {
+  if (!identity?.enabled || !identity.cookie_configured) {
+    return false;
+  }
+  if (isFutureTimestamp(identity.cooldown_until)) {
+    return false;
+  }
+  return !["invalid", "disabled", "cooldown"].includes(String(identity.status || "").toLowerCase());
+}
+
+function collectorIdentityById(identityId) {
+  return state.collectorIdentities.find((identity) => identity.identity_id === identityId) || null;
+}
+
+function populateCollectorIdentitySelect(select, platform, emptyLabel, options = {}) {
+  if (!select) {
+    return;
+  }
+  const {
+    includeUnavailable = false,
+    preserveUnavailable = false,
+    selectedValue = select.value,
+  } = options;
+  const previousValue = String(selectedValue || "");
+  select.innerHTML = "";
+  delete select.dataset.unavailableSelection;
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = emptyLabel;
+  select.appendChild(empty);
+  state.collectorIdentities
+    .filter(
+      (item) =>
+        item.platform === platform && (includeUnavailable || collectorIdentityIsRoutable(item)),
+    )
+    .forEach((identity) => {
+      const option = document.createElement("option");
+      option.value = identity.identity_id;
+      option.textContent = collectorOptionLabel(identity);
+      select.appendChild(option);
+    });
+  const hasPrevious = Array.from(select.options).some((option) => option.value === previousValue);
+  if (hasPrevious) {
+    select.value = previousValue;
+    return;
+  }
+  const unavailableIdentity = collectorIdentityById(previousValue);
+  if (
+    preserveUnavailable &&
+    previousValue &&
+    unavailableIdentity?.platform === platform
+  ) {
+    const unavailable = document.createElement("option");
+    unavailable.value = previousValue;
+    unavailable.textContent = `${unavailableIdentity.name} · 当前不可路由（仅供识别）`;
+    unavailable.disabled = true;
+    unavailable.selected = true;
+    select.appendChild(unavailable);
+    select.dataset.unavailableSelection = "true";
+  }
+}
+
+function syncCollectorIdentitySelectors() {
+  populateCollectorIdentitySelect(
+    refs.accountsDouyinIdentity,
+    "douyin",
+    "自动路由",
+    { preserveUnavailable: true },
+  );
+  populateCollectorIdentitySelect(
+    refs.accountsTikTokIdentity,
+    "tiktok",
+    "自动路由",
+    { preserveUnavailable: true },
+  );
+  populateCollectorIdentitySelect(
+    refs.workflowAccountIdentity,
+    refs.workflowAccountPlatform.value,
+    "自动路由",
+    { preserveUnavailable: true },
+  );
+  populateCollectorIdentitySelect(
+    refs.scheduleIdentity,
+    refs.schedulePlatform.value,
+    "自动路由",
+    { preserveUnavailable: true },
+  );
+  populateCollectorIdentitySelect(
+    refs.collectorPolicyDefaultIdentity,
+    refs.collectorPolicyPlatform.value,
+    "自动选择",
+    { includeUnavailable: true, preserveUnavailable: true },
+  );
+  populateCollectorIdentitySelect(
+    refs.collectorAssignmentIdentity,
+    refs.collectorAssignmentPlatform.value,
+    "选择一个可路由身份",
+    { preserveUnavailable: true },
+  );
+  syncWorkflowDetailIdentitySelector();
+  populateCollectorIdentitySelect(
+    refs.monitorIdentity,
+    "douyin",
+    "自动路由",
+    { preserveUnavailable: true },
+  );
+  syncTaskIdentitySelector();
+  syncAccountVerifyIdentityHelp("douyin");
+  syncAccountVerifyIdentityHelp("tiktok");
+  syncWorkflowAccountIdentityOverrides();
+  syncScheduleIdentityOverrides();
+  syncMonitorIdentityOverrides();
+}
+
+async function loadCollectorIdentities() {
+  if (state.collectorListLoading) {
+    return;
+  }
+  state.collectorListLoading = true;
+  refs.collectorIdentityList.setAttribute("aria-busy", "true");
+  refs.collectorListStatus.textContent = "正在加载采集身份…";
+  if (!state.collectorIdentities.length) {
+    refs.collectorIdentityList.innerHTML = '<div class="loading-state">正在读取身份状态…</div>';
+  }
+  try {
+    const payload = await fetchJson("/ui/api/collector-identities", {
+      method: "GET",
+      headers: headerOptions(false),
+    });
+    state.collectorIdentities = collectorItemsFromPayload(payload)
+      .map(normalizeCollectorIdentity)
+      .filter((item) => item.identity_id);
+    renderCollectorIdentities();
+    syncCollectorIdentitySelectors();
+    if (state.collectorAssignmentsLoaded[refs.collectorAssignmentPlatform.value]) {
+      renderCollectorAssignments(refs.collectorAssignmentPlatform.value);
+    }
+    if (Array.isArray(state.settingsData.ui_schedules)) {
+      renderScheduleList(state.settingsData.ui_schedules);
+    }
+    if (Array.isArray(state.collectMonitorItems)) {
+      renderCollectMonitorList(state.collectMonitorItems);
+    }
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    refs.collectorIdentityList.setAttribute("aria-busy", "false");
+    refs.collectorIdentityList.innerHTML = `
+      <div class="error-state collector-error-state">
+        <div>
+          <strong>采集身份加载失败</strong>
+          <p>${escapeHtml(error.message)}</p>
+          <button type="button" class="btn ghost" data-collector-action="retry">重试</button>
+        </div>
+      </div>
+    `;
+    refs.collectorListStatus.textContent = `加载失败：${error.message}`;
+    refs.collectorListStatus.dataset.state = "error";
+    setApiStatus(`异常: ${error.message}`, "error");
+  } finally {
+    state.collectorListLoading = false;
+  }
+}
+
+function setCollectorStatus(element, message, stateValue = "") {
+  if (!element) {
+    return;
+  }
+  element.textContent = message;
+  if (stateValue) {
+    element.dataset.state = stateValue;
+  } else {
+    delete element.dataset.state;
+  }
+}
+
+function syncCollectorCredentialFields() {
+  const isTikTok = refs.collectorIdentityPlatform.value === "tiktok";
+  refs.collectorTikTokCredentialFields.hidden = !isTikTok;
+  refs.collectorIdentityDeviceId.disabled = !isTikTok;
+  refs.collectorIdentityUserAgent.disabled = !isTikTok;
+}
+
+function clearCollectorCredentialInputs() {
+  refs.collectorIdentityCookie.value = "";
+  refs.collectorIdentityProxy.value = "";
+  refs.collectorIdentityDeviceId.value = "";
+  refs.collectorIdentityUserAgent.value = "";
+}
+
+function openCollectorIdentityDialog(identityId = "", trigger = document.activeElement) {
+  const identity = state.collectorIdentities.find((item) => item.identity_id === identityId);
+  refs.collectorIdentityForm.reset();
+  clearCollectorCredentialInputs();
+  refs.collectorIdentityId.value = identity?.identity_id || "";
+  refs.collectorIdentityName.value = identity?.name || "";
+  refs.collectorIdentityPlatform.value = identity?.platform || "douyin";
+  refs.collectorIdentityPlatform.disabled = Boolean(identity);
+  refs.collectorIdentityWeight.value = String(identity?.weight || 1);
+  refs.collectorIdentityDelay.value = String(identity?.request_delay ?? 6);
+  refs.collectorIdentityConcurrency.value = String(identity?.max_concurrency || 1);
+  refs.collectorIdentityEnabled.checked = identity ? identity.enabled : true;
+  refs.collectorDialogTitle.textContent = identity ? "编辑采集身份" : "创建采集身份";
+  refs.collectorDialogDescription.textContent = identity
+    ? "修改调度参数；敏感凭据留空时保持现有值不变。"
+    : "先创建身份元数据，再按需写入登录与网络凭据。";
+  refs.collectorDialogSaveBtn.textContent = identity ? "保存修改" : "创建身份";
+  setCollectorStatus(refs.collectorDialogStatus, "");
+  syncCollectorCredentialFields();
+  state.collectorDialogRestoreFocus = trigger instanceof HTMLElement ? trigger : null;
+  if (!refs.collectorIdentityDialog.open) {
+    refs.collectorIdentityDialog.showModal();
+  }
+  window.setTimeout(() => refs.collectorIdentityName.focus(), 0);
+}
+
+function closeCollectorIdentityDialog(identityId = "") {
+  clearCollectorCredentialInputs();
+  if (refs.collectorIdentityDialog.open) {
+    refs.collectorIdentityDialog.close();
+  }
+  let restoreTarget = state.collectorDialogRestoreFocus;
+  state.collectorDialogRestoreFocus = null;
+  if (!restoreTarget?.isConnected && identityId) {
+    const refreshedCard = Array.from(
+      refs.collectorIdentityList.querySelectorAll("[data-identity-id]"),
+    ).find((card) => card.dataset.identityId === identityId);
+    restoreTarget = refreshedCard?.querySelector('[data-collector-action="edit"]') || null;
+  }
+  if (!restoreTarget?.isConnected) {
+    restoreTarget = refs.collectorCreateBtn?.isConnected ? refs.collectorCreateBtn : null;
+  }
+  if (restoreTarget) {
+    window.setTimeout(() => restoreTarget.focus(), 0);
+  }
+}
+
+function collectorIdentityFromPayload(payload) {
+  const candidate =
+    payload?.identity || payload?.item || payload?.data?.identity || payload?.data?.item || payload?.data || payload;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return null;
+  }
+  const normalized = normalizeCollectorIdentity(candidate);
+  return normalized.identity_id ? normalized : null;
+}
+
+function collectorMetadataFromForm() {
+  if (!refs.collectorIdentityForm.checkValidity()) {
+    refs.collectorIdentityForm.reportValidity();
+    return null;
+  }
+  const name = refs.collectorIdentityName.value.trim();
+  if (!name) {
+    refs.collectorIdentityName.setCustomValidity("请输入身份名称");
+    refs.collectorIdentityName.reportValidity();
+    refs.collectorIdentityName.setCustomValidity("");
+    return null;
+  }
+  return {
+    name,
+    platform: refs.collectorIdentityPlatform.value,
+    enabled: refs.collectorIdentityEnabled.checked,
+    weight: Math.max(1, Number(refs.collectorIdentityWeight.value || 1)),
+    request_delay: Math.max(0, Number(refs.collectorIdentityDelay.value || 0)),
+    max_concurrency: Math.max(1, Number(refs.collectorIdentityConcurrency.value || 1)),
+  };
+}
+
+function collectorCredentialsFromForm() {
+  const credentials = {};
+  const cookie = refs.collectorIdentityCookie.value.trim();
+  const proxy = refs.collectorIdentityProxy.value.trim();
+  const deviceId = refs.collectorIdentityDeviceId.value.trim();
+  const userAgent = refs.collectorIdentityUserAgent.value.trim();
+  if (cookie) {
+    credentials.cookie = cookie;
+  }
+  if (proxy) {
+    credentials.proxy = proxy;
+  }
+  if (refs.collectorIdentityPlatform.value === "tiktok") {
+    if (deviceId) {
+      credentials.device_id = deviceId;
+    }
+    if (userAgent) {
+      credentials.user_agent = userAgent;
+    }
+  }
+  return credentials;
+}
+
+async function saveCollectorIdentity() {
+  const metadata = collectorMetadataFromForm();
+  if (!metadata) {
+    return;
+  }
+  const credentials = collectorCredentialsFromForm();
+  const currentId = refs.collectorIdentityId.value.trim();
+  setCollectorStatus(refs.collectorDialogStatus, currentId ? "正在保存身份修改…" : "正在创建身份…");
+  try {
+    const payload = await fetchJson(
+      currentId
+        ? `/ui/api/collector-identities/${encodeURIComponent(currentId)}`
+        : "/ui/api/collector-identities",
+      {
+        method: currentId ? "PATCH" : "POST",
+        headers: headerOptions(true),
+        body: JSON.stringify(metadata),
+      },
+    );
+    const savedIdentity = collectorIdentityFromPayload(payload);
+    const identityId = currentId || savedIdentity?.identity_id;
+    if (!identityId) {
+      throw new Error("服务端未返回新身份 ID，无法继续写入凭据");
+    }
+    if (!currentId) {
+      refs.collectorIdentityId.value = identityId;
+      refs.collectorIdentityPlatform.disabled = true;
+      refs.collectorDialogTitle.textContent = "编辑采集身份";
+      refs.collectorDialogSaveBtn.textContent = "保存修改";
+    }
+    if (Object.keys(credentials).length) {
+      setCollectorStatus(refs.collectorDialogStatus, "身份已保存，正在安全写入凭据…");
+      try {
+        await fetchJson(
+          `/ui/api/collector-identities/${encodeURIComponent(identityId)}/credentials`,
+          {
+            method: "PUT",
+            headers: headerOptions(true),
+            body: JSON.stringify(credentials),
+          },
+        );
+      } catch {
+        throw new Error("身份已创建，但凭据写入失败；请检查 Cookie、代理和浏览器参数后重试");
+      }
+      clearCollectorCredentialInputs();
+    }
+    setCollectorStatus(refs.collectorDialogStatus, "保存成功", "success");
+    await loadCollectorIdentities();
+    closeCollectorIdentityDialog(identityId);
+    setCollectorStatus(refs.collectorListStatus, currentId ? "身份修改已保存" : "采集身份创建成功", "success");
+  } catch (error) {
+    setCollectorStatus(refs.collectorDialogStatus, `保存失败：${error.message}`, "error");
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function patchCollectorIdentity(identityId, patch) {
+  await fetchJson(`/ui/api/collector-identities/${encodeURIComponent(identityId)}`, {
+    method: "PATCH",
+    headers: headerOptions(true),
+    body: JSON.stringify(patch),
+  });
+}
+
+async function runCollectorIdentityAction(action, identityId, button) {
+  const identity = state.collectorIdentities.find((item) => item.identity_id === identityId);
+  if (!identity) {
+    return;
+  }
+  if (action === "edit") {
+    openCollectorIdentityDialog(identityId, button);
+    return;
+  }
+  if (action === "delete") {
+    const confirmed = window.confirm(`确认删除采集身份“${identity.name}”？已有目标绑定可能会回退或暂停。`);
+    if (!confirmed) {
+      return;
+    }
+  }
+  const busyLabels = {
+    validate: "验证中",
+    "proxy-test": "测试中",
+    toggle: identity.enabled ? "停用中" : "启用中",
+    delete: "删除中",
+  };
+  await withBusyButton(button, busyLabels[action] || "处理中", async () => {
+    setCollectorStatus(refs.collectorListStatus, `正在处理：${identity.name}`);
+    try {
+      let successMessage = "操作已完成";
+      let successState = "success";
+      if (action === "validate" || action === "proxy-test") {
+        const endpoint = action === "validate" ? "validate" : "proxy-test";
+        const result = await fetchJson(
+          `/ui/api/collector-identities/${encodeURIComponent(identityId)}/${endpoint}`,
+          {
+            method: "POST",
+            headers: headerOptions(true),
+            body: JSON.stringify({}),
+          },
+        );
+        successMessage = result?.message || `${action === "validate" ? "身份验证" : "代理测试"}已完成`;
+        successState = parseBooleanValue(result?.ok ?? result?.success, true) ? "success" : "error";
+      } else if (action === "toggle") {
+        await patchCollectorIdentity(identityId, { enabled: !identity.enabled });
+        successMessage = identity.enabled ? "身份已停用" : "身份已启用";
+      } else if (action === "delete") {
+        await fetchJson(`/ui/api/collector-identities/${encodeURIComponent(identityId)}`, {
+          method: "DELETE",
+          headers: headerOptions(false),
+        });
+        successMessage = "身份已删除";
+      }
+      await loadCollectorIdentities();
+      setCollectorStatus(refs.collectorListStatus, successMessage, successState);
+      setApiStatus("就绪", "ok");
+    } catch (error) {
+      const message =
+        action === "proxy-test"
+          ? "代理测试失败；请重新写入代理配置或检查网络连通性"
+          : action === "validate"
+            ? "身份验证失败；请重新写入 Cookie 或检查网络连通性"
+            : `操作失败：${error.message}`;
+      setCollectorStatus(refs.collectorListStatus, message, "error");
+      setApiStatus(
+        action === "proxy-test"
+          ? "代理测试失败"
+          : action === "validate"
+            ? "身份验证失败"
+            : `异常: ${error.message}`,
+        "error",
+      );
+    }
+  });
+}
+
+function normalizeCollectorPolicy(payload, platform) {
+  const source = payload?.policy || payload?.data?.policy || payload?.data || payload || {};
+  return {
+    platform: source.platform === "tiktok" ? "tiktok" : platform,
+    strategy: ["sticky_balanced", "least_loaded"].includes(source.strategy || source.mode)
+      ? source.strategy || source.mode
+      : "sticky_balanced",
+    default_identity_id: String(source.default_identity_id || ""),
+    global_max_parallel: Math.max(1, Number(source.global_max_parallel || 2)),
+    binding_failure: source.binding_failure === "fallback" ? "fallback" : "pause",
+    failure_threshold: Math.max(1, Number(source.failure_threshold || 3)),
+    cooldown_seconds: Math.max(0, Number(source.cooldown_seconds ?? 1800)),
+  };
+}
+
+function mapCollectorPolicyToForm(policy) {
+  refs.collectorPolicyStrategy.value = policy.strategy;
+  refs.collectorPolicyParallel.value = String(policy.global_max_parallel);
+  refs.collectorPolicyBindingFailure.value = policy.binding_failure;
+  refs.collectorPolicyThreshold.value = String(policy.failure_threshold);
+  refs.collectorPolicyCooldown.value = String(policy.cooldown_seconds);
+  populateCollectorIdentitySelect(
+    refs.collectorPolicyDefaultIdentity,
+    policy.platform,
+    "自动选择",
+    {
+      includeUnavailable: true,
+      preserveUnavailable: true,
+      selectedValue: policy.default_identity_id,
+    },
+  );
+  if (
+    policy.default_identity_id &&
+    !Array.from(refs.collectorPolicyDefaultIdentity.options).some(
+      (option) => option.value === policy.default_identity_id,
+    )
+  ) {
+    const unavailable = document.createElement("option");
+    unavailable.value = policy.default_identity_id;
+    unavailable.textContent = `不可用身份 · ${policy.default_identity_id}`;
+    refs.collectorPolicyDefaultIdentity.appendChild(unavailable);
+  }
+  refs.collectorPolicyDefaultIdentity.value = policy.default_identity_id;
+}
+
+async function loadCollectorPolicy(platform = refs.collectorPolicyPlatform.value) {
+  const controlsVisiblePolicy = refs.collectorPolicyPlatform.value === platform;
+  if (controlsVisiblePolicy) {
+    setCollectorStatus(refs.collectorPolicyStatus, `正在加载${collectorPlatformLabel(platform)}路由策略…`);
+  }
+  try {
+    const payload = await fetchJson(
+      `/ui/api/collector-policies/${encodeURIComponent(platform)}`,
+      {
+        method: "GET",
+        headers: headerOptions(false),
+      },
+    );
+    const policy = normalizeCollectorPolicy(payload, platform);
+    state.collectorPolicies[platform] = policy;
+    if (refs.collectorPolicyPlatform.value === platform) {
+      mapCollectorPolicyToForm(policy);
+      setCollectorStatus(refs.collectorPolicyStatus, `${collectorPlatformLabel(platform)}策略已载入`);
+    }
+  } catch (error) {
+    const fallback = normalizeCollectorPolicy({}, platform);
+    state.collectorPolicies[platform] = fallback;
+    if (refs.collectorPolicyPlatform.value === platform) {
+      mapCollectorPolicyToForm(fallback);
+      setCollectorStatus(refs.collectorPolicyStatus, `策略加载失败：${error.message}`, "error");
+    }
+  }
+}
+
+function collectorPolicyFromForm() {
+  return {
+    platform: refs.collectorPolicyPlatform.value,
+    strategy: refs.collectorPolicyStrategy.value,
+    default_identity_id: refs.collectorPolicyDefaultIdentity.value || "",
+    global_max_parallel: Math.max(1, Number(refs.collectorPolicyParallel.value || 1)),
+    binding_failure: refs.collectorPolicyBindingFailure.value,
+    failure_threshold: Math.max(1, Number(refs.collectorPolicyThreshold.value || 1)),
+    cooldown_seconds: Math.max(0, Number(refs.collectorPolicyCooldown.value || 0)),
+  };
+}
+
+async function saveCollectorPolicy() {
+  const policy = collectorPolicyFromForm();
+  setCollectorStatus(refs.collectorPolicyStatus, "正在保存路由策略…");
+  try {
+    const payload = await fetchJson(
+      `/ui/api/collector-policies/${encodeURIComponent(policy.platform)}`,
+      {
+        method: "PUT",
+        headers: headerOptions(true),
+        body: JSON.stringify(policy),
+      },
+    );
+    const saved = normalizeCollectorPolicy(payload, policy.platform);
+    state.collectorPolicies[policy.platform] = saved;
+    mapCollectorPolicyToForm(saved);
+    setCollectorStatus(refs.collectorPolicyStatus, "路由策略保存成功", "success");
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setCollectorStatus(refs.collectorPolicyStatus, `保存失败：${error.message}`, "error");
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+function normalizeCollectorAccountTargetKey(value) {
+  const input = String(value || "").trim();
+  if (!input) {
+    return "";
+  }
+  try {
+    const url = new URL(input);
+    if (url.protocol && url.host) {
+      const path = url.pathname.replace(/\/+$/, "");
+      return `${url.protocol.toLowerCase()}//${url.host.toLowerCase()}${path}`;
+    }
+  } catch {}
+  return input.split("?", 1)[0].split("#", 1)[0].replace(/\/+$/, "");
+}
+
+function collectorAssignmentsFromPayload(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (Array.isArray(payload?.assignments)) {
+    return payload.assignments;
+  }
+  if (Array.isArray(payload?.items)) {
+    return payload.items;
+  }
+  if (Array.isArray(payload?.data?.assignments)) {
+    return payload.data.assignments;
+  }
+  return [];
+}
+
+function normalizeCollectorAssignment(item, platform) {
+  const assignment = item && typeof item === "object" ? item : {};
+  return {
+    platform: assignment.platform === "tiktok" ? "tiktok" : platform,
+    target_type: String(assignment.target_type || "account").toLowerCase(),
+    target_key: String(assignment.target_key || "").trim(),
+    identity_id: String(assignment.identity_id || "").trim(),
+    source: String(assignment.source || "explicit").toLowerCase(),
+    updated_at: String(assignment.updated_at || ""),
+  };
+}
+
+function collectorAssignmentSourceLabel(source) {
+  return {
+    explicit: "手动固定",
+    policy: "自动粘连",
+    legacy: "旧配置迁移",
+  }[source] || "账号绑定";
+}
+
+function renderCollectorAssignments(platform = refs.collectorAssignmentPlatform.value) {
+  if (refs.collectorAssignmentPlatform.value !== platform) {
+    return;
+  }
+  const items = state.collectorAssignments[platform] || [];
+  refs.collectorAssignmentList.innerHTML = "";
+  refs.collectorAssignmentList.setAttribute("aria-busy", "false");
+  refs.collectorBindingCount.textContent = String(items.length);
+  if (!items.length) {
+    refs.collectorAssignmentList.innerHTML = `
+      <div class="empty-tip collector-binding-empty">
+        该平台还没有账号绑定；未绑定账号会按平台策略自动选择身份。
+      </div>
+    `;
+    refs.collectorBindingListStatus.textContent = "暂无账号绑定";
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  items.forEach((assignment) => {
+    const identity = collectorIdentityById(assignment.identity_id);
+    const row = document.createElement("article");
+    row.className = "collector-binding-row";
+    row.dataset.targetKey = assignment.target_key;
+    row.dataset.identityId = assignment.identity_id;
+    const main = document.createElement("div");
+    main.className = "collector-binding-main";
+    const target = document.createElement("strong");
+    target.textContent = assignment.target_key;
+    target.title = assignment.target_key;
+    const meta = document.createElement("span");
+    const identityLabel = identity
+      ? `${identity.name} · ${collectorStateLabel(collectorIdentityState(identity))}`
+      : `${assignment.identity_id || "未知身份"} · 已不存在`;
+    meta.textContent = `${collectorAssignmentSourceLabel(assignment.source)} → ${identityLabel}`;
+    main.append(target, meta);
+    const actions = document.createElement("div");
+    actions.className = "collector-binding-actions";
+    const loadButton = document.createElement("button");
+    loadButton.type = "button";
+    loadButton.className = "btn ghost";
+    loadButton.dataset.collectorBindingAction = "load";
+    loadButton.textContent = "载入";
+    const unbindButton = document.createElement("button");
+    unbindButton.type = "button";
+    unbindButton.className = "btn ghost danger";
+    unbindButton.dataset.collectorBindingAction = "unbind";
+    unbindButton.textContent = "解除绑定";
+    actions.append(loadButton, unbindButton);
+    row.append(main, actions);
+    fragment.appendChild(row);
+  });
+  refs.collectorAssignmentList.appendChild(fragment);
+  refs.collectorBindingListStatus.textContent = `${collectorPlatformLabel(platform)} · ${items.length} 个账号绑定`;
+}
+
+async function loadCollectorAssignments(platform = refs.collectorAssignmentPlatform.value) {
+  if (state.collectorAssignmentsLoading[platform]) {
+    return;
+  }
+  state.collectorAssignmentsLoading[platform] = true;
+  if (refs.collectorAssignmentPlatform.value === platform) {
+    if (state.collectorAssignmentsLoaded[platform]) {
+      renderCollectorAssignments(platform);
+    }
+    refs.collectorAssignmentList.setAttribute("aria-busy", "true");
+    refs.collectorBindingListStatus.textContent = `正在加载${collectorPlatformLabel(platform)}账号绑定…`;
+    if (!state.collectorAssignmentsLoaded[platform]) {
+      refs.collectorBindingCount.textContent = "…";
+      refs.collectorAssignmentList.innerHTML = '<div class="loading-state">正在读取账号绑定…</div>';
+    }
+  }
+  try {
+    const payload = await fetchJson(
+      `/ui/api/collector-assignments?platform=${encodeURIComponent(platform)}&target_type=account`,
+      {
+        method: "GET",
+        headers: headerOptions(false),
+      },
+    );
+    state.collectorAssignments[platform] = collectorAssignmentsFromPayload(payload)
+      .map((item) => normalizeCollectorAssignment(item, platform))
+      .filter((item) => item.target_key && item.identity_id && item.target_type === "account");
+    state.collectorAssignmentsLoaded[platform] = true;
+    renderCollectorAssignments(platform);
+  } catch (error) {
+    if (refs.collectorAssignmentPlatform.value === platform) {
+      refs.collectorAssignmentList.setAttribute("aria-busy", "false");
+      refs.collectorAssignmentList.innerHTML = `
+        <div class="error-state collector-binding-empty">
+          <strong>账号绑定加载失败</strong>
+          <button type="button" class="btn ghost" data-collector-binding-action="retry">重试</button>
+        </div>
+      `;
+      refs.collectorBindingListStatus.textContent = `加载失败：${error.message}`;
+    }
+  } finally {
+    state.collectorAssignmentsLoading[platform] = false;
+  }
+}
+
+function collectorAssignmentFromForm() {
+  return {
+    platform: refs.collectorAssignmentPlatform.value,
+    target_type: "account",
+    target_key: normalizeCollectorAccountTargetKey(refs.collectorAssignmentKey.value),
+    identity_id: refs.collectorAssignmentIdentity.value || "",
+    source: "explicit",
+  };
+}
+
+function loadCollectorAssignmentIntoForm(assignment) {
+  refs.collectorAssignmentKey.value = assignment.target_key;
+  populateCollectorIdentitySelect(
+    refs.collectorAssignmentIdentity,
+    assignment.platform,
+    "选择一个可路由身份",
+    {
+      preserveUnavailable: true,
+      selectedValue: assignment.identity_id,
+    },
+  );
+  setCollectorStatus(
+    refs.collectorAssignmentStatus,
+    collectorIdentityIsRoutable(collectorIdentityById(assignment.identity_id))
+      ? "已载入账号绑定，可更换身份或明确解除绑定"
+      : "已载入账号绑定；当前身份不可路由，只能更换身份或解除绑定",
+  );
+  refs.collectorAssignmentIdentity.focus();
+}
+
+async function saveCollectorAssignment() {
+  if (!refs.collectorAssignmentForm.checkValidity()) {
+    refs.collectorAssignmentForm.reportValidity();
+    return;
+  }
+  const assignment = collectorAssignmentFromForm();
+  const identity = collectorIdentityById(assignment.identity_id);
+  if (!assignment.identity_id || !collectorIdentityIsRoutable(identity)) {
+    setCollectorStatus(
+      refs.collectorAssignmentStatus,
+      "请选择一个当前可路由的身份；如需解除绑定，请使用“解除绑定”按钮",
+      "error",
+    );
+    refs.collectorAssignmentIdentity.focus();
+    return;
+  }
+  refs.collectorAssignmentKey.value = assignment.target_key;
+  setCollectorStatus(refs.collectorAssignmentStatus, "正在保存账号绑定…");
+  try {
+    await fetchJson("/ui/api/collector-assignments", {
+      method: "PUT",
+      headers: headerOptions(true),
+      body: JSON.stringify({ assignments: [assignment] }),
+    });
+    await loadCollectorAssignments(assignment.platform);
+    setCollectorStatus(refs.collectorAssignmentStatus, "账号已固定到指定身份", "success");
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setCollectorStatus(refs.collectorAssignmentStatus, `保存失败：${error.message}`, "error");
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
+async function removeCollectorAssignment(platform, targetKey, { confirmAction = true } = {}) {
+  const normalizedTarget = normalizeCollectorAccountTargetKey(targetKey);
+  if (!normalizedTarget) {
+    setCollectorStatus(refs.collectorAssignmentStatus, "请先填写要解除绑定的账号主页 URL", "error");
+    refs.collectorAssignmentKey.focus();
+    return false;
+  }
+  if (confirmAction && !window.confirm(`确认解除该账号的身份绑定？\n${normalizedTarget}`)) {
+    return false;
+  }
+  setCollectorStatus(refs.collectorAssignmentStatus, "正在解除账号绑定…");
+  try {
+    const payload = await fetchJson("/ui/api/collector-assignments", {
+      method: "PUT",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        assignments: [
+          {
+            platform,
+            target_type: "account",
+            target_key: normalizedTarget,
+            identity_id: "",
+          },
+        ],
+      }),
+    });
+    const removed = Math.max(0, Number(payload?.removed ?? payload?.data?.removed ?? 0));
+    await loadCollectorAssignments(platform);
+    if (removed < 1) {
+      setCollectorStatus(
+        refs.collectorAssignmentStatus,
+        "未找到完全匹配的账号绑定，没有删除任何记录",
+        "warning",
+      );
+      return false;
+    }
+    if (normalizeCollectorAccountTargetKey(refs.collectorAssignmentKey.value) === normalizedTarget) {
+      refs.collectorAssignmentIdentity.value = "";
+    }
+    setCollectorStatus(refs.collectorAssignmentStatus, "账号绑定已解除，将恢复自动路由", "success");
+    setApiStatus("就绪", "ok");
+    return true;
+  } catch (error) {
+    setCollectorStatus(refs.collectorAssignmentStatus, `解绑失败：${error.message}`, "error");
+    setApiStatus(`异常: ${error.message}`, "error");
+    return false;
+  }
+}
+
+function collectorPreviewItems(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (Array.isArray(payload?.assignments)) {
+    return payload.assignments;
+  }
+  if (Array.isArray(payload?.items)) {
+    return payload.items;
+  }
+  if (Array.isArray(payload?.data?.assignments)) {
+    return payload.data.assignments;
+  }
+  return [];
+}
+
+function renderCollectorPreview(payload, requestedCount) {
+  const items = collectorPreviewItems(payload);
+  refs.collectorPreviewResult.innerHTML = "";
+  refs.collectorPreviewResult.hidden = false;
+  if (!items.length) {
+    refs.collectorPreviewResult.innerHTML = '<div class="empty-tip">没有可展示的路由结果</div>';
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  items.forEach((item) => {
+    const identityId = String(item.identity_id || item.selected_identity_id || "");
+    const identity = state.collectorIdentities.find((entry) => entry.identity_id === identityId);
+    const row = document.createElement("div");
+    row.className = "collector-preview-row";
+    const rawReason = String(item.reason || item.source || item.strategy || "policy");
+    const reason = {
+      stored_binding: "已有绑定",
+      fixed_binding: "固定绑定",
+      explicit: "明确绑定",
+      sticky_balanced: "稳定粘连 + 均衡",
+      least_loaded: "当前最空闲",
+      policy: "平台策略",
+    }[rawReason] || rawReason;
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(item.target_key || item.target || "—")}</strong>
+        <span>${escapeHtml(reason)}</span>
+      </div>
+      <span class="collector-preview-arrow" aria-hidden="true">→</span>
+      <div class="collector-preview-identity">
+        <strong>${escapeHtml(identity?.name || identityId || "未分配")}</strong>
+        <span>${escapeHtml(identity ? collectorPlatformLabel(identity.platform) : "无可用身份")}</span>
+      </div>
+    `;
+    fragment.appendChild(row);
+  });
+  refs.collectorPreviewResult.appendChild(fragment);
+  const counts = payload?.counts || payload?.data?.counts || {};
+  const assigned = Number(counts.assigned ?? items.filter((item) => item.identity_id).length);
+  setCollectorStatus(
+    refs.collectorPreviewStatus,
+    `预览 ${requestedCount} 个目标 · 已分配 ${assigned} · 未分配 ${Math.max(0, requestedCount - assigned)}`,
+    assigned === requestedCount ? "success" : "",
+  );
+}
+
+async function previewCollectorRouting() {
+  const fallbackTarget = refs.collectorAssignmentKey.value.trim();
+  const targets = String(refs.collectorPreviewTargets.value || fallbackTarget)
+    .split(/\r?\n/)
+    .map(normalizeCollectorAccountTargetKey)
+    .filter(Boolean);
+  if (!targets.length) {
+    setCollectorStatus(refs.collectorPreviewStatus, "请至少输入一个目标标识", "error");
+    refs.collectorPreviewTargets.focus();
+    return;
+  }
+  const body = {
+    platform: refs.collectorAssignmentPlatform.value,
+    target_type: "account",
+    targets: targets.map((targetKey) => ({ target_key: targetKey })),
+  };
+  setCollectorStatus(refs.collectorPreviewStatus, "正在计算路由结果…");
+  refs.collectorPreviewResult.hidden = true;
+  try {
+    const payload = await fetchJson("/ui/api/collector-policies/preview", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify(body),
+    });
+    renderCollectorPreview(payload, targets.length);
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setCollectorStatus(refs.collectorPreviewStatus, `预览失败：${error.message}`, "error");
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
 function workflowAccountEndpoint(platform) {
   return platform === "tiktok"
     ? "/workflow/tiktok/account_batch"
@@ -2911,25 +4343,111 @@ function workflowDetailEndpoint(platform) {
     : "/workflow/douyin/detail_links";
 }
 
+function syncIdentityOverrideControls(identitySelect, cookieInput, proxyInput, help, contextLabel) {
+  const identityId = identitySelect.value;
+  const selectedIdentity = collectorIdentityById(identityId);
+  const usesIdentity = Boolean(identityId);
+  if (usesIdentity) {
+    cookieInput.value = "";
+    proxyInput.value = "";
+  }
+  cookieInput.disabled = usesIdentity;
+  proxyInput.disabled = usesIdentity;
+  cookieInput.setAttribute("aria-disabled", String(usesIdentity));
+  proxyInput.setAttribute("aria-disabled", String(usesIdentity));
+  if (!help) {
+    return;
+  }
+  delete help.dataset.state;
+  if (usesIdentity) {
+    help.textContent = selectedIdentity
+      ? `已选择“${selectedIdentity.name}”；${contextLabel}使用该身份保存的 Cookie 与代理，兼容覆盖已停用。`
+      : `已选择指定身份；${contextLabel}使用身份凭据，兼容覆盖已停用。`;
+    return;
+  }
+  if (cookieInput.value.trim() || proxyInput.value.trim()) {
+    help.textContent = `已填写兼容覆盖；${contextLabel}将绕过身份池，直接使用这些临时 Cookie / 代理。`;
+    help.dataset.state = "warning";
+    return;
+  }
+  help.textContent = `${contextLabel}使用当前平台的已保存路由策略；不填写兼容覆盖时才会进入身份池。`;
+}
+
+function syncWorkflowAccountIdentityOverrides() {
+  syncIdentityOverrideControls(
+    refs.workflowAccountIdentity,
+    refs.workflowAccountCookie,
+    refs.workflowAccountProxy,
+    refs.workflowAccountIdentityHelp,
+    "本次批量任务",
+  );
+}
+
+function syncScheduleIdentityOverrides() {
+  syncIdentityOverrideControls(
+    refs.scheduleIdentity,
+    refs.scheduleCookie,
+    refs.scheduleProxy,
+    refs.scheduleIdentityHelp,
+    "该定时任务",
+  );
+}
+
+function syncWorkflowDetailIdentityOverrides() {
+  syncIdentityOverrideControls(
+    refs.workflowDetailIdentity,
+    refs.workflowDetailCookie,
+    refs.workflowDetailProxy,
+    refs.workflowDetailIdentityHelp,
+    "本次链接下载任务",
+  );
+}
+
+function syncMonitorIdentityOverrides() {
+  syncIdentityOverrideControls(
+    refs.monitorIdentity,
+    refs.monitorCookie,
+    refs.monitorProxy,
+    refs.monitorIdentityHelp,
+    "该收藏夹监控",
+  );
+}
+
+function selectedCollectorIdentityIsRunnable(select) {
+  const identityId = select.value;
+  return !identityId || collectorIdentityIsRoutable(collectorIdentityById(identityId));
+}
+
 async function runWorkflowAccountTask() {
   const platform = refs.workflowAccountPlatform.value;
   const source = refs.workflowAccountSource.value;
-  refs.workflowAccountStatus.textContent = "正在创建账号批量任务…";
+  if (!selectedCollectorIdentityIsRunnable(refs.workflowAccountIdentity)) {
+    setCollectorStatus(
+      refs.workflowAccountStatus,
+      "当前选中的身份已不可路由，请改用自动路由或选择其他身份",
+      "error",
+    );
+    refs.workflowAccountIdentity.focus();
+    return;
+  }
+  setCollectorStatus(refs.workflowAccountStatus, "正在创建账号批量任务…");
   refs.workflowAccountSummary.textContent = "";
   try {
     const useSettings = source === "settings";
+    const identityId = refs.workflowAccountIdentity.value || "";
     const payload = {
       use_settings: useSettings,
       items: useSettings
         ? []
         : collectAccountRows(platform === "tiktok" ? "tiktok" : "douyin"),
-      cookie: refs.workflowAccountCookie.value.trim(),
-      proxy: refs.workflowAccountProxy.value.trim(),
+      cookie: identityId ? "" : refs.workflowAccountCookie.value.trim(),
+      proxy: identityId ? "" : refs.workflowAccountProxy.value.trim(),
+      identity_id: identityId,
     };
     const endpoint = workflowAccountEndpoint(platform);
     const task = await enqueueTaskRequest(endpoint, payload);
     state.selectedTaskId = task?.task_id || "";
-    refs.workflowAccountStatus.textContent = `任务已入队: ${task?.task_id || endpoint}`;
+    setCollectorStatus(refs.workflowAccountStatus, `任务已入队: ${task?.task_id || endpoint}`, "success");
     refs.workflowAccountSummary.textContent = `${task?.status || "pending"} · ${
       task?.endpoint || endpoint
     }`;
@@ -2939,7 +4457,7 @@ async function runWorkflowAccountTask() {
     await loadTaskList();
     setApiStatus("就绪", "ok");
   } catch (error) {
-    refs.workflowAccountStatus.textContent = `创建失败: ${error.message}`;
+    setCollectorStatus(refs.workflowAccountStatus, `创建失败: ${error.message}`, "error");
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -3010,8 +4528,22 @@ function setWorkflowDetailStatus(text, kind = "") {
   }
 }
 
+function syncWorkflowDetailIdentitySelector() {
+  const links = parseWorkflowLinks(refs.workflowDetailLinks.value);
+  const resolution = resolveWorkflowDetailPlatform(links);
+  const platform = resolution.error ? "" : resolution.platform;
+  populateCollectorIdentitySelect(
+    refs.workflowDetailIdentity,
+    platform,
+    platform ? "自动路由" : "自动路由（识别平台后可选）",
+    { preserveUnavailable: true },
+  );
+  syncWorkflowDetailIdentityOverrides();
+}
+
 function syncWorkflowDetailInputState() {
   const links = parseWorkflowLinks(refs.workflowDetailLinks.value);
+  syncWorkflowDetailIdentitySelector();
   if (refs.workflowDetailStatus.dataset.state) {
     setWorkflowDetailStatus(links.length ? "等待提交" : "等待输入");
     refs.workflowDetailSummary.textContent = "";
@@ -3045,14 +4577,24 @@ async function runWorkflowDetailTask() {
     return;
   }
   const platform = resolution.platform;
+  if (!selectedCollectorIdentityIsRunnable(refs.workflowDetailIdentity)) {
+    setWorkflowDetailStatus(
+      "当前选中的身份已不可路由，请改用自动路由或选择其他身份",
+      "error",
+    );
+    refs.workflowDetailIdentity.focus();
+    return;
+  }
   setWorkflowDetailStatus("正在创建链接下载任务…");
   refs.workflowDetailSummary.textContent = "";
   try {
     const endpoint = workflowDetailEndpoint(platform);
+    const identityId = refs.workflowDetailIdentity.value || "";
     const payload = {
       links,
-      cookie: refs.workflowDetailCookie.value.trim(),
-      proxy: refs.workflowDetailProxy.value.trim(),
+      identity_id: identityId,
+      cookie: identityId ? "" : refs.workflowDetailCookie.value.trim(),
+      proxy: identityId ? "" : refs.workflowDetailProxy.value.trim(),
     };
     const task = await enqueueTaskRequest(endpoint, payload);
     state.selectedTaskId = task?.task_id || "";
@@ -3076,6 +4618,7 @@ async function runWorkflowDetailTask() {
 function schedulePayloadFromForm() {
   const platform = refs.schedulePlatform.value;
   const useSettings = refs.scheduleSource.value === "settings";
+  const identityId = refs.scheduleIdentity.value || "";
   return {
     name: refs.scheduleName.value.trim(),
     platform,
@@ -3085,11 +4628,25 @@ function schedulePayloadFromForm() {
       : collectAccountRows(platform === "tiktok" ? "tiktok" : "douyin"),
     hour: Number(refs.scheduleHour.value || 0),
     minute: Number(refs.scheduleMinute.value || 0),
-    cookie: refs.scheduleCookie.value.trim(),
-    proxy: refs.scheduleProxy.value.trim(),
+    identity_id: identityId,
+    cookie: identityId ? "" : refs.scheduleCookie.value.trim(),
+    proxy: identityId ? "" : refs.scheduleProxy.value.trim(),
     uptime_kuma_url: refs.scheduleUptimeKumaUrl?.value.trim(),
     enabled: true,
   };
+}
+
+function collectorIdentityReferenceLabel(identityId) {
+  if (!identityId) {
+    return "自动路由";
+  }
+  const identity = collectorIdentityById(identityId);
+  if (!identity) {
+    return `${identityId}（身份已不存在）`;
+  }
+  return collectorIdentityIsRoutable(identity)
+    ? `${identity.name} · ${identity.identity_id}`
+    : `${identity.name} · ${identity.identity_id}（当前不可路由）`;
 }
 
 function renderScheduleList(items) {
@@ -3121,7 +4678,9 @@ function renderScheduleList(items) {
     )}</span>
         <span class="task-time">每日 ${String(hour).padStart(2, "0")}:${String(
       minute,
-    ).padStart(2, "0")} · 下次 ${escapeHtml(item.next_run_at || "-")}</span>
+    ).padStart(2, "0")} · 身份 ${escapeHtml(collectorIdentityReferenceLabel(item.identity_id))} · 下次 ${escapeHtml(
+      item.next_run_at || "-",
+    )}</span>
       </div>
       <div class="task-actions">
         <button class="btn ghost" type="button" data-action="run">立即执行</button>
@@ -3159,7 +4718,16 @@ async function loadSchedules() {
 }
 
 async function createSchedule() {
-  refs.scheduleStatus.textContent = "正在创建定时任务…";
+  if (!selectedCollectorIdentityIsRunnable(refs.scheduleIdentity)) {
+    setCollectorStatus(
+      refs.scheduleStatus,
+      "当前选中的身份已不可路由，请改用自动路由或选择其他身份",
+      "error",
+    );
+    refs.scheduleIdentity.focus();
+    return;
+  }
+  setCollectorStatus(refs.scheduleStatus, "正在创建定时任务…");
   try {
     const payload = schedulePayloadFromForm();
     await fetchJson("/ui/api/schedules", {
@@ -3167,11 +4735,11 @@ async function createSchedule() {
       headers: headerOptions(true),
       body: JSON.stringify(payload),
     });
-    refs.scheduleStatus.textContent = "定时任务创建成功";
+    setCollectorStatus(refs.scheduleStatus, "定时任务创建成功", "success");
     await loadSchedules();
     setApiStatus("就绪", "ok");
   } catch (error) {
-    refs.scheduleStatus.textContent = `创建失败: ${error.message}`;
+    setCollectorStatus(refs.scheduleStatus, `创建失败: ${error.message}`, "error");
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
@@ -3220,6 +4788,7 @@ async function deleteSchedule(scheduleId) {
 }
 
 function collectMonitorPayloadFromForm() {
+  const identityId = refs.monitorIdentity.value || "";
   return {
     name: refs.monitorName.value.trim(),
     collect_id: refs.monitorCollectId.value.trim(),
@@ -3229,8 +4798,9 @@ function collectMonitorPayloadFromForm() {
     default_earliest: refs.monitorDefaultEarliest.value.trim(),
     default_latest: refs.monitorDefaultLatest.value.trim(),
     bark_url: refs.monitorBarkUrl.value.trim(),
-    cookie: refs.monitorCookie.value.trim(),
-    proxy: refs.monitorProxy.value.trim(),
+    identity_id: identityId,
+    cookie: identityId ? "" : refs.monitorCookie.value.trim(),
+    proxy: identityId ? "" : refs.monitorProxy.value.trim(),
     enabled: refs.monitorEnabled.checked,
     account_enable: refs.monitorAccountEnable.checked,
     immediate_crawl: refs.monitorImmediateCrawl.checked,
@@ -3273,6 +4843,9 @@ function renderCollectMonitorList(items) {
       lastResult.added_accounts || 0,
     )} · 去重 ${escapeHtml(lastResult.duplicate_accounts || 0)}
         </span>
+        <span class="task-time">身份 ${escapeHtml(
+          collectorIdentityReferenceLabel(item.identity_id),
+        )}</span>
       </div>
       <div class="task-actions">
         <button class="btn ghost" type="button" data-action="run">立即执行</button>
@@ -3300,13 +4873,19 @@ async function loadCollectMonitors() {
       method: "GET",
       headers: headerOptions(false),
     });
-    renderCollectMonitorList(payload.items || []);
+    state.collectMonitorItems = payload.items || [];
+    renderCollectMonitorList(state.collectMonitorItems);
   } catch (error) {
     refs.monitorStatus.textContent = `加载监控失败: ${error.message}`;
   }
 }
 
 async function createCollectMonitor() {
+  if (!selectedCollectorIdentityIsRunnable(refs.monitorIdentity)) {
+    refs.monitorStatus.textContent = "当前选中的身份已不可路由，请改用自动路由或选择其他身份";
+    refs.monitorIdentity.focus();
+    return;
+  }
   refs.monitorStatus.textContent = "正在创建收藏夹监控…";
   try {
     const payload = collectMonitorPayloadFromForm();
@@ -3722,6 +5301,9 @@ function bindEvents() {
         loadTaskList(),
         loadSchedules(),
         loadCollectMonitors(),
+        loadCollectorIdentities(),
+        loadCollectorPolicy(refs.collectorPolicyPlatform.value),
+        loadCollectorAssignments(refs.collectorAssignmentPlatform.value),
       ]);
       connectLogSocket();
     });
@@ -3941,6 +5523,12 @@ function bindEvents() {
   refs.accountsTikTokCheckBtn.addEventListener("click", () =>
     withBusyButton(refs.accountsTikTokCheckBtn, "检测中", () => verifyAccounts("tiktok")),
   );
+  refs.accountsDouyinIdentity.addEventListener("change", () => {
+    syncAccountVerifyIdentityHelp("douyin");
+  });
+  refs.accountsTikTokIdentity.addEventListener("change", () => {
+    syncAccountVerifyIdentityHelp("tiktok");
+  });
 
   refs.accountsDouyinSelectAllBtn.addEventListener("click", () =>
     selectAllRows("douyin", "active", true),
@@ -4245,6 +5833,9 @@ function bindEvents() {
 
   refs.workflowDetailLinks.addEventListener("input", syncWorkflowDetailInputState);
   refs.workflowDetailPlatform.addEventListener("change", syncWorkflowDetailInputState);
+  refs.workflowDetailIdentity.addEventListener("change", syncWorkflowDetailIdentityOverrides);
+  refs.workflowDetailCookie.addEventListener("input", syncWorkflowDetailIdentityOverrides);
+  refs.workflowDetailProxy.addEventListener("input", syncWorkflowDetailIdentityOverrides);
   refs.workflowDetailLinks.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
@@ -4267,9 +5858,190 @@ function bindEvents() {
   refs.monitorRefreshBtn.addEventListener("click", () => {
     withBusyButton(refs.monitorRefreshBtn, "刷新中", loadCollectMonitors);
   });
+  refs.monitorIdentity.addEventListener("change", syncMonitorIdentityOverrides);
+  refs.monitorCookie.addEventListener("input", syncMonitorIdentityOverrides);
+  refs.monitorProxy.addEventListener("input", syncMonitorIdentityOverrides);
+
+  refs.collectorCreateBtn.addEventListener("click", (event) => {
+    openCollectorIdentityDialog("", event.currentTarget);
+  });
+
+  refs.collectorRefreshBtn.addEventListener("click", () => {
+    withBusyButton(refs.collectorRefreshBtn, "刷新中", async () => {
+      await Promise.all([
+        loadCollectorIdentities(),
+        loadCollectorPolicy(refs.collectorPolicyPlatform.value),
+        loadCollectorAssignments(refs.collectorAssignmentPlatform.value),
+      ]);
+    });
+  });
+
+  refs.collectorPlatformFilter.addEventListener("change", renderCollectorIdentities);
+  refs.collectorStatusFilter.addEventListener("change", renderCollectorIdentities);
+
+  refs.collectorIdentityList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-collector-action]");
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    const action = button.dataset.collectorAction;
+    if (action === "create") {
+      openCollectorIdentityDialog("", button);
+      return;
+    }
+    if (action === "clear-filter") {
+      refs.collectorPlatformFilter.value = "all";
+      refs.collectorStatusFilter.value = "all";
+      renderCollectorIdentities();
+      refs.collectorPlatformFilter.focus();
+      return;
+    }
+    if (action === "retry") {
+      withBusyButton(button, "重试中", loadCollectorIdentities);
+      return;
+    }
+    const card = button.closest("[data-identity-id]");
+    if (!card?.dataset.identityId) {
+      return;
+    }
+    runCollectorIdentityAction(action, card.dataset.identityId, button);
+  });
+
+  refs.collectorIdentityForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    withBusyButton(refs.collectorDialogSaveBtn, "保存中", saveCollectorIdentity);
+  });
+
+  refs.collectorDialogCloseBtn.addEventListener("click", closeCollectorIdentityDialog);
+  refs.collectorDialogCancelBtn.addEventListener("click", closeCollectorIdentityDialog);
+  refs.collectorIdentityDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeCollectorIdentityDialog();
+  });
+  refs.collectorIdentityDialog.addEventListener("click", (event) => {
+    if (event.target === refs.collectorIdentityDialog) {
+      closeCollectorIdentityDialog();
+    }
+  });
+  refs.collectorIdentityPlatform.addEventListener("change", syncCollectorCredentialFields);
+
+  refs.collectorPolicyPlatform.addEventListener("change", () => {
+    loadCollectorPolicy(refs.collectorPolicyPlatform.value);
+  });
+  refs.collectorPolicyForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    withBusyButton(refs.collectorPolicySaveBtn, "保存中", saveCollectorPolicy);
+  });
+
+  refs.collectorAssignmentPlatform.addEventListener("change", () => {
+    const platform = refs.collectorAssignmentPlatform.value;
+    populateCollectorIdentitySelect(
+      refs.collectorAssignmentIdentity,
+      platform,
+      "选择一个可路由身份",
+      { preserveUnavailable: true },
+    );
+    refs.collectorPreviewResult.hidden = true;
+    setCollectorStatus(refs.collectorAssignmentStatus, "等待填写账号主页 URL");
+    setCollectorStatus(refs.collectorPreviewStatus, "预览只读，不会创建任务或修改绑定");
+    Promise.allSettled([
+      loadCollectorPolicy(platform),
+      loadCollectorAssignments(platform),
+    ]);
+  });
+  refs.collectorAssignmentForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    withBusyButton(refs.collectorAssignmentSaveBtn, "保存中", saveCollectorAssignment);
+  });
+  refs.collectorAssignmentUnbindBtn.addEventListener("click", () => {
+    withBusyButton(refs.collectorAssignmentUnbindBtn, "解绑中", () =>
+      removeCollectorAssignment(
+        refs.collectorAssignmentPlatform.value,
+        refs.collectorAssignmentKey.value,
+      ),
+    );
+  });
+  refs.collectorAssignmentList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-collector-binding-action]");
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    const action = button.dataset.collectorBindingAction;
+    const platform = refs.collectorAssignmentPlatform.value;
+    if (action === "retry") {
+      withBusyButton(button, "重试中", () => loadCollectorAssignments(platform));
+      return;
+    }
+    const row = button.closest("[data-target-key]");
+    const targetKey = row?.dataset.targetKey || "";
+    const assignment = (state.collectorAssignments[platform] || []).find(
+      (item) => item.target_key === targetKey,
+    );
+    if (!assignment) {
+      return;
+    }
+    if (action === "load") {
+      loadCollectorAssignmentIntoForm(assignment);
+      return;
+    }
+    if (action === "unbind") {
+      withBusyButton(button, "解绑中", () =>
+        removeCollectorAssignment(platform, assignment.target_key),
+      );
+    }
+  });
+  refs.collectorPreviewBtn.addEventListener("click", () => {
+    withBusyButton(refs.collectorPreviewBtn, "计算中", previewCollectorRouting);
+  });
+
+  refs.workflowAccountPlatform.addEventListener("change", () => {
+    populateCollectorIdentitySelect(
+      refs.workflowAccountIdentity,
+      refs.workflowAccountPlatform.value,
+      "自动路由",
+      { preserveUnavailable: true },
+    );
+    syncWorkflowAccountIdentityOverrides();
+  });
+  refs.workflowAccountIdentity.addEventListener("change", syncWorkflowAccountIdentityOverrides);
+  refs.workflowAccountCookie.addEventListener("input", syncWorkflowAccountIdentityOverrides);
+  refs.workflowAccountProxy.addEventListener("input", syncWorkflowAccountIdentityOverrides);
+  refs.schedulePlatform.addEventListener("change", () => {
+    populateCollectorIdentitySelect(
+      refs.scheduleIdentity,
+      refs.schedulePlatform.value,
+      "自动路由",
+      { preserveUnavailable: true },
+    );
+    syncScheduleIdentityOverrides();
+  });
+  refs.scheduleIdentity.addEventListener("change", syncScheduleIdentityOverrides);
+  refs.scheduleCookie.addEventListener("input", syncScheduleIdentityOverrides);
+  refs.scheduleProxy.addEventListener("input", syncScheduleIdentityOverrides);
 
   refs.taskEndpoint.addEventListener("change", () => {
+    syncTaskIdentitySelector();
     loadTaskTemplate();
+  });
+
+  refs.taskIdentity.addEventListener("change", () => {
+    try {
+      rewriteTaskPayloadForIdentity();
+    } catch (error) {
+      syncTaskIdentityControls();
+      refs.taskIdentityHelp.textContent = `Payload JSON 无法更新：${error.message}`;
+      refs.taskIdentityHelp.dataset.state = "warning";
+    }
+  });
+
+  refs.taskPayload.addEventListener("input", syncTaskIdentityControls);
+  refs.taskPayload.addEventListener("blur", () => {
+    if (!refs.taskIdentity.value) {
+      return;
+    }
+    try {
+      rewriteTaskPayloadForIdentity();
+    } catch {}
   });
 
   refs.taskTemplateBtn.addEventListener("click", () => {
@@ -4324,6 +6096,8 @@ function startTaskPolling() {
 
 function bootstrap() {
   bindEvents();
+  syncWorkflowAccountIdentityOverrides();
+  syncScheduleIdentityOverrides();
   syncTabOrientation();
   setBoardAvatarBatchBusy(false);
   syncBatchValuePlaceholder("douyin");
@@ -4373,6 +6147,8 @@ function bootstrap() {
   setAccountRows("tiktok", []);
   setDeletedRows("douyin", []);
   setDeletedRows("tiktok", []);
+  syncCollectorCredentialFields();
+  syncCollectorIdentitySelectors();
   syncWorkflowDetailInputState();
   loadTaskTemplate();
   connectLogSocket();
@@ -4385,6 +6161,9 @@ function bootstrap() {
   loadTaskList();
   loadSchedules();
   loadCollectMonitors();
+  loadCollectorIdentities();
+  loadCollectorPolicy(refs.collectorPolicyPlatform.value);
+  loadCollectorAssignments(refs.collectorAssignmentPlatform.value);
 }
 
 bootstrap();

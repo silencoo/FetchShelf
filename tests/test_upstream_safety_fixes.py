@@ -40,7 +40,7 @@ def test_public_ui_tasks_recursively_redact_credentials():
     assert public_task["result"]["params"]["headers"]["Authorization"] == "[REDACTED]"
     assert public_task["result"]["params"]["uptime_kuma_url"] == "[REDACTED]"
     assert public_task["payload"]["links"] == task["payload"]["links"]
-    assert public_task["result"]["params"]["headers"]["User-Agent"] == "safe-agent"
+    assert public_task["result"]["params"]["headers"]["User-Agent"] == "[REDACTED]"
     assert public_task["result"]["data"] == {"downloaded": 1}
     assert "_runner" not in public_task
     assert task["payload"]["cookie"] == "sessionid=secret"

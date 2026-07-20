@@ -51,6 +51,7 @@ class LoggerManager(BaseLogger):
         self.log.setLevel(INFO_LEVEL)
 
     def info(self, text: str, output=True, web: bool | None = None, **kwargs):
+        text = self.sanitize_text(text)
         if web is None:
             web = output
         if web:
@@ -60,6 +61,7 @@ class LoggerManager(BaseLogger):
         self.log.info(text.strip())
 
     def warning(self, text: str, output=True, web: bool | None = None, **kwargs):
+        text = self.sanitize_text(text)
         if web is None:
             web = output
         if web:
@@ -69,6 +71,7 @@ class LoggerManager(BaseLogger):
         self.log.warning(text.strip())
 
     def error(self, text: str, output=True, web: bool | None = None, **kwargs):
+        text = self.sanitize_text(text)
         if web is None:
             web = output
         if web:
@@ -79,6 +82,7 @@ class LoggerManager(BaseLogger):
 
     def debug(self, text: str, **kwargs):
         if self.DEBUG:
+            text = self.sanitize_text(text)
             self.push_web_log("DEBUG", text)
             self.console.print(text, style=DEBUG, **kwargs)
             self.log.debug(text.strip())

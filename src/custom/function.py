@@ -4,6 +4,7 @@ from random import lognormvariate
 from typing import TYPE_CHECKING
 
 from src.translation import _
+from src.webui_security import validate_webui_token
 
 if TYPE_CHECKING:
     from src.tools import ColorfulConsole
@@ -36,11 +37,11 @@ def get_wait_time(
     return max(0.5, lognormvariate(mu, sigma))
 
 
-async def wait() -> None:
+async def wait(avg_delay: float | int | None = None) -> None:
     """
     设置网络请求间隔时间，仅对获取数据生效，不影响下载文件
     """
-    delay = get_wait_time()
+    delay = get_wait_time(avg_delay)
     if delay > 0:
         await sleep(delay)
 
@@ -88,6 +89,6 @@ async def suspend(count: int, console: "ColorfulConsole") -> None:
     # pass
 
 
-def is_valid_token(token: str) -> bool:
-    """Web API 接口模式 和 Web UI 交互模式 token 参数验证"""
-    return True
+def is_valid_token(token: str | None, client_host: str | None = None) -> bool:
+    """Web API / Web UI token validation with loopback-only dev fallback."""
+    return validate_webui_token(token, client_host)
