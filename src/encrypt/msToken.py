@@ -114,6 +114,7 @@ class MsToken:
         headers: dict,
         token="",
         proxy: str = None,
+        signer=None,
         **kwargs,
     ) -> dict | None:
         params = {cls.NAME: token}
@@ -218,9 +219,13 @@ class MsTokenTikTok(MsToken):
         params = {cls.NAME: token}
         if token:
             headers |= {"Cookie": f"{cls.NAME}={token}"}
+            signer = signer or XBogusTikTok()
             params["X-Bogus"] = quote(
-                XBogusTikTok().get_x_bogus(
-                    params, user_agent=headers.get("User-Agent", USERAGENT)
+                signer.get_x_bogus(
+                    query=params,
+                    data=None,
+                    method="GET",
+                    user_agent=headers.get("User-Agent", USERAGENT),
                 ),
                 safe="",
             )

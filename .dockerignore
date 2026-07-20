@@ -1,0 +1,15 @@
+.git/
+.github/
+.idea/
+.vscode/
+.venv/
+.uv-cache/
+**/__pycache__/
+**/*.pyc
+webui/node_modules/
+src/webui/static/
+downloads/
+settings/
+logs/
+repos/
+.DS_Store

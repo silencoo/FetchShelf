@@ -4,6 +4,7 @@ from .capture import capture_error_request
 from .choose import choose
 from .cleaner import Cleaner
 from .console import ColorfulConsole
+from .dynamic_import import load_objects_from_external_py
 from .error import CacheError
 from .error import DownloaderError
 from .file_folder import file_switch

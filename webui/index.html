@@ -1,0 +1,1233 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="DouK-Downloader 的自托管下载、账户监控与媒体管理控制台。"
+    />
+    <meta name="theme-color" content="#090b10" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/src/assets/brand/douk-favicon-32.png"
+    />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/src/assets/brand/douk-touch-icon-180.png"
+    />
+    <script>
+      (() => {
+        const storageKey = "webui.theme";
+        const allowedPreferences = new Set(["system", "light", "dark"]);
+        let preference = "system";
+
+        try {
+          const storedPreference = window.localStorage.getItem(storageKey);
+          if (storedPreference && allowedPreferences.has(storedPreference)) {
+            preference = storedPreference;
+          }
+        } catch {
+          // Storage can be unavailable in strict privacy modes; system theme remains usable.
+        }
+
+        const resolvedTheme =
+          preference === "system"
+            ? window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : preference;
+
+        document.documentElement.dataset.theme = resolvedTheme;
+        document.documentElement.dataset.themePreference = preference;
+        document.documentElement.style.colorScheme = resolvedTheme;
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute("content", resolvedTheme === "light" ? "#eef3f7" : "#090b10");
+      })();
+    </script>
+    <title>下载工作台 · DouK Downloader</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="app-sidebar" aria-label="主导航">
+        <div class="sidebar-brand">
+          <span class="brand-mark" aria-hidden="true">
+            <img
+              class="brand-logo"
+              src="/src/assets/brand/douk-mark-48.png"
+              srcset="/src/assets/brand/douk-mark-48.png 1x, /src/assets/brand/douk-mark-96.png 2x"
+              width="40"
+              height="40"
+              alt=""
+              decoding="async"
+            />
+          </span>
+          <p class="brand-name">
+            <span class="brand-name-primary">DouK</span>
+            <span class="brand-suffix">Downloader</span>
+          </p>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="功能导航">
+          <p class="nav-kicker">工作空间</p>
+          <div class="top-tabs" role="tablist" aria-orientation="vertical">
+            <button
+              id="tab-workbench"
+              class="tab-btn active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="panel-workbench"
+              data-tab-target="workbench"
+            >
+              <span class="nav-index" aria-hidden="true">01</span>
+              <span class="nav-label">下载工作台</span>
+              <span class="nav-description">任务、链接与定时下载</span>
+            </button>
+            <button
+              id="tab-monitor"
+              class="tab-btn"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-monitor"
+              data-tab-target="monitor"
+            >
+              <span class="nav-index" aria-hidden="true">02</span>
+              <span class="nav-label">账户监控</span>
+              <span class="nav-description">收藏夹发现与自动追踪</span>
+            </button>
+            <button
+              id="tab-control"
+              class="tab-btn"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-control-settings panel-control-logs"
+              data-tab-target="control"
+            >
+              <span class="nav-index" aria-hidden="true">03</span>
+              <span class="nav-label">设置与日志</span>
+              <span class="nav-description">运行参数与实时状态</span>
+            </button>
+            <button
+              id="tab-files"
+              class="tab-btn"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-files"
+              data-tab-target="files"
+            >
+              <span class="nav-index" aria-hidden="true">04</span>
+              <span class="nav-label">文件浏览</span>
+              <span class="nav-description">下载成果与媒体预览</span>
+            </button>
+            <button
+              id="tab-profiles"
+              class="tab-btn"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-profiles"
+              data-tab-target="profiles"
+            >
+              <span class="nav-index" aria-hidden="true">05</span>
+              <span class="nav-label">账户看板</span>
+              <span class="nav-description">头像、媒体与账户目录</span>
+            </button>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div id="magic-metrics-root" class="magic-metrics-root"></div>
+          <p class="sidebar-note">自托管 · NAS Ready</p>
+        </div>
+      </aside>
+
+      <div class="app-main">
+        <header class="topbar command-header">
+          <div class="command-copy">
+            <img
+              class="command-logo"
+              src="/src/assets/brand/douk-mark-48.png"
+              srcset="/src/assets/brand/douk-mark-48.png 1x, /src/assets/brand/douk-mark-96.png 2x"
+              width="34"
+              height="34"
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+            />
+            <h1 id="command-title" class="command-title">下载工作台</h1>
+          </div>
+          <div class="topbar-tools" aria-label="外观、连接与鉴权">
+            <div id="theme-control-root" class="theme-control-root"></div>
+            <label class="field compact token-field">
+              <span>访问 Token</span>
+              <input id="token-input" type="text" placeholder="可选" autocomplete="off" />
+            </label>
+            <button id="apply-token-btn" type="button" class="btn">应用</button>
+            <div class="status-cluster" aria-live="polite">
+              <span id="ws-status" class="badge warn">日志: 轮询</span>
+              <span id="api-status" class="badge">API: 就绪</span>
+            </div>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-shell" tabindex="-1">
+          <div class="workspace-backdrop" aria-hidden="true">
+            <div id="magic-grid-root" class="magic-grid-root"></div>
+          </div>
+          <div class="dashboard-grid workspace-content">
+        <section
+          id="panel-control-settings"
+          class="card settings-card tab-panel hidden-panel"
+          role="tabpanel"
+          aria-labelledby="tab-control"
+          data-tab-panel="control"
+        >
+          <div class="card-head">
+            <div class="section-heading">
+              <p class="section-eyebrow">CONFIGURATION</p>
+              <h2>设置配置</h2>
+              <p class="section-subtitle">管理下载目录、媒体选项、访问参数与账户来源。</p>
+            </div>
+            <div class="card-actions">
+              <button id="settings-reload-btn" type="button" class="btn ghost">重新加载</button>
+              <button id="settings-save-btn" type="button" class="btn primary">保存配置</button>
+            </div>
+          </div>
+          <form id="settings-form" class="form-grid" autocomplete="off">
+            <label class="field">
+              <span>root</span>
+              <input name="root" type="text" placeholder="下载与导出根目录" />
+            </label>
+            <label class="field">
+              <span>folder_name</span>
+              <input name="folder_name" type="text" placeholder="detail 模式目录名" />
+            </label>
+            <label class="field">
+              <span>profile_avatar_folder</span>
+              <input
+                name="profile_avatar_folder"
+                type="text"
+                placeholder="自动头像输出目录（位于 settings 下）"
+              />
+            </label>
+            <label class="field">
+              <span>earliest_update_days</span>
+              <input
+                name="earliest_update_days"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="自动更新 earliest 回溯天数"
+              />
+            </label>
+            <label class="field">
+              <span>request_delay</span>
+              <input
+                name="request_delay"
+                type="number"
+                min="0"
+                step="0.5"
+                placeholder="平均请求间隔秒数；0 表示关闭"
+              />
+            </label>
+            <label class="field">
+              <span>storage_format</span>
+              <select name="storage_format">
+                <option value="">关闭</option>
+                <option value="csv">csv</option>
+                <option value="xlsx">xlsx</option>
+                <option value="sql">sql</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>proxy</span>
+              <input name="proxy" type="text" placeholder="如 socks5://127.0.0.1:1080" />
+            </label>
+            <label class="field">
+              <span>proxy_tiktok</span>
+              <input
+                name="proxy_tiktok"
+                type="text"
+                placeholder="如 socks5://127.0.0.1:1080"
+              />
+            </label>
+            <label class="field">
+              <span>run_command</span>
+              <input name="run_command" type="text" placeholder="可选命令参数" />
+            </label>
+            <label class="toggle-field">
+              <input name="download" type="checkbox" />
+              <span>download</span>
+            </label>
+            <label class="toggle-field">
+              <input name="folder_mode" type="checkbox" />
+              <span>folder_mode</span>
+            </label>
+            <label class="toggle-field">
+              <input name="music" type="checkbox" />
+              <span>music</span>
+            </label>
+            <label class="toggle-field">
+              <input name="dynamic_cover" type="checkbox" />
+              <span>dynamic_cover</span>
+            </label>
+            <label class="toggle-field">
+              <input name="static_cover" type="checkbox" />
+              <span>static_cover</span>
+            </label>
+            <label class="toggle-field">
+              <input name="auto_backfill_mark" type="checkbox" />
+              <span>auto_backfill_mark</span>
+            </label>
+            <label
+              class="toggle-field"
+              title="旧版 TikTok 接口失败时，启用浏览器兼容桥回退"
+            >
+              <input name="tiktok_bridge_fallback_enabled" type="checkbox" />
+              <span>tiktok_bridge_fallback_enabled</span>
+            </label>
+          </form>
+          <div id="accounts-settings-block" class="accounts-settings-block">
+            <div class="card-head mini">
+              <h3>accounts_urls 可视化配置</h3>
+              <div class="card-actions">
+                <button id="accounts-toggle-btn" type="button" class="btn ghost">
+                  收起配置
+                </button>
+                <button id="accounts-export-json-btn" type="button" class="btn ghost">
+                  导出 JSON
+                </button>
+                <button id="accounts-import-json-btn" type="button" class="btn ghost">
+                  导入 JSON
+                </button>
+                <input
+                  id="accounts-import-json-file"
+                  type="file"
+                  accept=".json,application/json"
+                  hidden
+                />
+              </div>
+            </div>
+            <div class="account-editor-grid">
+              <div class="account-editor-panel">
+                <div class="card-head mini">
+                  <h3>抖音账号（accounts_urls）</h3>
+                  <div class="card-actions">
+                    <input
+                      id="accounts-douyin-search"
+                      class="inline-input"
+                      type="text"
+                      placeholder="搜索 mark / url / 日期"
+                    />
+                    <button id="accounts-douyin-add-btn" type="button" class="btn ghost">
+                      新增一行
+                    </button>
+                    <button id="accounts-douyin-format-btn" type="button" class="btn ghost">
+                      规则化 URL
+                    </button>
+                    <button id="accounts-douyin-check-btn" type="button" class="btn ghost">
+                      检测账号
+                    </button>
+                  </div>
+                </div>
+                <div class="batch-toolbar">
+                  <button id="accounts-douyin-select-all-btn" type="button" class="btn ghost">
+                    全选
+                  </button>
+                  <button id="accounts-douyin-clear-select-btn" type="button" class="btn ghost">
+                    清空选择
+                  </button>
+                  <button id="accounts-douyin-open-selected-btn" type="button" class="btn ghost">
+                    批量打开
+                  </button>
+                  <select id="accounts-douyin-batch-field" class="inline-input batch-field-select">
+                    <option value="earliest">earliest</option>
+                    <option value="latest">latest</option>
+                    <option value="tab">tab</option>
+                    <option value="mark">mark</option>
+                    <option value="url">url</option>
+                    <option value="enable">enable</option>
+                    <option value="auto_update_earliest">auto_update_earliest</option>
+                  </select>
+                  <input
+                    id="accounts-douyin-batch-value"
+                    class="inline-input batch-value-input"
+                    type="text"
+                    placeholder="批量值（默认 earliest）"
+                  />
+                  <button id="accounts-douyin-apply-batch-btn" type="button" class="btn ghost">
+                    批量替换字段
+                  </button>
+                  <button
+                    id="accounts-douyin-delete-selected-btn"
+                    type="button"
+                    class="btn ghost danger"
+                  >
+                    移入 deleted
+                  </button>
+                </div>
+                <div class="account-table-wrap">
+                  <table class="account-table">
+                    <thead>
+                      <tr>
+                        <th>选中</th>
+                        <th>启用</th>
+                        <th>自动更新 earliest</th>
+                        <th>mark</th>
+                        <th>url</th>
+                        <th>tab</th>
+                        <th>earliest</th>
+                        <th>latest</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="accounts-douyin-body"></tbody>
+                  </table>
+                </div>
+                <div id="accounts-douyin-duplicate-status" class="status-line"></div>
+                <div class="card-head mini account-subhead">
+                  <h3>Deleted Accounts（抖音）</h3>
+                  <div class="card-actions">
+                    <button
+                      id="deleted-douyin-select-all-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      全选
+                    </button>
+                    <button
+                      id="deleted-douyin-clear-select-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      清空选择
+                    </button>
+                    <button
+                      id="deleted-douyin-open-selected-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      批量打开
+                    </button>
+                    <button
+                      id="deleted-douyin-restore-selected-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      批量撤销
+                    </button>
+                  </div>
+                </div>
+                <div class="account-table-wrap">
+                  <table class="account-table deleted-table">
+                    <thead>
+                      <tr>
+                        <th>选中</th>
+                        <th>mark</th>
+                        <th>url</th>
+                        <th>tab</th>
+                        <th>删除时间</th>
+                        <th>原因</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="deleted-douyin-body"></tbody>
+                  </table>
+                </div>
+                <div id="accounts-douyin-status" class="status-line"></div>
+              </div>
+
+              <div class="account-editor-panel">
+                <div class="card-head mini">
+                  <h3>TikTok 账号（accounts_urls_tiktok）</h3>
+                  <div class="card-actions">
+                    <input
+                      id="accounts-tiktok-search"
+                      class="inline-input"
+                      type="text"
+                      placeholder="搜索 mark / url / 日期"
+                    />
+                    <button id="accounts-tiktok-add-btn" type="button" class="btn ghost">
+                      新增一行
+                    </button>
+                    <button id="accounts-tiktok-format-btn" type="button" class="btn ghost">
+                      规则化 URL
+                    </button>
+                    <button id="accounts-tiktok-check-btn" type="button" class="btn ghost">
+                      检测账号
+                    </button>
+                  </div>
+                </div>
+                <div class="batch-toolbar">
+                  <button id="accounts-tiktok-select-all-btn" type="button" class="btn ghost">
+                    全选
+                  </button>
+                  <button id="accounts-tiktok-clear-select-btn" type="button" class="btn ghost">
+                    清空选择
+                  </button>
+                  <button id="accounts-tiktok-open-selected-btn" type="button" class="btn ghost">
+                    批量打开
+                  </button>
+                  <select id="accounts-tiktok-batch-field" class="inline-input batch-field-select">
+                    <option value="earliest">earliest</option>
+                    <option value="latest">latest</option>
+                    <option value="tab">tab</option>
+                    <option value="mark">mark</option>
+                    <option value="url">url</option>
+                    <option value="enable">enable</option>
+                    <option value="auto_update_earliest">auto_update_earliest</option>
+                  </select>
+                  <input
+                    id="accounts-tiktok-batch-value"
+                    class="inline-input batch-value-input"
+                    type="text"
+                    placeholder="批量值（默认 earliest）"
+                  />
+                  <button id="accounts-tiktok-apply-batch-btn" type="button" class="btn ghost">
+                    批量替换字段
+                  </button>
+                  <button
+                    id="accounts-tiktok-delete-selected-btn"
+                    type="button"
+                    class="btn ghost danger"
+                  >
+                    移入 deleted
+                  </button>
+                </div>
+                <div class="account-table-wrap">
+                  <table class="account-table">
+                    <thead>
+                      <tr>
+                        <th>选中</th>
+                        <th>启用</th>
+                        <th>自动更新 earliest</th>
+                        <th>mark</th>
+                        <th>url</th>
+                        <th>tab</th>
+                        <th>earliest</th>
+                        <th>latest</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="accounts-tiktok-body"></tbody>
+                  </table>
+                </div>
+                <div id="accounts-tiktok-duplicate-status" class="status-line"></div>
+                <div class="card-head mini account-subhead">
+                  <h3>Deleted Accounts（TikTok）</h3>
+                  <div class="card-actions">
+                    <button
+                      id="deleted-tiktok-select-all-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      全选
+                    </button>
+                    <button
+                      id="deleted-tiktok-clear-select-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      清空选择
+                    </button>
+                    <button
+                      id="deleted-tiktok-open-selected-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      批量打开
+                    </button>
+                    <button
+                      id="deleted-tiktok-restore-selected-btn"
+                      type="button"
+                      class="btn ghost"
+                    >
+                      批量撤销
+                    </button>
+                  </div>
+                </div>
+                <div class="account-table-wrap">
+                  <table class="account-table deleted-table">
+                    <thead>
+                      <tr>
+                        <th>选中</th>
+                        <th>mark</th>
+                        <th>url</th>
+                        <th>tab</th>
+                        <th>删除时间</th>
+                        <th>原因</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="deleted-tiktok-body"></tbody>
+                  </table>
+                </div>
+                <div id="accounts-tiktok-status" class="status-line"></div>
+              </div>
+            </div>
+            <div class="status-line">
+              提示：保存配置后可长期复用；也可直接在“下载工作台”按当前表格执行。
+            </div>
+            <div id="accounts-io-status" class="status-line">可导入或导出账号配置 JSON</div>
+          </div>
+          <div id="settings-status" class="status-line">等待加载配置…</div>
+          <div class="raw-settings-block">
+            <div class="card-head mini">
+              <h3>settings.json Editor</h3>
+              <div class="card-actions">
+                <button id="settings-raw-load-btn" type="button" class="btn ghost">加载原文</button>
+                <button id="settings-raw-format-btn" type="button" class="btn ghost">格式化</button>
+                <button id="settings-raw-save-btn" type="button" class="btn primary">保存原文</button>
+              </div>
+            </div>
+            <div class="quick-settings-panel">
+              <div class="card-head mini">
+                <h3>登录信息快捷编辑</h3>
+                <div class="card-actions">
+                  <button id="settings-auth-load-btn" type="button" class="btn ghost">载入当前值</button>
+                  <button id="settings-auth-apply-btn" type="button" class="btn ghost">写入原文</button>
+                  <button id="settings-auth-save-btn" type="button" class="btn primary">保存登录信息</button>
+                </div>
+              </div>
+              <div class="quick-settings-grid">
+                <label class="field">
+                  <span>抖音 Cookie</span>
+                  <textarea
+                    id="settings-auth-cookie-douyin"
+                    class="payload-editor quick-cookie-editor"
+                    rows="5"
+                    placeholder="粘贴抖音完整 Cookie"
+                  ></textarea>
+                </label>
+                <label class="field">
+                  <span>TikTok Cookie</span>
+                  <textarea
+                    id="settings-auth-cookie-tiktok"
+                    class="payload-editor quick-cookie-editor"
+                    rows="5"
+                    placeholder="粘贴 TikTok Web 完整 Cookie"
+                  ></textarea>
+                </label>
+              </div>
+              <div class="quick-settings-grid quick-settings-grid-compact">
+                <label class="field">
+                  <span>TikTok device_id</span>
+                  <input
+                    id="settings-auth-tiktok-device-id"
+                    type="text"
+                    placeholder="browser_info_tiktok.device_id"
+                  />
+                </label>
+                <label class="field">
+                  <span>TikTok User-Agent</span>
+                  <input
+                    id="settings-auth-tiktok-user-agent"
+                    type="text"
+                    placeholder="browser_info_tiktok.User-Agent"
+                  />
+                </label>
+              </div>
+              <div id="settings-auth-status" class="status-line">
+                可在这里快速修改抖音 / TikTok 登录信息，并同步到 settings.json
+              </div>
+            </div>
+            <textarea
+              id="settings-raw-editor"
+              class="payload-editor"
+              rows="10"
+              placeholder="加载并直接编辑 settings.json 原始内容"
+            ></textarea>
+            <div id="settings-raw-status" class="status-line">等待加载 settings.json…</div>
+          </div>
+        </section>
+
+        <section
+          id="panel-control-logs"
+          class="card logs-card tab-panel hidden-panel"
+          role="tabpanel"
+          aria-labelledby="tab-control"
+          data-tab-panel="control"
+        >
+          <div class="card-head">
+            <div class="section-heading">
+              <p class="section-eyebrow">LIVE TELEMETRY</p>
+              <h2>实时运行日志</h2>
+              <p class="section-subtitle">通过 WebSocket 跟踪任务进度，并在断线时自动切换轮询。</p>
+            </div>
+            <div class="card-actions">
+              <label class="toggle-field compact-inline">
+                <input id="logs-autoscroll" type="checkbox" checked />
+                <span>自动滚动</span>
+              </label>
+              <label class="toggle-field compact-inline">
+                <input id="logs-debug-toggle" type="checkbox" />
+                <span>显示调试</span>
+              </label>
+              <button id="logs-clear-btn" type="button" class="btn ghost">清屏</button>
+            </div>
+          </div>
+          <div id="log-stream" class="log-stream"></div>
+          <div class="status-line">
+            <span id="log-count">0 条日志</span>
+          </div>
+        </section>
+
+        <section
+          id="panel-files"
+          class="card gallery-card tab-panel hidden-panel"
+          role="tabpanel"
+          aria-labelledby="tab-files"
+          data-tab-panel="files"
+        >
+          <div class="card-head">
+            <div class="section-heading">
+              <p class="section-eyebrow">MEDIA LIBRARY</p>
+              <h2>文件浏览 Gallery</h2>
+              <p class="section-subtitle">浏览下载目录、预览媒体，并为账户固定封面或头像。</p>
+            </div>
+            <div class="card-actions">
+              <button id="files-up-btn" type="button" class="btn ghost">上一级</button>
+              <button id="files-refresh-btn" type="button" class="btn ghost">刷新</button>
+            </div>
+          </div>
+
+          <div class="files-toolbar">
+            <label class="field compact">
+              <span>scope</span>
+              <select id="files-scope">
+                <option value="download">download</option>
+                <option value="project">project</option>
+              </select>
+            </label>
+            <label class="field compact grow">
+              <span>path</span>
+              <input id="files-path" type="text" placeholder="相对路径，留空为根目录" />
+            </label>
+            <label class="field compact grow">
+              <span>search</span>
+              <input id="files-search" type="text" placeholder="按文件名过滤（当前目录）" />
+            </label>
+            <button id="files-open-btn" type="button" class="btn">打开</button>
+            <button id="files-stats-refresh-btn" type="button" class="btn ghost">刷新统计</button>
+          </div>
+
+          <div id="files-meta" class="status-line">等待加载目录…</div>
+          <div id="files-stats" class="status-line">统计信息待加载…</div>
+          <div class="file-account-tools">
+            <div id="files-account-context" class="status-line">
+              账户上下文：未从看板选择账户
+            </div>
+            <div class="card-actions">
+              <button id="files-back-to-board-btn" type="button" class="btn ghost">返回账户看板</button>
+              <button id="files-pin-profile-btn" type="button" class="btn ghost">设为 Profile Pin</button>
+              <button id="files-generate-avatar-btn" type="button" class="btn ghost">AI 生成头像</button>
+              <button id="files-pin-avatar-btn" type="button" class="btn ghost">手动设为头像</button>
+            </div>
+          </div>
+
+          <div class="gallery-layout">
+            <div
+              id="files-list"
+              class="files-list"
+              role="listbox"
+              aria-label="当前目录文件"
+              tabindex="-1"
+            ></div>
+            <div id="file-preview" class="file-preview">
+              <div class="empty-tip">选择文件后显示预览</div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="panel-profiles"
+          class="card profiles-card tab-panel hidden-panel"
+          role="tabpanel"
+          aria-labelledby="tab-profiles"
+          data-tab-panel="profiles"
+        >
+          <div class="card-head">
+            <div class="section-heading">
+              <p class="section-eyebrow">PROFILE STUDIO</p>
+              <h2>账户媒体看板</h2>
+              <p class="section-subtitle">集中检查账户媒体、生成头像，并维护 Profile Pin。</p>
+            </div>
+            <div class="card-actions">
+              <button id="board-reload-btn" type="button" class="btn ghost">刷新看板</button>
+              <button id="board-avatar-page-btn" type="button" class="btn ghost">AI 头像当前页</button>
+              <button id="board-avatar-all-btn" type="button" class="btn ghost">AI 头像全部未 Pin</button>
+              <button id="board-pin-all-btn" type="button" class="btn primary">批量 Pin 当前页</button>
+            </div>
+          </div>
+          <div class="board-toolbar">
+            <label class="field compact">
+              <span>平台</span>
+              <select id="board-platform">
+                <option value="douyin">douyin / accounts_urls</option>
+                <option value="tiktok">tiktok / accounts_urls_tiktok</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>每页数量</span>
+              <select id="board-page-size">
+                <option value="12">12</option>
+                <option value="18">18</option>
+                <option value="24" selected>24</option>
+                <option value="36">36</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>刷新偏好</span>
+              <select id="board-refresh-kind">
+                <option value="auto">自动(优先图片)</option>
+                <option value="video">视频优先</option>
+                <option value="image">图片优先</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>展示模式</span>
+              <select id="board-view-mode">
+                <option value="avatar">高密度头像</option>
+                <option value="media">媒体卡片</option>
+              </select>
+            </label>
+            <label class="field compact board-density-control">
+              <span>卡片密度</span>
+              <input id="board-density" type="range" min="1" max="12" value="4" />
+            </label>
+            <span id="board-density-label" class="badge">4 列</span>
+            <button id="board-prev-btn" type="button" class="btn ghost">上一页</button>
+            <button id="board-next-btn" type="button" class="btn ghost">下一页</button>
+            <span id="board-meta" class="badge">第 1 / 1 页</span>
+          </div>
+          <div id="board-status" class="status-line">切换到该标签页后自动加载</div>
+          <div id="board-grid" class="profile-board"></div>
+        </section>
+
+        <section
+          id="panel-monitor"
+          class="card monitor-card tab-panel hidden-panel"
+          role="tabpanel"
+          aria-labelledby="tab-monitor"
+          data-tab-panel="monitor"
+        >
+          <div class="card-head">
+            <div class="section-heading">
+              <p class="section-eyebrow">AUTOMATION</p>
+              <h2>账户监控（收藏夹 → 账号）</h2>
+              <p class="section-subtitle">按计划发现收藏夹中的新账户，并自动加入下载流程。</p>
+            </div>
+            <div class="card-actions">
+              <button id="monitor-refresh-btn" type="button" class="btn ghost">刷新监控列表</button>
+            </div>
+          </div>
+          <div class="monitor-grid">
+            <label class="field">
+              <span>名称</span>
+              <input id="monitor-name" type="text" placeholder="例如：收藏夹监控-A" />
+            </label>
+            <label class="field">
+              <span>collect_id</span>
+              <input id="monitor-collect-id" type="text" placeholder="1234567890123456789" />
+            </label>
+            <label class="field">
+              <span>监控间隔(分钟)</span>
+              <input id="monitor-interval" type="number" min="1" max="1440" value="30" />
+            </label>
+            <label class="field">
+              <span>限定数量(limit)</span>
+              <input id="monitor-limit" type="number" min="1" max="60" value="10" />
+            </label>
+            <label class="field">
+              <span>默认 tab</span>
+              <select id="monitor-default-tab">
+                <option value="post" selected>post</option>
+                <option value="favorite">favorite</option>
+                <option value="collection">collection</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>默认 earliest</span>
+              <input id="monitor-default-earliest" type="text" placeholder="YYYY/MM/DD" />
+            </label>
+            <label class="field">
+              <span>默认 latest</span>
+              <input id="monitor-default-latest" type="text" placeholder="YYYY/MM/DD" />
+            </label>
+            <label class="field">
+              <span>Bark URL</span>
+              <input id="monitor-bark-url" type="text" placeholder="https://api.day.app/xxx" />
+            </label>
+            <label class="field">
+              <span>cookie(可选覆盖)</span>
+              <input id="monitor-cookie" type="text" placeholder="留空使用默认 Cookie" />
+            </label>
+            <label class="field">
+              <span>proxy(可选覆盖)</span>
+              <input id="monitor-proxy" type="text" placeholder="如 socks5://127.0.0.1:1080" />
+            </label>
+          </div>
+          <div class="monitor-toggle-row">
+            <label class="toggle-field">
+              <input id="monitor-enabled" type="checkbox" checked />
+              <span>启用监控</span>
+            </label>
+            <label class="toggle-field">
+              <input id="monitor-account-enable" type="checkbox" checked />
+              <span>新增账号默认启用</span>
+            </label>
+            <label class="toggle-field">
+              <input id="monitor-immediate-crawl" type="checkbox" />
+              <span>新增后立即爬取</span>
+            </label>
+            <label class="toggle-field">
+              <input id="monitor-auto-update-earliest" type="checkbox" />
+              <span>新增账号 auto update earliest</span>
+            </label>
+          </div>
+          <div class="card-actions">
+            <button id="monitor-create-btn" type="button" class="btn primary">创建监控</button>
+          </div>
+          <div id="monitor-status" class="status-line">等待创建监控</div>
+          <div id="monitor-list" class="task-queue-list"></div>
+        </section>
+
+        <section
+          id="panel-workbench"
+          class="card tools-card workbench-card tab-panel"
+          role="tabpanel"
+          aria-labelledby="tab-workbench"
+          data-tab-panel="workbench"
+        >
+          <div class="card-head workbench-head">
+            <div class="section-heading">
+              <h2>下载工作台</h2>
+              <p class="section-subtitle">
+                粘贴作品链接即可创建任务；批量、定时与开发工具按需展开。
+              </p>
+            </div>
+            <div class="workbench-capabilities" aria-label="支持的下载方式">
+              <span>单条 / 批量</span>
+              <span>抖音 / TikTok</span>
+            </div>
+          </div>
+          <form
+            id="workflow-detail-form"
+            class="tool-block tool-block-full workbench-primary"
+          >
+            <div class="tool-block-heading">
+              <div>
+                <h3>快速下载</h3>
+                <p class="tool-subtitle">每行粘贴一条作品链接或分享文本，可一次提交多条。</p>
+              </div>
+            </div>
+            <div class="quick-download-layout">
+              <label class="field quick-links-field">
+                <span>作品链接</span>
+                <textarea
+                  id="workflow-detail-links"
+                  class="quick-link-input"
+                  rows="6"
+                  placeholder="粘贴抖音或 TikTok 作品链接；批量下载时每行一条"
+                  aria-describedby="workflow-detail-count"
+                ></textarea>
+              </label>
+              <div class="quick-download-controls">
+                <label class="field">
+                  <span>下载平台</span>
+                  <select id="workflow-detail-platform">
+                    <option value="auto">自动识别</option>
+                    <option value="douyin">抖音</option>
+                    <option value="tiktok">TikTok</option>
+                  </select>
+                </label>
+                <div id="workflow-detail-count" class="input-meta">
+                  等待输入链接
+                </div>
+                <details class="inline-disclosure quick-download-options">
+                  <summary>网络与凭据（可选）</summary>
+                  <div class="inline-disclosure-body">
+                    <label class="field">
+                      <span>Cookie 覆盖</span>
+                      <input
+                        id="workflow-detail-cookie"
+                        type="text"
+                        autocomplete="off"
+                        placeholder="留空使用程序默认 Cookie"
+                      />
+                    </label>
+                    <label class="field">
+                      <span>代理覆盖</span>
+                      <input
+                        id="workflow-detail-proxy"
+                        type="text"
+                        placeholder="如 socks5://127.0.0.1:1080"
+                      />
+                    </label>
+                  </div>
+                </details>
+                <button id="workflow-detail-run-btn" type="submit" class="btn primary quick-download-submit">
+                  开始下载
+                </button>
+                <p class="keyboard-hint">也可按 ⌘ / Ctrl + Enter 提交</p>
+              </div>
+            </div>
+            <div
+              id="workflow-detail-status"
+              class="status-line"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >等待输入</div>
+            <div id="workflow-detail-summary" class="status-line"></div>
+          </form>
+
+          <section
+            id="workbench-task-center"
+            class="tool-block tool-block-full workbench-task-center"
+            aria-labelledby="task-center-title"
+          >
+            <div class="tool-block-heading task-center-heading">
+              <div>
+                <h3 id="task-center-title">任务中心</h3>
+                <p class="tool-subtitle">本次服务运行的最近 120 条任务；容器重启后记录会清空。</p>
+              </div>
+              <button id="task-queue-refresh-btn" type="button" class="btn ghost">刷新</button>
+            </div>
+            <div id="task-queue-meta" class="task-queue-meta">任务: 0 · 等待加载</div>
+            <div class="task-center-layout">
+              <div class="task-list-panel">
+                <h4>最近任务</h4>
+                <div
+                  id="task-queue-list"
+                  class="task-queue-list"
+                  aria-label="最近下载任务"
+                  aria-busy="false"
+                >
+                  <div class="loading-state">正在加载任务…</div>
+                </div>
+              </div>
+              <div class="task-detail-panel">
+                <div class="task-detail-heading">
+                  <h4 id="task-detail-title">任务详情</h4>
+                  <button id="task-copy-btn" type="button" class="btn ghost">复制结果</button>
+                </div>
+                <div
+                  id="task-status"
+                  class="status-line task-detail-status"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >选择一条任务查看状态</div>
+                <div id="task-summary" class="status-line"></div>
+                <pre
+                  id="task-result"
+                  class="json-output task-result"
+                  aria-labelledby="task-detail-title"
+                  tabindex="0"
+                >暂无结果</pre>
+              </div>
+            </div>
+          </section>
+
+          <details id="workbench-automation" class="tool-block tool-block-full workbench-disclosure">
+            <summary>
+              <span class="disclosure-title">批量与自动化</span>
+              <span class="disclosure-description">账号批量下载、每日定时任务</span>
+            </summary>
+            <div class="disclosure-content workbench-secondary-grid">
+              <section class="secondary-tool" aria-labelledby="account-batch-title">
+                <h3 id="account-batch-title">账号批量下载</h3>
+                <p class="tool-subtitle">选择平台与账号来源，将全部有效账户加入后台队列。</p>
+                <label class="field">
+                  <span>平台</span>
+                  <select id="workflow-account-platform">
+                    <option value="douyin">抖音 / accounts_urls</option>
+                    <option value="tiktok">TikTok / accounts_urls_tiktok</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>来源</span>
+                  <select id="workflow-account-source">
+                    <option value="editor">当前页面账号表格</option>
+                    <option value="settings">运行时 settings 配置</option>
+                  </select>
+                </label>
+                <div class="inline-grid inline-grid-two">
+                  <label class="field">
+                    <span>Cookie（可选覆盖）</span>
+                    <input
+                      id="workflow-account-cookie"
+                      type="text"
+                      autocomplete="off"
+                      placeholder="留空使用程序默认 Cookie"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>代理（可选覆盖）</span>
+                    <input
+                      id="workflow-account-proxy"
+                      type="text"
+                      placeholder="如 socks5://127.0.0.1:1080"
+                    />
+                  </label>
+                </div>
+                <div class="card-actions">
+                  <button id="workflow-account-run-btn" type="button" class="btn primary">加入批量队列</button>
+                </div>
+                <div id="workflow-account-status" class="status-line" role="status" aria-live="polite">等待执行</div>
+                <div id="workflow-account-summary" class="status-line"></div>
+              </section>
+
+              <section class="secondary-tool" aria-labelledby="schedule-title">
+                <h3 id="schedule-title">每日定时任务</h3>
+                <p class="tool-subtitle">按固定时间从运行设置或当前账号表格创建批量下载任务。</p>
+                <label class="field">
+                  <span>任务名称</span>
+                  <input id="schedule-name" type="text" placeholder="例如：每日 TikTok 拉取" />
+                </label>
+                <div class="inline-grid">
+                  <label class="field">
+                    <span>平台</span>
+                    <select id="schedule-platform">
+                      <option value="douyin">抖音</option>
+                      <option value="tiktok">TikTok</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>来源</span>
+                    <select id="schedule-source">
+                      <option value="settings">运行时 settings 配置</option>
+                      <option value="editor">当前页面账号表格</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>每日时间（24 小时制）</span>
+                    <div class="inline-time">
+                      <input id="schedule-hour" type="number" min="0" max="23" value="2" />
+                      <span>:</span>
+                      <input id="schedule-minute" type="number" min="0" max="59" value="0" />
+                    </div>
+                  </label>
+                </div>
+                <div class="inline-grid inline-grid-two">
+                  <label class="field">
+                    <span>Cookie（可选覆盖）</span>
+                    <input id="schedule-cookie" type="text" autocomplete="off" placeholder="留空使用默认" />
+                  </label>
+                  <label class="field">
+                    <span>代理（可选覆盖）</span>
+                    <input id="schedule-proxy" type="text" placeholder="留空使用默认" />
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Uptime Kuma Push URL（可选）</span>
+                  <input
+                    id="schedule-uptime-kuma-url"
+                    type="url"
+                    placeholder="如 https://kuma.example/api/push/xxxx"
+                  />
+                </label>
+                <div class="card-actions">
+                  <button id="schedule-create-btn" type="button" class="btn primary">创建定时任务</button>
+                  <button id="schedule-refresh-btn" type="button" class="btn ghost">刷新列表</button>
+                </div>
+                <div id="schedule-status" class="status-line" role="status" aria-live="polite">等待创建任务</div>
+                <div id="schedule-list" class="task-queue-list"></div>
+              </section>
+            </div>
+          </details>
+
+          <details id="workbench-developer-tools" class="tool-block tool-block-full workbench-disclosure">
+            <summary>
+              <span class="disclosure-title">高级工具</span>
+              <span class="disclosure-description">接口任务、独立分享链接解析</span>
+            </summary>
+            <div class="disclosure-content workbench-secondary-grid">
+              <section class="secondary-tool" aria-labelledby="api-lab-title">
+                <h3 id="api-lab-title">开发接口任务</h3>
+                <p class="tool-subtitle">
+                  通过预置 JSON 调用开放端点。创建后的状态与结果会显示在上方任务中心。
+                </p>
+                <label class="field">
+                  <span>API Endpoint</span>
+                  <select id="task-endpoint">
+                    <option value="/douyin/detail">/douyin/detail</option>
+                    <option value="/douyin/account">/douyin/account</option>
+                    <option value="/douyin/mix">/douyin/mix</option>
+                    <option value="/douyin/live">/douyin/live</option>
+                    <option value="/douyin/comment">/douyin/comment</option>
+                    <option value="/tiktok/detail">/tiktok/detail</option>
+                    <option value="/tiktok/account">/tiktok/account</option>
+                    <option value="/tiktok/mix">/tiktok/mix</option>
+                    <option value="/tiktok/live">/tiktok/live</option>
+                    <option value="/workflow/douyin/account_batch">/workflow/douyin/account_batch</option>
+                    <option value="/workflow/tiktok/account_batch">/workflow/tiktok/account_batch</option>
+                    <option value="/workflow/douyin/detail_links">/workflow/douyin/detail_links</option>
+                    <option value="/workflow/tiktok/detail_links">/workflow/tiktok/detail_links</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Payload（JSON）</span>
+                  <textarea
+                    id="task-payload"
+                    class="payload-editor"
+                    rows="8"
+                    placeholder='{"detail_id":"..."}'
+                  ></textarea>
+                </label>
+                <div class="card-actions">
+                  <button id="task-template-btn" type="button" class="btn ghost">加载模板</button>
+                  <button id="task-run-btn" type="button" class="btn primary">加入队列</button>
+                  <a class="btn ghost" href="#workbench-task-center">查看任务中心</a>
+                </div>
+                <div id="task-lab-status" class="status-line" role="status" aria-live="polite">
+                  可加载模板后修改并执行
+                </div>
+              </section>
+
+              <section class="secondary-tool" aria-labelledby="share-resolver-title">
+                <h3 id="share-resolver-title">分享链接解析</h3>
+                <p class="tool-subtitle">从抖音或 TikTok 分享文本中提取可直接访问的链接。</p>
+                <label class="field">
+                  <span>平台</span>
+                  <select id="share-platform">
+                    <option value="douyin">抖音</option>
+                    <option value="tiktok">TikTok</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>文本 / 分享链接</span>
+                  <textarea
+                    id="share-input"
+                    rows="6"
+                    placeholder="粘贴包含分享链接的文本"
+                  ></textarea>
+                </label>
+                <div class="card-actions">
+                  <button id="share-resolve-btn" type="button" class="btn primary">解析链接</button>
+                  <button id="share-copy-btn" type="button" class="btn ghost">复制结果</button>
+                </div>
+                <div id="share-status" class="status-line" role="status" aria-live="polite">等待解析</div>
+                <a id="share-result" class="link-result" target="_blank" rel="noreferrer"></a>
+              </section>
+            </div>
+          </details>
+        </section>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

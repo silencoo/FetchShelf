@@ -6,4 +6,5 @@ class Detail(APIModel):
 
 
 class DetailTikTok(Detail):
-    pass
+    detail_id: str = ""
+    detail_url: str = ""

@@ -58,6 +58,7 @@ class Downloader:
         params: "Parameter",
         server_mode: bool = False,
     ):
+        self.params = params
         self.cleaner = params.CLEANER
         self.client: "AsyncClient" = params.client
         self.client_tiktok: "AsyncClient" = params.client_tiktok
@@ -328,6 +329,7 @@ class Downloader:
                     **params,
                     type_=_("视频"),
                     skipped=count.skipped_video,
+                    tiktok=kwargs.get("tiktok", False),
                 )
             elif t == _("实况"):
                 await self.download_image(
@@ -454,6 +456,7 @@ class Downloader:
         actual_root: Path,
         suffix: str = "mp4",
         type_: str = _("视频"),
+        tiktok: bool = False,
     ) -> None:
         if not item["downloads"]:
             self.log.error(
@@ -478,7 +481,7 @@ class Downloader:
             return
         tasks.append(
             (
-                item["downloads"],
+                item if tiktok else item["downloads"],
                 temp_root.with_name(f"{name}.{suffix}"),
                 p,
                 f"【{type_}】{name}",
@@ -583,7 +586,7 @@ class Downloader:
     @Retry.retry
     async def request_file(
         self,
-        url: str,
+        url: str | dict,
         temp: Path,
         actual: Path,
         show: str,
@@ -597,6 +600,8 @@ class Downloader:
         semaphore: Semaphore = None,
     ) -> bool | None:
         async with semaphore or self.semaphore:
+            item = url if tiktok and isinstance(url, dict) else None
+            url = item["downloads"] if item else url
             client = self.client_tiktok if tiktok else self.client
             headers = self.__adapter_headers(
                 headers,
@@ -660,6 +665,22 @@ class Downloader:
                 self.log.warning(_("网络异常: {error_repr}").format(error_repr=repr(e)))
                 return False
             except HTTPStatusError as e:
+                if (
+                    tiktok
+                    and item
+                    and self._tiktok_bridge_fallback_enabled()
+                    and getattr(e.response, "status_code", None) == 403
+                    and await self._download_tiktok_video_with_api(
+                        item,
+                        temp,
+                        actual.with_suffix(f".{suffix}"),
+                        show,
+                        id_,
+                        count,
+                        progress,
+                    )
+                ):
+                    return True
                 self.log.warning(
                     _("响应码异常: {error_repr}").format(error_repr=repr(e))
                 )
@@ -682,6 +703,35 @@ class Downloader:
                 self.log.error(f"URL: {url}", False)
                 self.log.error(f"Headers: {headers}", False)
                 return False
+
+    def _tiktok_bridge_fallback_enabled(self) -> bool:
+        return bool(
+            getattr(self.params, "tiktok_api_enabled", False)
+            and getattr(self.params, "tiktok_bridge_fallback_enabled", False)
+        )
+
+    async def _download_tiktok_video_with_api(
+        self,
+        item: dict,
+        temp: Path,
+        actual: Path,
+        show: str,
+        id_: str,
+        count: SimpleNamespace,
+        progress: Progress,
+    ) -> bool:
+        from ..module import TikTokAPIBridge
+
+        self.log.warning(_("TikTok 视频直链下载失败，尝试使用 TikTokApi 会话回退"))
+        bridge = TikTokAPIBridge(self.params)
+        if not await bridge.download_video(item, temp, show, progress):
+            return False
+        self.save_file(temp, actual)
+        self.log.info(_("{show} 文件下载成功").format(show=show))
+        self.log.info(f"文件路径 {actual.resolve()}", False)
+        await self.recorder.update_id(id_)
+        self.add_count(show, id_, count)
+        return True
 
     async def download_file(
         self,

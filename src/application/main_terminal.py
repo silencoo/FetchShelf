@@ -1,6 +1,7 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from platform import system
+from re import findall
 from time import time
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Callable, Union
@@ -46,7 +47,7 @@ from ..models import (
     UserSearch,
     VideoSearch,
 )
-from ..module import DetailTikTokExtractor, DetailTikTokUnofficial
+from ..module import DetailTikTokExtractor, DetailTikTokUnofficial, TikTokAPIBridge
 from ..storage import RecordManager
 from ..tools import DownloaderError, choose, safe_pop
 from ..translation import _
@@ -275,6 +276,40 @@ class TikTok:
             ),
         )
 
+    @staticmethod
+    def _extract_tiktok_detail_ids(text: str) -> list[str]:
+        seen: set[str] = set()
+        ids: list[str] = []
+        for item in findall(r"\b\d{19}\b", str(text or "")):
+            if item in seen:
+                continue
+            seen.add(item)
+            ids.append(item)
+        return ids
+
+    async def _parse_tiktok_detail_targets(
+        self,
+        text: str,
+        proxy: str = None,
+    ) -> list[dict[str, str]]:
+        items = await self.links_tiktok.detail_items(
+            text,
+            proxy,
+        )
+        if items:
+            return items
+        return [
+            {"id": item, "url": ""} for item in self._extract_tiktok_detail_ids(text)
+        ]
+
+    @staticmethod
+    def _split_tiktok_detail_targets(
+        items: list[dict[str, str]],
+    ) -> tuple[list[str], list[str]]:
+        ids = [str(item.get("id") or "").strip() for item in items]
+        urls = [str(item.get("url") or "").strip() for item in items]
+        return ids, urls
+
     def _inquire_input(
         self,
         tip: str = "",
@@ -313,6 +348,145 @@ class TikTok:
                 int(time_ % 60),
             )
         )
+
+    @staticmethod
+    def _apply_missing_mark(
+        item: SimpleNamespace | dict,
+        mark: str,
+    ) -> bool:
+        next_mark = str(mark or "").strip()
+        if not next_mark:
+            return False
+        if isinstance(item, dict):
+            current = str(item.get("mark", "") or "").strip()
+            if current:
+                return False
+            item["mark"] = next_mark
+            return True
+        current = str(getattr(item, "mark", "") or "").strip()
+        if current:
+            return False
+        setattr(item, "mark", next_mark)
+        return True
+
+    @staticmethod
+    def _normalize_earliest_update_days(days: Any) -> int:
+        try:
+            value = int(days)
+        except (TypeError, ValueError):
+            return 0
+        return max(0, value)
+
+    @classmethod
+    def _auto_earliest_date_text(cls, days: Any) -> str:
+        n = cls._normalize_earliest_update_days(days)
+        return (date.today() - timedelta(days=n)).strftime("%Y/%m/%d")
+
+    @classmethod
+    def _apply_auto_update_earliest(
+        cls,
+        item: SimpleNamespace | dict,
+        days: Any,
+    ) -> tuple[bool, str]:
+        if isinstance(item, dict):
+            enabled = bool(item.get("auto_update_earliest", False))
+            if not enabled:
+                return False, ""
+            target = cls._auto_earliest_date_text(days)
+            current = str(item.get("earliest", "") or "").strip()
+            if current == target:
+                return False, target
+            item["earliest"] = target
+            return True, target
+        enabled = bool(getattr(item, "auto_update_earliest", False))
+        if not enabled:
+            return False, ""
+        target = cls._auto_earliest_date_text(days)
+        current = str(getattr(item, "earliest", "") or "").strip()
+        if current == target:
+            return False, target
+        setattr(item, "earliest", target)
+        return True, target
+
+    def _persist_account_updates(
+        self,
+        mark_updated: int,
+        earliest_updated: int,
+        tiktok: bool,
+    ) -> None:
+        if mark_updated <= 0 and earliest_updated <= 0:
+            return
+        self.settings.update(self.parameter.get_settings_data())
+        platform = "TikTok" if tiktok else _("抖音")
+        if mark_updated > 0:
+            self.logger.info(
+                _(
+                    "已自动回填 {platform} 账号 mark 共 {count} 条，并写回 settings.json"
+                ).format(
+                    platform=platform,
+                    count=mark_updated,
+                )
+            )
+        if earliest_updated > 0:
+            self.logger.info(
+                _(
+                    "已自动更新 {platform} 账号 earliest 共 {count} 条（回溯天数: {days}），并写回 settings.json"
+                ).format(
+                    platform=platform,
+                    count=earliest_updated,
+                    days=self._normalize_earliest_update_days(
+                        getattr(self.parameter, "earliest_update_days", 0)
+                    ),
+                )
+            )
+
+    def _persist_mark_backfill(
+        self,
+        updated: int,
+        tiktok: bool,
+    ) -> None:
+        self._persist_account_updates(
+            mark_updated=updated,
+            earliest_updated=0,
+            tiktok=tiktok,
+        )
+
+    def _persist_auto_earliest_update(
+        self,
+        updated: int,
+        tiktok: bool,
+    ) -> None:
+        self._persist_account_updates(
+            mark_updated=0,
+            earliest_updated=updated,
+            tiktok=tiktok,
+        )
+
+    def _persist_account_runtime_updates(
+        self,
+        mark_updated: int,
+        earliest_updated: int,
+        tiktok: bool,
+    ) -> None:
+        self._persist_account_updates(
+            mark_updated=mark_updated,
+            earliest_updated=earliest_updated,
+            tiktok=tiktok,
+        )
+
+    def _persist_settings_on_mark_backfill(self, tiktok: bool) -> None:
+        try:
+            self.settings.update(self.parameter.get_settings_data())
+        except OSError as error:
+            platform = "TikTok" if tiktok else _("抖音")
+            self.logger.warning(
+                _(
+                    "已回填 {platform} 账号 mark，但即时写入 settings.json 失败：{error}"
+                ).format(
+                    platform=platform,
+                    error=error,
+                )
+            )
 
     async def account_acquisition_interactive(
         self,
@@ -378,10 +552,17 @@ class TikTok:
         tiktok: bool,
     ) -> None:
         count = SimpleNamespace(time=time(), success=0, failed=0)
+        auto_filled_mark = 0
+        auto_updated_earliest = 0
+        earliest_days = self._normalize_earliest_update_days(
+            getattr(self.parameter, "earliest_update_days", 0)
+        )
         self.logger.info(
             _("共有 {count} 个账号的作品等待下载").format(count=len(accounts))
         )
         for index, data in enumerate(accounts, start=1):
+            if not getattr(data, "enable", True):
+                continue
             if not (
                 sec_user_id := await self.check_sec_user_id(
                     data.url,
@@ -399,17 +580,41 @@ class TikTok:
                 )
                 count.failed += 1
                 continue
-            if not await self.deal_account_detail(
+            result = await self.deal_account_detail(
                 index,
                 **vars(data) | {"sec_user_id": sec_user_id},
                 tiktok=tiktok,
-            ):
+                return_context=True,
+            )
+            if not result:
                 count.failed += 1
                 continue
+            if getattr(
+                self.parameter, "auto_backfill_mark", True
+            ) and self._apply_missing_mark(data, result.get("mark", "")):
+                auto_filled_mark += 1
+                self._persist_settings_on_mark_backfill(tiktok)
+            earliest_updated, earliest_target = self._apply_auto_update_earliest(
+                data,
+                earliest_days,
+            )
+            if earliest_updated:
+                auto_updated_earliest += 1
+                self.logger.info(
+                    _("已更新账号 earliest: {target} -> {date}").format(
+                        target=getattr(data, "mark", "") or data.url,
+                        date=earliest_target,
+                    )
+                )
             # break  # 调试代码
             count.success += 1
             if index != len(accounts):
                 await suspend(index, self.console)
+        self._persist_account_runtime_updates(
+            mark_updated=auto_filled_mark,
+            earliest_updated=auto_updated_earliest,
+            tiktok=tiktok,
+        )
         self.__summarize_results(
             count,
             _("账号"),
@@ -549,6 +754,7 @@ class TikTok:
         cookie: str = None,
         proxy: str = None,
         tiktok=False,
+        return_context: bool = False,
         *args,
         **kwargs,
     ):
@@ -564,7 +770,11 @@ class TikTok:
                 tiktok,
                 cookie,
                 proxy,
+                unique_id=TikTokAPIBridge.extract_unique_id(kwargs.get("url", ""))
+                if tiktok
+                else "",
                 sec_user_id=sec_user_id,
+                url=kwargs.get("url", "") if tiktok else "",
             )
         ):
             self.logger.info(
@@ -610,8 +820,82 @@ class TikTok:
             earliest=earliest,
             latest=latest,
             tiktok=tiktok,
-            mode=tab,
+            mode=tab or "post",
             info=info,
+            return_context=return_context,
+        )
+
+    async def _deal_account_detail_tiktok_bridge_only(
+        self,
+        index: int,
+        sec_user_id: str,
+        mark: str = "",
+        tab: str = "post",
+        earliest: str = "",
+        latest: str = "",
+        pages: int = None,
+        api: bool = False,
+        source: bool = False,
+        cookie: str = None,
+        proxy: str = None,
+        return_context: bool = False,
+        **kwargs,
+    ):
+        bridge = TikTokAPIBridge(
+            self.parameter,
+            cookie,
+            proxy,
+        )
+        url = kwargs.get("url", "")
+        unique_id = TikTokAPIBridge.extract_unique_id(url)
+        info = await bridge.get_user_info(
+            unique_id=unique_id,
+            sec_user_id=sec_user_id,
+            url=url,
+        )
+        if not info:
+            if bridge.should_skip_legacy_fallback():
+                self.logger.warning(
+                    _("TikTokApi 已检测到风控，跳过旧版接口回退以避免进一步触发限制")
+                )
+                return None
+            return None
+
+        resolved_sec_uid = sec_user_id or info.get("user", {}).get("secUid", "")
+        account_data, earliest, latest = await bridge.get_account_items(
+            sec_user_id=resolved_sec_uid,
+            tab=tab,
+            pages=pages,
+            cursor=kwargs.get("cursor", 0),
+            count=kwargs.get("count"),
+            url=url,
+        )
+        if not any(account_data):
+            if bridge.should_skip_legacy_fallback():
+                self.logger.warning(
+                    _("TikTokApi 已检测到风控，跳过旧版接口回退以避免进一步触发限制")
+                )
+                return None
+            return None
+
+        if source:
+            return self.extractor.source_date_filter(
+                account_data,
+                earliest,
+                latest,
+                True,
+            )
+        return await self._batch_process_detail(
+            account_data,
+            user_id=resolved_sec_uid,
+            mark=mark,
+            api=api,
+            earliest=earliest,
+            latest=latest,
+            tiktok=True,
+            mode=tab or "post",
+            info=info,
+            return_context=return_context,
         )
 
     async def _get_account_data(
@@ -635,6 +919,7 @@ class TikTok:
             earliest,
             latest,
             pages,
+            **kwargs,
         ).run()
 
     async def _get_account_data_tiktok(
@@ -649,7 +934,7 @@ class TikTok:
         *args,
         **kwargs,
     ):
-        return await AccountTikTok(
+        data = await AccountTikTok(
             self.parameter,
             cookie,
             proxy,
@@ -658,7 +943,33 @@ class TikTok:
             earliest,
             latest,
             pages,
-        ).run()
+            **kwargs,
+        ).run() or ([], "", "")
+        if any(data[0]) or not self._tiktok_bridge_fallback_available():
+            return data
+        self.logger.info(_("旧版 TikTok 接口获取账号作品失败，尝试兼容桥回退"))
+        if self._tiktok_bridge_fallback_available():
+            bridge = TikTokAPIBridge(
+                self.parameter,
+                cookie,
+                proxy,
+            )
+            data = await bridge.get_account_items(
+                sec_user_id=sec_user_id,
+                tab=tab,
+                pages=pages,
+                cursor=kwargs.get("cursor", 0),
+                count=kwargs.get("count"),
+                url=kwargs.get("url", ""),
+            )
+            if any(data[0]):
+                return data
+            if bridge.should_skip_legacy_fallback():
+                self.logger.warning(
+                    _("TikTok 兼容桥检测到风控，停止继续请求")
+                )
+                return [], "", ""
+        return data
 
     async def get_user_info_data(
         self,
@@ -667,6 +978,7 @@ class TikTok:
         proxy: str = None,
         unique_id: Union[str] = "",
         sec_user_id: Union[str] = "",
+        url: str = "",
     ):
         return (
             await self._get_info_data_tiktok(
@@ -674,6 +986,7 @@ class TikTok:
                 proxy,
                 unique_id,
                 sec_user_id,
+                url,
             )
             if tiktok
             else await self._get_info_data(
@@ -702,14 +1015,44 @@ class TikTok:
         proxy: str = None,
         unique_id: Union[str] = "",
         sec_user_id: Union[str] = "",
+        url: str = "",
     ):
-        return await InfoTikTok(
+        info = await InfoTikTok(
             self.parameter,
             cookie,
             proxy,
             unique_id,
             sec_user_id,
         ).run()
+        if info or not self._tiktok_bridge_fallback_available():
+            return info
+        self.logger.info(_("旧版 TikTok 接口获取账号信息失败，尝试兼容桥回退"))
+        if self._tiktok_bridge_fallback_available():
+            bridge = TikTokAPIBridge(
+                self.parameter,
+                cookie,
+                proxy,
+            )
+            info = await bridge.get_user_info(
+                unique_id=unique_id,
+                sec_user_id=sec_user_id,
+                url=url,
+            )
+            if info:
+                return info
+            if bridge.should_skip_legacy_fallback():
+                self.logger.warning(
+                    _("TikTok 兼容桥检测到风控，停止继续请求")
+                )
+                return {}
+        return info
+
+    def _tiktok_bridge_fallback_available(self) -> bool:
+        return bool(
+            getattr(self.parameter, "tiktok_api_enabled", False)
+            and getattr(self.parameter, "tiktok_bridge_fallback_enabled", False)
+            and TikTokAPIBridge.available()
+        )
 
     async def _batch_process_detail(
         self,
@@ -726,6 +1069,7 @@ class TikTok:
         mix_title: str = "",
         collect_id: str = "",
         collect_name: str = "",
+        return_context: bool = False,
     ):
         self.logger.info(_("开始提取作品数据"))
         id_, name, mark = self.extractor.preprocessing_data(
@@ -749,9 +1093,10 @@ class TikTok:
         )
         prefix = self._generate_prefix(mode)
         suffix = self._generate_suffix(mode)
-        old_mark = (
-            f"{m['MARK']}_{suffix}" if (m := await self.cache.has_cache(id_)) else None
-        )
+        cache_data = None
+        if self.cache and getattr(self.cache, "database", None):
+            cache_data = await self.cache.has_cache(id_)
+        old_mark = f"{cache_data['MARK']}_{suffix}" if cache_data else None
         root, params, logger = self.record.run(
             self.parameter,
             blank=api,
@@ -800,6 +1145,12 @@ class TikTok:
             collect_id=collect_id,
             collect_name=collect_name,
         )
+        if return_context:
+            return {
+                "id": id_,
+                "name": name,
+                "mark": mark,
+            }
         return True
 
     @staticmethod
@@ -953,9 +1304,23 @@ class TikTok:
         self,
         tiktok=True,
     ):
-        await self.__detail_inquire(
-            tiktok,
-        )
+        root, params, logger = self.record.run(self.parameter)
+        async with logger(root, console=self.console, **params) as record:
+            while url := self._inquire_input(_("作品")):
+                items = await self._parse_tiktok_detail_targets(url)
+                if not any(items):
+                    self.logger.warning(_("{url} 提取作品 ID 失败").format(url=url))
+                    continue
+                self.console.print(
+                    _("共提取到 {count} 个作品，开始处理！").format(count=len(items))
+                )
+                ids, detail_urls = self._split_tiktok_detail_targets(items)
+                await self._handle_detail(
+                    ids,
+                    True,
+                    record,
+                    detail_urls=detail_urls,
+                )
 
     async def __detail_inquire_tiktok_unofficial(
         self,
@@ -990,9 +1355,24 @@ class TikTok:
         self,
         tiktok=True,
     ):
-        await self.__detail_txt(
-            tiktok=tiktok,
-        )
+        root, params, logger = self.record.run(self.parameter)
+        async with logger(root, console=self.console, **params) as record:
+            if not (text := self.txt_inquire()):
+                return
+            items = await self._parse_tiktok_detail_targets(text)
+            if not any(items):
+                self.logger.warning(_("从文本文档提取作品 ID 失败"))
+                return
+            self.console.print(
+                _("共提取到 {count} 个作品，开始处理！").format(count=len(items))
+            )
+            ids, detail_urls = self._split_tiktok_detail_targets(items)
+            await self._handle_detail(
+                ids,
+                tiktok,
+                record,
+                detail_urls=detail_urls,
+            )
 
     async def __detail_txt_tiktok_unofficial(
         self,
@@ -1027,6 +1407,7 @@ class TikTok:
         source=False,
         cookie: str = None,
         proxy: str = None,
+        detail_urls: list[str] | None = None,
     ):
         processor = DetailTikTok if tiktok else Detail
         return await self.__handle_detail(
@@ -1038,6 +1419,7 @@ class TikTok:
             source=source,
             cookie=cookie,
             proxy=proxy,
+            detail_urls=detail_urls,
         )
 
     async def handle_detail_single(
@@ -1046,13 +1428,29 @@ class TikTok:
         cookie: str,
         proxy: str,
         detail_id: str,
+        tiktok: bool = False,
+        detail_url: str = "",
+        bridge: TikTokAPIBridge | None = None,
     ):
-        return await processor(
+        if not detail_id:
+            return None
+        data = await processor(
             self.parameter,
             cookie,
             proxy,
             detail_id,
         ).run()
+        if data or not (tiktok and detail_url and bridge):
+            return data
+        bridge.log.warning(
+            _("旧版 TikTok 作品详情接口失败，尝试兼容桥回退: {url}").format(
+                url=detail_url
+            )
+        )
+        return await bridge.get_video_detail(
+            detail_url=detail_url,
+            detail_id=detail_id,
+        )
 
     async def __handle_detail(
         self,
@@ -1064,16 +1462,39 @@ class TikTok:
         source=False,
         cookie: str = None,
         proxy: str = None,
+        detail_urls: list[str] | None = None,
     ):
-        detail_data = [
-            await self.handle_detail_single(
-                processor,
+        bridge = (
+            TikTokAPIBridge(
+                self.parameter,
                 cookie,
                 proxy,
-                i,
             )
-            for i in ids
-        ]
+            if tiktok
+            and self.parameter.tiktok_api_enabled
+            and self.parameter.tiktok_bridge_fallback_enabled
+            and TikTokAPIBridge.available()
+            else None
+        )
+        detail_data = []
+        for index, detail_id in enumerate(ids):
+            detail_url = (
+                str(detail_urls[index] or "").strip()
+                if detail_urls and index < len(detail_urls)
+                else ""
+            )
+            detail_data.append(
+                await self.handle_detail_single(
+                    processor,
+                    cookie,
+                    proxy,
+                    detail_id,
+                    tiktok=tiktok,
+                    detail_url=detail_url,
+                    bridge=bridge,
+                )
+            )
+        detail_data = [item for item in detail_data if item]
         if not any(detail_data):
             return None
         if source:
@@ -1616,6 +2037,8 @@ class TikTok:
     ):
         count = SimpleNamespace(time=time(), success=0, failed=0)
         for index, data in enumerate(mix, start=1):
+            if not getattr(data, "enable", True):
+                continue
             mix_id, id_, title = await self._check_mix_id(
                 data.url,
                 tiktok,
@@ -1725,6 +2148,8 @@ class TikTok:
     ):
         users = []
         for index, data in enumerate(self.accounts, start=1):
+            if not getattr(data, "enable", True):
+                continue
             if not (sec_user_id := await self.check_sec_user_id(data.url)):
                 self.logger.warning(
                     _("配置文件 accounts_urls 参数第 {index} 条数据的 url 无效").format(

@@ -74,53 +74,6 @@
 </ul>
 </details>
 
-# 💻 程序截图
-
-<p><a href="https://www.bilibili.com/video/BV1d7eAzTEFs/">前往 bilibili 观看演示</a>；<a href="https://youtu.be/yMU-RWl55hg">前往 YouTube 观看演示</a></p>
-
-## 终端交互模式
-
-<p>建议通过配置文件管理账号，更多介绍请查阅 <a href="https://github.com/JoeanAmier/TikTokDownloader/wiki/Documentation">文档</a></p>
-
-![终端模式截图](docs/screenshot/终端交互模式截图CN1.png)
-*****
-![终端模式截图](docs/screenshot/终端交互模式截图CN2.png)
-*****
-![终端模式截图](docs/screenshot/终端交互模式截图CN3.png)
-
-## Web UI 交互模式
-
-> **项目代码已重构，该模式代码尚未更新，未来开发完成重新开放！**
-
-## Web API 接口模式
-
-![WebAPI模式截图](docs/screenshot/WebAPI模式截图CN1.png)
-*****
-![WebAPI模式截图](docs/screenshot/WebAPI模式截图CN2.png)
-
-> **启动该模式后，访问 `http://127.0.0.1:5555/docs` 或者 `http://127.0.0.1:5555/redoc` 可以查阅自动生成的文档！**
-
-### API 调用示例代码
-
-```python
-from httpx import post
-from rich import print
-
-
-def demo():
-    headers = {"token": ""}
-    data = {
-        "detail_id": "0123456789",
-        "pages": 2,
-    }
-    api = "http://127.0.0.1:5555/douyin/comment"
-    response = post(api, json=data, headers=headers)
-    print(response.json())
-
-
-demo()
-```
-
 # 📋 项目说明
 
 ## 快速入门
@@ -169,12 +122,26 @@ demo()
 </ol>
 </li>
 <li>返回程序界面，依次选择 <code>终端交互模式</code> -> <code>批量下载链接作品(通用)</code> -> <code>手动输入待采集的作品链接</code></li>
-<li>输入抖音作品链接即可下载作品文件（TikTok 平台需要更多初始设置，详见文档）</li>
+<li>输入抖音作品链接即可下载作品文件；如需稳定使用 TikTok 平台，建议先在 <code>settings.json</code> 配置 <code>accounts_urls_tiktok</code>、已登录的 <code>cookie_tiktok</code>，以及下方“TikTok 账号配置与登录态”提到的 <code>tiktok_api_*</code> 参数。</li>
 <li>更多详细说明请查看 <b><a href="https://github.com/JoeanAmier/TikTokDownloader/wiki/Documentation">项目文档</a></b></li>
 </ol>
 <p>⭐ 推荐使用 <a href="https://learn.microsoft.com/zh-cn/windows/terminal/install">Windows 终端</a>（Windows 11 自带默认终端）</p>
 
 ### Docker 容器
+
+<p><b>NAS 推荐使用本仓库的 Docker Compose：</b></p>
+
+```shell
+cp .env.example .env
+# 将下面两条命令的输出分别写入 .env 的 DOUK_API_TOKEN 和 DOUK_IDENTITY_KEY
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+python -c "import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+docker compose up -d --build
+```
+
+<p>启动前必须为 <code>DOUK_API_TOKEN</code> 设置随机值；否则仅允许本机 loopback 访问，NAS/LAN 请求会返回 403。<code>DOUK_IDENTITY_KEY</code> 用于加密采集身份的 Cookie、Proxy 与设备信息。生产环境更推荐把 32 字节密钥以 Docker Secret 挂载到 <code>/run/secrets/douk_identity_key</code>，而不是放在 settings volume。启动后访问 <code>http://NAS_IP:5555/ui</code>，并在顶部 Token 输入框填写同一个 API Token。</p>
+<p><b>请单独安全备份身份加密密钥。</b> <code>collector_pool.sqlite3</code> 中只保存 AES-256-GCM 密文；密钥丢失或更换后，已有 Cookie、代理和设备指纹无法恢复，需要重新写入。不要把密钥提交到 Git，也不要和公开备份一起保存。</p>
+<p>在 WebUI 的“采集身份与路由”中，可为抖音和 TikTok 分别创建多个身份，并为每个身份写入独立 Cookie、代理、UA 与设备参数。单作品、账号、合集、直播、评论、回复、搜索、批量作品链接、账号检测、收藏夹监控和每日定时任务均接入同一套路由；支持“稳定粘连 + 均衡”或“最小负载”，也可把指定账号主页 URL 固定到某个身份。批量目标会按身份分组并行，同一身份受自身并发上限与请求延迟保护，平台还有总并发上限；连续失败达到阈值后会自动冷却。任务留空 <code>identity_id</code> 时自动路由，显式选择身份时固定使用其凭据；仅在填写临时 Cookie/Proxy 覆盖或身份池尚未配置时保留旧版兼容流程。分享链接重定向不需要登录态，因此保持独立。</p>
 
 <ol>
 <li>获取镜像</li>
@@ -183,17 +150,30 @@ demo()
 <li>方式二：使用 <code>docker pull joeanamier/tiktok-downloader</code> 命令拉取镜像</li>
 <li>方式三：使用 <code>docker pull ghcr.io/joeanamier/tiktok-downloader</code> 命令拉取镜像</li>
 </ul>
-<li>创建容器：<code>docker run --name 容器名称(可选) -p 主机端口号:5555 -v tiktok_downloader_volume:/app/Volume -it &lt;镜像名称&gt;</code>
+<li><b>推荐：后台直接启动 WebUI（默认命令已是 WebUI）</b><br>
+<code>docker run -d --name douk-webui -p 5555:5555 -v tiktok_downloader_settings:/app/settings -v tiktok_downloader_downloads:/app/downloads &lt;镜像名称&gt;</code>
 </li>
-<br><b>注意：</b>此处的 <code>&lt;镜像名称&gt;</code> 需与您在第一步中使用的镜像名称保持一致（例如 <code>joeanamier/tiktok-downloader</code> 或 <code>ghcr.io/joeanamier/tiktok-downloader</code>）
-<li>运行容器
-<ul>
-<li>启动容器：<code>docker start -i 容器名称/容器 ID</code></li>
-<li>重启容器：<code>docker restart -i 容器名称/容器 ID</code></li>
-</ul>
-</li>
+<li>查看日志：<code>docker logs -f douk-webui</code></li>
+<li>停止容器：<code>docker stop douk-webui</code></li>
+<li>如需进入终端交互菜单模式，可覆盖启动命令：<code>docker run -it --rm &lt;镜像名称&gt; uv run --no-sync main.py</code></li>
 </ol>
 <p>Docker 容器无法直接访问宿主机的文件系统，部分功能不可用，例如：<code>从浏览器读取 Cookie</code>；其他功能如有异常请反馈！</p>
+<p>在 WebUI 中将 <code>root</code> 设置为 <code>/app/downloads</code>，下载文件才会写入 Compose 挂载的下载目录。若使用外部签名实现，请放到宿主机的 <code>settings/encipher.py</code>；容器通过 <code>DOUK_ENCIPHER_PATH</code> 自动加载。</p>
+<hr>
+
+## 路径参数说明（root / folder_name / settings）
+
+<ul>
+<li><code>root</code>：下载与数据导出的根目录（作品文件、CSV/XLSX/SQL 等）。默认留空时使用项目数据根目录（即 <code>./settings</code>；Docker 中通常是 <code>/app/settings</code>）。</li>
+<li><code>folder_name</code>：仅用于“链接作品下载（detail）”模式的子目录名称，默认值为 <code>Download</code>。</li>
+<li><code>profile_avatar_folder</code>：WebUI 账户看板 AI 头像输出目录名称（位于 <code>settings</code> 目录下，默认 <code>profile_avatars</code>）。</li>
+<li>账号发布/喜欢/收藏、合集、收藏夹等批量模式不会使用 <code>folder_name</code>，会按内置规则自动命名目录（如 <code>UIDxxx_发布作品</code>、<code>MIDxxx_合集作品</code>）。</li>
+<li><code>Music</code>、<code>Live</code> 目录也不受 <code>folder_name</code> 影响。</li>
+<li><code>settings.json</code>、数据库（<code>DouK-Downloader.db</code>）、缓存（<code>Cache</code>）默认位于项目数据根目录（<code>./settings</code>）。当前没有单独参数只改这三者路径。</li>
+<li>Docker 建议通过挂载控制持久化路径：<code>-v 宿主机目录:/app/settings</code>。</li>
+</ul>
+
+<p>示例：当 <code>root=/data/douk</code> 且 <code>folder_name=Solo</code> 时，链接作品会保存到 <code>/data/douk/Solo</code>；账号批量作品会保存到 <code>/data/douk/UIDxxx_...</code>。</p>
 <hr>
 
 ## 关于 Cookie
@@ -207,6 +187,60 @@ demo()
 > * 程序获取数据失败时，可以尝试更新 Cookie 或者使用已登录的 Cookie！
 
 <hr>
+
+## TikTok 账号配置与登录态
+
+<ul>
+<li>当前已经支持像抖音 <code>accounts_urls</code> 一样，通过 <code>settings.json</code> 的 <code>accounts_urls_tiktok</code> 批量配置 TikTok 账号链接，并在 <code>批量下载账号作品(TikTok)</code> 模式中直接使用。</li>
+<li>推荐使用账号主页链接，例如 <code>https://www.tiktok.com/@username</code>；程序也支持从作品链接中提取账号信息，但批量模式仍建议配置主页链接。</li>
+<li><code>accounts_urls_tiktok</code> 的单项结构与抖音账号配置一致，常用参数为 <code>mark</code>、<code>url</code>、<code>tab</code>、<code>earliest</code>、<code>latest</code>、<code>enable</code>、<code>auto_update_earliest</code>。</li>
+<li>WebUI 的 <code>settings.json Editor</code> 已增加登录态快捷面板，可单独维护抖音 / TikTok Cookie 与 TikTok 浏览器指纹关键字段。</li>
+<li>TikTok 分享链接解析、单条下载、批量下载会保留规范化后的 <code>detail_url</code>；数据请求默认使用项目的 <code>APITikTok</code> 接口实现。</li>
+</ul>
+
+```json
+"accounts_urls_tiktok": [
+  {
+    "mark": "hnks0505",
+    "url": "https://www.tiktok.com/@hnks0505",
+    "tab": "post",
+    "earliest": "2026/01/01",
+    "latest": "2036/01/01",
+    "enable": true,
+    "auto_update_earliest": false
+  }
+]
+```
+
+<p>请求间隔和兼容回退示例：</p>
+
+```json
+"request_delay": 6.0,
+"tiktok_bridge_fallback_enabled": false,
+"tiktok_api_enabled": true,
+"tiktok_api_browser": "chromium",
+"tiktok_api_browser_engine": "cloakbrowser",
+"tiktok_api_headless": false,
+"tiktok_api_humanize": true,
+"tiktok_api_human_preset": "default",
+"tiktok_api_reuse_session": true,
+"tiktok_api_persistent_profile": true,
+"tiktok_api_profile_dir": "cache/tiktok_api_profile",
+"tiktok_api_skip_on_risk": true,
+"tiktok_api_risk_cooldown_seconds": 1800
+```
+
+<ul>
+<li><b>加密参数接口支持外部实现。</b> 如内置 <code>a_bogus</code>、<code>X-Bogus</code> 或 <code>X-Gnarly</code> 失效，可复制 <code>encipher_example.py</code> 为源码根目录下的 <code>encipher.py</code>（Docker/NAS 使用 <code>settings/encipher.py</code>）并实现所需类。该文件会以应用自身权限执行，只能使用可信代码。</li>
+<li><b>浏览器兼容桥默认关闭。</b> 只有显式设置 <code>tiktok_bridge_fallback_enabled: true</code> 时，旧版接口失败或媒体直链返回 403 后才会尝试原 TikTokApi 浏览器方案。</li>
+<li><b><code>request_delay</code> 是平均请求间隔秒数。</b> 默认值 <code>6</code> 使用更接近人工操作的随机分布；设置为 <code>0</code> 可关闭等待。</li>
+<li><b>必须使用已登录的 TikTok Web Cookie。</b> 仅有 <code>msToken</code>、<code>ttwid</code> 等访客态参数时，可能只能拿到不完整列表，或者直接出现 <code>empty response</code>、验证码、下载 <code>403</code>。</li>
+<li><b>建议导入完整登录态 Cookie。</b> 至少应确保浏览器中 TikTok Web 已登录，并从该浏览器导入 <code>cookie_tiktok</code>；常见登录态 Cookie 键包括 <code>sessionid</code>、<code>sessionid_ss</code>、<code>sid_tt</code>、<code>uid_tt</code>。</li>
+<li><b>启用兼容桥后不要随意更换 profile 目录。</b> 如果手动完成了验证码，请继续复用同一个 <code>tiktok_api_profile_dir</code>。</li>
+<li><b>如果需要代理访问 TikTok，请设置 <code>proxy_tiktok</code>。</b> 不要只设置抖音侧的 <code>proxy</code>。</li>
+<li><b>如下载直链返回 403，</b>仅在启用 <code>tiktok_bridge_fallback_enabled</code> 后尝试共享 TikTokApi 会话下载。</li>
+<li><b>调用 Web API 的 <code>/tiktok/detail</code> 时，推荐直接传 <code>detail_url</code>。</b> 目前 <code>detail_id</code> 仅保留兼容回退用途，分享短链也会先展开为规范作品链接再处理。</li>
+</ul>
 
 ## 其他说明
 
@@ -313,7 +347,7 @@ A: 由于权限限制，您无法直接触发主仓库的 Actions。请通过 Fo
 
 ## 程序更新
 
-<p><strong>方案一：</strong>下载并解压文件，将旧版本的 <code>_internal\Volume</code> 文件夹复制到新版本的 <code>_internal</code> 文件夹。</p>
+<p><strong>方案一：</strong>下载并解压文件，将旧版本的 <code>_internal\settings</code> 文件夹复制到新版本的 <code>_internal</code> 文件夹。</p>
 <p><strong>方案二：</strong>下载并解压文件（不要运行程序），复制全部文件，直接覆盖旧版本文件。</p>
 
 # ⚠️ 免责声明
@@ -338,82 +372,6 @@ A: 由于权限限制，您无法直接触发主仓库的 Actions。请通过 Fo
 <li>作者保留在不另行通知的情况下更新本声明的权利，使用者持续使用即视为接受修订后的条款。</li>
 </ol>
 <b>在使用本项目的代码和功能之前，请您认真考虑并接受以上免责声明。如果您对上述声明有任何疑问或不同意，请不要使用本项目的代码和功能。如果您使用了本项目的代码和功能，则视为您已完全理解并接受上述免责声明，并自愿承担使用本项目的一切风险和后果。</b>
-<h1>🌟 贡献指南</h1>
-<p><strong>欢迎对本项目做出贡献！为了保持代码库的整洁、高效和易于维护，请仔细阅读以下指南，以确保您的贡献能够顺利被接受和整合。</strong></p>
-<ul>
-<li>在开始开发前，请从 <code>develop</code> 分支拉取最新的代码，以此为基础进行修改；这有助于避免合并冲突并保证您的改动基于最新的项目状态。</li>
-<li>如果您的更改涉及多个不相关的功能或问题，请将它们分成多个独立的提交或拉取请求。</li>
-<li>每个拉取请求应尽可能专注于单一功能或修复，以便于代码审查和测试。</li>
-<li>遵循现有的代码风格；请确保您的代码与项目中已有的代码风格保持一致；建议使用 Ruff 工具保持代码格式规范。</li>
-<li>编写可读性强的代码；添加适当的注释帮助他人理解您的意图。</li>
-<li>每个提交都应该包含一个清晰、简洁的提交信息，以描述所做的更改。提交信息应遵循以下格式：<code>&lt;类型&gt;: &lt;简短描述&gt;</code></li>
-<li>当您准备提交拉取请求时，请优先将它们提交到 <code>develop</code> 分支；这是为了给维护者一个缓冲区，在最终合并到 <code>master</code>
-分支之前进行额外的测试和审查。</li>
-<li>建议在开发前或遇到疑问时与作者沟通，确保开发方向一致，避免重复劳动或无效提交。</li>
-</ul>
-<p><strong>参考资料：</strong></p>
-<ul>
-<li><a href="https://www.contributor-covenant.org/zh-cn/version/2/1/code_of_conduct/">贡献者公约</a></li>
-<li><a href="https://opensource.guide/zh-hans/how-to-contribute/">如何为开源做贡献</a></li>
-</ul>
-
-# ♥️ 支持项目
-
-<p>如果 <b>DouK-Downloader</b> 对您有帮助，请考虑为它点个 <b>Star</b> ⭐，感谢您的支持！</p>
-<table>
-<thead>
-<tr>
-<th align="center">微信(WeChat)</th>
-<th align="center">支付宝(Alipay)</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center"><img src="./docs/微信赞助二维码.png" alt="微信赞助二维码" height="200" width="200"></td>
-<td align="center"><img src="./docs/支付宝赞助二维码.png" alt="支付宝赞助二维码" height="200" width="200"></td>
-</tr>
-</tbody>
-</table>
-<p>如果您愿意，可以考虑提供资助为 <b>DouK-Downloader</b> 提供额外的支持！</p>
-
-# 💰 项目赞助
-
-## DartNode
-
-[![Powered by DartNode](docs/AD/DartNode_AD.png)](https://dartnode.com "Powered by DartNode - Free VPS for Open Source")
-
-***
-
-## ZMTO
-
-<p><a href="https://www.zmto.com/"><img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="ZMTO"></a></p>
-<p><a href="https://www.zmto.com/">ZMTO</a>：一家专业的云基础设施提供商，以可靠的尖端技术与专业支持，提供高效的解决方案，并为符合条件的开源项目提供企业级VPS基础设施，支持开源生态系统的可持续发展与创新。</p>
-
-***
-
-## TikHub
-
-<p><a href="https://tikhub.io/?utm_source=github&utm_medium=readme&utm_campaign=tiktok_downloader&ref=github_joeanamier_tiktokdownloader"><img src="docs/AD/TIKHUB_AD.jpg" alt="TIKHUB" width="458" height="319"></a></p>
-<p><a href="https://tikhub.io/?utm_source=github&utm_medium=readme&utm_campaign=tiktok_downloader&ref=github_joeanamier_tiktokdownloader">TikHub API</a> 提供超过 700 个端点，可用于从 14+ 个社交媒体平台获取与分析数据 —— 包括视频、用户、评论、商店、商品与趋势等，一站式完成所有数据访问与分析。</p>
-<p>使用 <strong>邀请码</strong>：<code>ZrdH8McC</code> 注册并充值即可获得 <code>$2</code> 额度。</p>
-
-# ✉️ 联系作者
-
-<ul>
-<li>作者邮箱：yonglelolu@foxmail.com</li>
-<li>作者微信: Downloader_Tools</li>
-<li>微信公众号: Downloader Tools</li>
-<li><b>Discord 社区</b>: <a href="https://discord.com/invite/ZYtmgKud9Y">点击加入社区</a></li>
-<li>QQ 群聊(用于项目交流与摸鱼闲聊): <a href="https://github.com/JoeanAmier/TikTokDownloader/blob/master/docs/QQ%E7%BE%A4%E8%81%8A%E4%BA%8C%E7%BB%B4%E7%A0%81.png">扫码加入群聊</a></li>
-</ul>
-<p>✨ <b>作者的其他开源项目：</b></p>
-<ul>
-<li><b>XHS-Downloader（小红书、XiaoHongShu、RedNote）</b>：<a href="https://github.com/JoeanAmier/XHS-Downloader">https://github.com/JoeanAmier/XHS-Downloader</a></li>
-<li><b>KS-Downloader（快手、KuaiShou）</b>：<a href="https://github.com/JoeanAmier/KS-Downloader">https://github.com/JoeanAmier/KS-Downloader</a></li>
-</ul>
-<h1>⭐ Star 趋势</h1>
-<p>
-<img alt="Star History Chart" src="https://api.star-history.com/svg?repos=JoeanAmier/TikTokDownloader&amp;type=Timeline"/>
-</p>
 
 # 💡 项目参考
 

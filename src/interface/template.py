@@ -257,16 +257,19 @@ class API:
         *args,
         **kwargs,
     ):
+        request_headers = headers or self.headers
         params = self.deal_url_params(
             params,
-            encryption,
+            data=data,
+            method=method,
+            user_agent=request_headers.get("User-Agent", ""),
         )
         match (method, bool(self.proxy)):
             case ("GET", False):
                 return await self.request_data_get(
                     url,
                     params,
-                    headers or self.headers,
+                    request_headers,
                     finished=finished,
                     *args,
                     **kwargs,
@@ -275,7 +278,7 @@ class API:
                 return await self.request_data_get_proxy(
                     url,
                     params,
-                    headers or self.headers,
+                    request_headers,
                     finished=finished,
                     *args,
                     **kwargs,
@@ -285,7 +288,7 @@ class API:
                     url,
                     params,
                     data,
-                    headers or self.headers,
+                    request_headers,
                     finished=finished,
                     *args,
                     **kwargs,
@@ -295,7 +298,7 @@ class API:
                     url,
                     params,
                     data,
-                    headers or self.headers,
+                    request_headers,
                     finished=finished,
                     *args,
                     **kwargs,
@@ -431,7 +434,9 @@ class API:
     def deal_url_params(
         self,
         params: dict,
+        data: dict | str | None = None,
         method="GET",
+        user_agent: str = "",
         **kwargs,
     ) -> str:
         if params:
@@ -440,7 +445,12 @@ class API:
                 safe="=",
                 quote_via=quote,
             )
-            params += f"&a_bogus={self.ab.get_value(params, method)}"
+            params += "&a_bogus=" + self.ab.get_value(
+                query=params,
+                data=data,
+                method=method,
+                user_agent=user_agent or self.headers.get("User-Agent", ""),
+            )
             return params
         return ""
 
@@ -581,7 +591,9 @@ class APITikTok(API):
     def deal_url_params(
         self,
         params: dict,
-        number=8,
+        data: dict | str | None = None,
+        method="GET",
+        user_agent: str = "",
         **kwargs,
     ) -> str:
         if params:
@@ -590,11 +602,18 @@ class APITikTok(API):
                 safe="=",
                 quote_via=quote,
             )
+            effective_user_agent = user_agent or self.headers.get("User-Agent", "")
             xb = self.xb.get_x_bogus(
-                params, number, self.headers.get("User-Agent", USERAGENT)
+                query=params,
+                data=data,
+                method=method,
+                user_agent=effective_user_agent,
             )
             xg = self.xg.generate(
-                params, user_agent=self.headers.get("User-Agent", USERAGENT)
+                query=params,
+                data=data,
+                method=method,
+                user_agent=effective_user_agent,
             )
             params += f"&X-Bogus={xb}&X-Gnarly={xg}"
             return params

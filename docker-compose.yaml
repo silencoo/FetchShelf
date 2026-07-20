@@ -1,0 +1,39 @@
+services:
+  douyin-download:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tiktok-downloader-local
+
+    container_name: douyin-download
+
+    working_dir: /app
+    command: ["python", "main_webui.py"]
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      DOUK_ENCIPHER_PATH: /app/settings/encipher.py
+      NVIDIA_VISIBLE_DEVICES: void
+
+    ports:
+      - "${WEBUI_PORT:-5555}:5555"
+
+    volumes:
+      - "${SETTINGS_DIR:-./settings}:/app/settings"
+      - "${DOWNLOADS_DIR:-./downloads}:/app/downloads"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5555/docs', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

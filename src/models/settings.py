@@ -10,6 +10,12 @@ class AccountUrl(BaseModel):
     earliest: str | int | float = ""
     latest: str | int | float = ""
     enable: bool = True
+    auto_update_earliest: bool = False
+
+
+class DeletedAccountUrl(AccountUrl):
+    deleted_at: str = ""
+    reason: str = ""
 
 
 class MixUrl(BaseModel):
@@ -65,12 +71,16 @@ class TikTokBrowserInfo(BaseModel):
 class Settings(BaseModel):
     accounts_urls: List[AccountUrl] = []
     accounts_urls_tiktok: List[AccountUrl] = []
+    deleted_accounts: List[DeletedAccountUrl] = []
+    deleted_accounts_tiktok: List[DeletedAccountUrl] = []
     mix_urls: List[MixUrl] = []
     mix_urls_tiktok: List[MixUrl] = []
     owner_url: OwnerUrl | dict[str, str] = {}
     owner_url_tiktok: None = None
     root: str | None = None
     folder_name: str | None = None
+    profile_avatar_folder: str | None = None
+    earliest_update_days: int | None = None
     name_format: str | None = None
     desc_length: int | None = None
     name_length: int | None = None
@@ -93,6 +103,8 @@ class Settings(BaseModel):
     timeout: int | None = None
     max_retry: int | None = None
     max_pages: int | None = None
+    request_delay: float | None = None
+    auto_backfill_mark: bool | None = None
     run_command: str | None = None
     ffmpeg: str | None = None
     live_qualities: str | None = None
@@ -100,12 +112,32 @@ class Settings(BaseModel):
     tiktok_platform: bool | None = None
     browser_info: BrowserInfo | None = None
     browser_info_tiktok: TikTokBrowserInfo | None = None
+    tiktok_api_enabled: bool | None = None
+    tiktok_bridge_fallback_enabled: bool | None = None
+    tiktok_api_browser: str | None = None
+    tiktok_api_browser_engine: str | None = None
+    tiktok_api_headless: bool | None = None
+    tiktok_api_humanize: bool | None = None
+    tiktok_api_human_preset: str | None = None
+    tiktok_api_reuse_session: bool | None = None
+    tiktok_api_persistent_profile: bool | None = None
+    tiktok_api_profile_dir: str | None = None
+    tiktok_api_sleep_after: int | None = None
+    tiktok_api_timeout_ms: int | None = None
+    tiktok_api_page_size: int | None = None
+    tiktok_api_skip_on_risk: bool | None = None
+    tiktok_api_risk_cooldown_seconds: int | None = None
+    tiktok_api_debug_capture_enabled: bool | None = None
+    tiktok_api_debug_capture_slider: bool | None = None
+    tiktok_api_debug_capture_dir: str | None = None
+    ui_schedules: list[dict] = []
 
     class Config:
         populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {
             AccountUrl: lambda v: v.dict(),
+            DeletedAccountUrl: lambda v: v.dict(),
             MixUrl: lambda v: v.dict(),
             OwnerUrl: lambda v: v.dict(),
             BrowserInfo: lambda v: v.dict(),

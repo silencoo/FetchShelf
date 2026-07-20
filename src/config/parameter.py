@@ -18,6 +18,7 @@ from ..custom import (
     QRCODE_HEADERS,
     TIMEOUT,
     USERAGENT,
+    configure_wait,
 )
 from ..encrypt import (
     ABogus,
@@ -33,7 +34,13 @@ from ..interface import API, APITikTok
 from ..module import FFMPEG
 from ..record import BaseLogger, LoggerManager
 from ..storage import RecordManager
-from ..tools import Cleaner, DownloaderError, cookie_dict_to_str, create_client
+from ..tools import (
+    Cleaner,
+    DownloaderError,
+    cookie_dict_to_str,
+    create_client,
+    load_objects_from_external_py,
+)
 from ..translation import _
 
 if TYPE_CHECKING:
@@ -73,9 +80,13 @@ class Parameter:
         root: str,
         accounts_urls: list[dict],
         accounts_urls_tiktok: list[dict],
+        deleted_accounts: list[dict],
+        deleted_accounts_tiktok: list[dict],
         mix_urls: list[dict],
         mix_urls_tiktok: list[dict],
         folder_name: str,
+        profile_avatar_folder: str,
+        earliest_update_days: int,
         name_format: str,
         desc_length: int,
         name_length: int,
@@ -95,6 +106,8 @@ class Parameter:
         chunk: int,
         max_retry: int,
         max_pages: int,
+        request_delay: float,
+        auto_backfill_mark: bool,
         run_command: str,
         owner_url: dict,
         owner_url_tiktok: dict,
@@ -103,6 +116,7 @@ class Parameter:
         recorder: "DownloadRecorder",
         browser_info: dict,
         browser_info_tiktok: dict,
+        ui_schedules: list[dict],
         timeout=10,
         douyin_platform=True,
         tiktok_platform=True,
@@ -117,6 +131,7 @@ class Parameter:
         self.ab = ABogus()
         self.xb = XBogus()
         self.xg = XGnarly()
+        self._external_signers: set[str] = set()
         self.console = console
         self.recorder = recorder
         self.preview = BLANK_PREVIEW
@@ -137,6 +152,12 @@ class Parameter:
         self.accounts_urls_tiktok: list[SimpleNamespace] = self.check_urls_params(
             accounts_urls_tiktok
         )
+        self.deleted_accounts: list[dict] = self.check_deleted_accounts(
+            deleted_accounts,
+        )
+        self.deleted_accounts_tiktok: list[dict] = self.check_deleted_accounts(
+            deleted_accounts_tiktok,
+        )
         self.mix_urls: list[SimpleNamespace] = self.check_urls_params(mix_urls)
         self.mix_urls_tiktok: list[SimpleNamespace] = self.check_urls_params(
             mix_urls_tiktok
@@ -155,6 +176,12 @@ class Parameter:
 
         self.root = self.__check_root(root)
         self.folder_name = self.__check_folder_name(folder_name)
+        self.profile_avatar_folder = self.__check_profile_avatar_folder(
+            profile_avatar_folder
+        )
+        self.earliest_update_days = self.__check_earliest_update_days(
+            earliest_update_days
+        )
         self.name_format = self.__check_name_format(name_format)
         self.desc_length = self.__check_desc_length(desc_length)
         self.name_length = self.__check_name_length(name_length)
@@ -173,6 +200,9 @@ class Parameter:
         self.timeout = self.__check_timeout(timeout)
         self.max_retry = self.__check_max_retry(max_retry)
         self.max_pages = self.__check_max_pages(max_pages)
+        self.request_delay = self.__check_request_delay(request_delay)
+        configure_wait(self.request_delay)
+        self.auto_backfill_mark = self.check_bool_true(auto_backfill_mark)
         self.run_command = self.__check_run_command(run_command)
         self.ffmpeg = self.__generate_ffmpeg_object(ffmpeg)
         self.live_qualities = self.__check_live_qualities(live_qualities)
@@ -182,6 +212,72 @@ class Parameter:
         self.tiktok_platform = self.check_bool_true(
             tiktok_platform,
         )
+        self.tiktok_api_enabled = self.check_bool_true(
+            kwargs.get("tiktok_api_enabled", True),
+        )
+        self.tiktok_bridge_fallback_enabled = self.check_bool_false(
+            kwargs.get("tiktok_bridge_fallback_enabled", False),
+        )
+        self.tiktok_api_browser = self.check_str(
+            kwargs.get("tiktok_api_browser", "chromium")
+        ) or "chromium"
+        self.tiktok_api_browser_engine = self.check_str(
+            kwargs.get("tiktok_api_browser_engine", "cloakbrowser")
+        ) or "cloakbrowser"
+        self.tiktok_api_headless = self.check_bool_false(
+            kwargs.get("tiktok_api_headless", False),
+        )
+        self.tiktok_api_humanize = self.check_bool_true(
+            kwargs.get("tiktok_api_humanize", True),
+        )
+        self.tiktok_api_human_preset = self.check_str(
+            kwargs.get("tiktok_api_human_preset", "default")
+        ) or "default"
+        self.tiktok_api_reuse_session = self.check_bool_true(
+            kwargs.get("tiktok_api_reuse_session", True),
+        )
+        self.tiktok_api_persistent_profile = self.check_bool_true(
+            kwargs.get("tiktok_api_persistent_profile", True),
+        )
+        self.tiktok_api_profile_dir = self.check_str(
+            kwargs.get("tiktok_api_profile_dir", "cache/tiktok_api_profile")
+        ) or "cache/tiktok_api_profile"
+        self.tiktok_api_sleep_after = self.__check_number_value(
+            kwargs.get("tiktok_api_sleep_after", 3),
+            "tiktok_api_sleep_after",
+            0,
+            3,
+        )
+        self.tiktok_api_timeout_ms = self.__check_number_value(
+            kwargs.get("tiktok_api_timeout_ms", 30000),
+            "tiktok_api_timeout_ms",
+            1000,
+            30000,
+        )
+        self.tiktok_api_page_size = self.__check_number_value(
+            kwargs.get("tiktok_api_page_size", 30),
+            "tiktok_api_page_size",
+            1,
+            30,
+        )
+        self.tiktok_api_skip_on_risk = self.check_bool_true(
+            kwargs.get("tiktok_api_skip_on_risk", True),
+        )
+        self.tiktok_api_risk_cooldown_seconds = self.__check_number_value(
+            kwargs.get("tiktok_api_risk_cooldown_seconds", 1800),
+            "tiktok_api_risk_cooldown_seconds",
+            0,
+            1800,
+        )
+        self.tiktok_api_debug_capture_enabled = self.check_bool_false(
+            kwargs.get("tiktok_api_debug_capture_enabled", False),
+        )
+        self.tiktok_api_debug_capture_slider = self.check_bool_false(
+            kwargs.get("tiktok_api_debug_capture_slider", False),
+        )
+        self.tiktok_api_debug_capture_dir = self.check_str(
+            kwargs.get("tiktok_api_debug_capture_dir", "browser_debug")
+        ) or "browser_debug"
 
         self.browser_info = self.merge_browser_info(
             browser_info,
@@ -191,8 +287,22 @@ class Parameter:
             browser_info_tiktok,
             {},
         )
+        self.ui_schedules = self.check_ui_schedules(
+            ui_schedules,
+        )
         self.__set_browser_info(self.browser_info)
         self.__set_browser_info_tiktok(self.browser_info_tiktok)
+        (
+            self.ab,
+            self.xb,
+            self.xg,
+            self._external_signers,
+        ) = self.load_signing_objects(
+            console,
+            self.ab,
+            self.xb,
+            self.xg,
+        )
 
         self.proxy: str | None = self.__check_proxy(
             proxy,
@@ -222,6 +332,8 @@ class Parameter:
         self.__CHECK = {
             "root": self.__check_root,
             "folder_name": self.__check_folder_name,
+            "profile_avatar_folder": self.__check_profile_avatar_folder,
+            "earliest_update_days": self.__check_earliest_update_days,
             "name_format": self.__check_name_format,
             "desc_length": self.__check_desc_length,
             "name_length": self.__check_name_length,
@@ -240,11 +352,14 @@ class Parameter:
             "timeout": self.__check_timeout,
             "max_retry": self.__check_max_retry,
             "max_pages": self.__check_max_pages,
+            "request_delay": self.__set_request_delay,
+            "auto_backfill_mark": self.check_bool_true,
             "run_command": self.__check_run_command,
             "ffmpeg": self.__generate_ffmpeg_object,
             "live_qualities": self.__check_live_qualities,
             "douyin_platform": self.check_bool_true,
             "tiktok_platform": self.check_bool_true,
+            "tiktok_bridge_fallback_enabled": self.check_bool_false,
         }
         # self.__BROWSER_INFO = {
         #     "browser_info": None,
@@ -255,13 +370,38 @@ class Parameter:
     def check_bool_false(
         value: bool,
     ) -> bool:
-        return value if isinstance(value, bool) else False
+        return Parameter.coerce_bool(value, default=False)
 
     @staticmethod
     def check_bool_true(
         value: bool,
     ) -> bool:
-        return value if isinstance(value, bool) else True
+        return Parameter.coerce_bool(value, default=True)
+
+    @staticmethod
+    def coerce_bool(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value in {None, ""}:
+            return default
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"1", "true", "yes", "on", "enable", "enabled", "启用", "开启"}:
+                return True
+            if text in {
+                "0",
+                "false",
+                "no",
+                "off",
+                "disable",
+                "disabled",
+                "禁用",
+                "关闭",
+            }:
+                return False
+        return default
 
     def __check_cookie_tiktok(
         self,
@@ -342,17 +482,22 @@ class Parameter:
         return {}
 
     async def __get_tt_wid_params_tiktok(self) -> dict:
+        tt_wid_value = self.cookie_dict_tiktok.get(TtWidTikTok.NAME, "") or (
+            self.get_cookie_value(
+                self.cookie_str_tiktok,
+                TtWidTikTok.NAME,
+            )
+        )
+        if tt_wid_value:
+            self.logger.info(
+                f"TikTok {TtWidTikTok.NAME} 使用 Cookie 中已有值",
+                False,
+            )
+            return {TtWidTikTok.NAME: tt_wid_value}
         if tt_wid := await TtWidTikTok.get_tt_wid(
             self.logger,
             self.headers_params_tiktok,
-            self.twc_tiktok
-            or f"{TtWidTikTok.NAME}={
-                self.cookie_dict_tiktok.get(TtWidTikTok.NAME, '')
-                or self.get_cookie_value(
-                    self.cookie_str_tiktok,
-                    TtWidTikTok.NAME,
-                )
-            }",
+            self.twc_tiktok or f"{TtWidTikTok.NAME}={tt_wid_value}",
             proxy=self.proxy_tiktok,
         ):
             self.logger.info(
@@ -396,6 +541,43 @@ class Parameter:
             ).format(folder_name=folder_name),
         )
         return "Download"
+
+    def __check_profile_avatar_folder(self, folder_name: str) -> str:
+        if value := self.CLEANER.filter_name(
+            folder_name,
+            "profile_avatars",
+        ):
+            self.logger.info(
+                f"profile_avatar_folder 参数已设置为 {value}",
+                False,
+            )
+            return value
+        self.logger.warning(
+            _(
+                "profile_avatar_folder 参数 {folder_name} 无效，程序将使用默认值：profile_avatars"
+            ).format(folder_name=folder_name),
+        )
+        return "profile_avatars"
+
+    def __check_earliest_update_days(self, value: int | str) -> int:
+        try:
+            days = int(value)
+        except (TypeError, ValueError):
+            self.logger.warning(
+                _("earliest_update_days 参数 {value} 无效，程序将使用默认值：3").format(
+                    value=value
+                ),
+            )
+            return 3
+        if days < 0:
+            self.logger.warning(
+                _("earliest_update_days 参数 {value} 不能小于 0，程序将使用默认值：3").format(
+                    value=value
+                ),
+            )
+            return 3
+        self.logger.info(f"earliest_update_days 参数已设置为 {days}", False)
+        return days
 
     def __check_name_format(self, name_format: str) -> list[str]:
         name_keys = name_format.strip().split(" ")
@@ -537,6 +719,24 @@ class Parameter:
             2,
             10,
         )
+
+    def __check_request_delay(self, value: float | int) -> float:
+        try:
+            delay = float(value)
+        except (TypeError, ValueError):
+            delay = 6.0
+        if delay < 0:
+            self.logger.warning(
+                _("request_delay 参数不能小于 0，程序将使用默认值：6")
+            )
+            return 6.0
+        self.logger.info(f"request_delay 参数已设置为 {delay}", False)
+        return delay
+
+    def __set_request_delay(self, value: float | int) -> float:
+        delay = self.__check_request_delay(value)
+        configure_wait(delay)
+        return delay
 
     def __check_storage_format(self, storage_format: str) -> str:
         if storage_format in RecordManager.DataLogger.keys():
@@ -821,12 +1021,16 @@ class Parameter:
         return {
             "accounts_urls": [vars(i) for i in self.accounts_urls],
             "accounts_urls_tiktok": [vars(i) for i in self.accounts_urls_tiktok],
+            "deleted_accounts": self.deleted_accounts,
+            "deleted_accounts_tiktok": self.deleted_accounts_tiktok,
             "mix_urls": [vars(i) for i in self.mix_urls],
             "mix_urls_tiktok": [vars(i) for i in self.mix_urls_tiktok],
             "owner_url": vars(self.owner_url),
             "owner_url_tiktok": self.owner_url_tiktok,
             "root": str(self.root.resolve()),
             "folder_name": self.folder_name,
+            "profile_avatar_folder": self.profile_avatar_folder,
+            "earliest_update_days": self.earliest_update_days,
             "name_format": " ".join(self.name_format),
             "desc_length": self.desc_length,
             "name_length": self.name_length,
@@ -848,8 +1052,35 @@ class Parameter:
             "chunk": self.chunk,
             "max_retry": self.max_retry,
             "max_pages": self.max_pages,
+            "request_delay": self.request_delay,
+            "auto_backfill_mark": self.auto_backfill_mark,
             "run_command": " ".join(self.run_command[::-1]),
             "ffmpeg": self.ffmpeg.path or "",
+            "timeout": self.timeout,
+            "live_qualities": self.live_qualities,
+            "douyin_platform": self.douyin_platform,
+            "tiktok_platform": self.tiktok_platform,
+            "browser_info": self.browser_info,
+            "browser_info_tiktok": self.browser_info_tiktok,
+            "tiktok_api_enabled": self.tiktok_api_enabled,
+            "tiktok_bridge_fallback_enabled": self.tiktok_bridge_fallback_enabled,
+            "tiktok_api_browser": self.tiktok_api_browser,
+            "tiktok_api_browser_engine": self.tiktok_api_browser_engine,
+            "tiktok_api_headless": self.tiktok_api_headless,
+            "tiktok_api_humanize": self.tiktok_api_humanize,
+            "tiktok_api_human_preset": self.tiktok_api_human_preset,
+            "tiktok_api_reuse_session": self.tiktok_api_reuse_session,
+            "tiktok_api_persistent_profile": self.tiktok_api_persistent_profile,
+            "tiktok_api_profile_dir": self.tiktok_api_profile_dir,
+            "tiktok_api_sleep_after": self.tiktok_api_sleep_after,
+            "tiktok_api_timeout_ms": self.tiktok_api_timeout_ms,
+            "tiktok_api_page_size": self.tiktok_api_page_size,
+            "tiktok_api_skip_on_risk": self.tiktok_api_skip_on_risk,
+            "tiktok_api_risk_cooldown_seconds": self.tiktok_api_risk_cooldown_seconds,
+            "tiktok_api_debug_capture_enabled": self.tiktok_api_debug_capture_enabled,
+            "tiktok_api_debug_capture_slider": self.tiktok_api_debug_capture_slider,
+            "tiktok_api_debug_capture_dir": self.tiktok_api_debug_capture_dir,
+            "ui_schedules": self.ui_schedules,
         }
 
     async def set_settings_data(
@@ -863,6 +1094,10 @@ class Parameter:
             data.pop("accounts_urls_tiktok"),
             data.pop("mix_urls_tiktok"),
             data.pop("owner_url_tiktok"),
+        )
+        self.set_deleted_accounts(
+            data.pop("deleted_accounts"),
+            data.pop("deleted_accounts_tiktok"),
         )
         self.set_cookie(
             data.pop(
@@ -888,7 +1123,11 @@ class Parameter:
                 "proxy_tiktok",
             ),
         )
+        self.ui_schedules = self.check_ui_schedules(
+            data.pop("ui_schedules", []),
+        )
         self.set_general_params(data)
+        self.settings.update(self.get_settings_data())
 
     async def __update_cookie_data(self, data: dict) -> None:
         for i, j in zip(("cookie", "cookie_tiktok"), (_("抖音"), "TikTok")):
@@ -902,12 +1141,66 @@ class Parameter:
     def check_urls_params(data: list[dict]) -> list[SimpleNamespace]:
         items = []
         for item in data:
-            if not item.get("url") or not item.get("enable", True):
+            if not item.get("url"):
                 continue
+            item["enable"] = Parameter.coerce_bool(
+                item.get("enable"),
+                default=True,
+            )
+            item["auto_update_earliest"] = Parameter.coerce_bool(
+                item.get("auto_update_earliest"),
+                default=False,
+            )
             if not isinstance(item.get("mark"), str):
                 item["mark"] = ""
             items.append(item)
         return Extractor.generate_data_object(items)
+
+    @staticmethod
+    def check_deleted_accounts(data: list[dict] | None) -> list[dict]:
+        if not isinstance(data, list):
+            return []
+        items = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if not isinstance(url, str) or not url.strip():
+                continue
+            items.append(
+                {
+                    "mark": item.get("mark", "")
+                    if isinstance(item.get("mark"), str)
+                    else "",
+                    "url": url.strip(),
+                    "tab": item.get("tab", "post")
+                    if isinstance(item.get("tab"), str)
+                    else "post",
+                    "earliest": str(item.get("earliest", "") or "").strip(),
+                    "latest": str(item.get("latest", "") or "").strip(),
+                    "enable": Parameter.coerce_bool(
+                        item.get("enable"),
+                        default=False,
+                    ),
+                    "auto_update_earliest": Parameter.coerce_bool(
+                        item.get("auto_update_earliest"),
+                        default=False,
+                    ),
+                    "deleted_at": item.get("deleted_at", "")
+                    if isinstance(item.get("deleted_at"), str)
+                    else "",
+                    "reason": item.get("reason", "")
+                    if isinstance(item.get("reason"), str)
+                    else "",
+                }
+            )
+        return items
+
+    @staticmethod
+    def check_ui_schedules(data: list[dict] | None) -> list[dict]:
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
 
     @staticmethod
     def check_url_params(data: dict) -> SimpleNamespace:
@@ -942,6 +1235,18 @@ class Parameter:
         # if owner_url_tiktok:
         #     self.owner_url_tiktok = self.check_url_params(owner_url_tiktok)
 
+    def set_deleted_accounts(
+        self,
+        deleted_accounts: list[dict],
+        deleted_accounts_tiktok: list[dict],
+    ) -> None:
+        self.deleted_accounts = self.check_deleted_accounts(
+            deleted_accounts,
+        )
+        self.deleted_accounts_tiktok = self.check_deleted_accounts(
+            deleted_accounts_tiktok,
+        )
+
     def set_cookie(
         self, cookie: str | dict[str, str], cookie_tiktok: str | dict[str, str]
     ):
@@ -960,27 +1265,57 @@ class Parameter:
 
     def set_general_params(self, data: dict[str, Any]) -> None:
         for i, j in data.items():
-            if j is not None:
-                self.__CHECK[i](j)
+            if j is not None and (checker := self.__CHECK.get(i)):
+                setattr(
+                    self,
+                    i,
+                    checker(j),
+                )
 
     async def set_proxy(self, proxy: str | None, proxy_tiktok: str | None):
+        current_proxy = self.proxy
+        current_proxy_tiktok = self.proxy_tiktok
+        new_proxy = current_proxy
+        new_proxy_tiktok = current_proxy_tiktok
         if isinstance(proxy, str):
-            self.proxy: str | None = self.__check_proxy(
+            new_proxy = self.__check_proxy(
                 proxy,
                 remark=_("抖音"),
                 enable=self.douyin_platform,
             )
         if isinstance(proxy_tiktok, str):
-            self.proxy_tiktok: str | None = self.__check_proxy_tiktok(proxy_tiktok)
-        await self.close_client()
-        self.client = create_client(
-            timeout=self.timeout,
-            proxy=self.proxy,
+            new_proxy_tiktok = self.__check_proxy_tiktok(proxy_tiktok)
+        self.proxy = new_proxy
+        self.proxy_tiktok = new_proxy_tiktok
+        should_refresh_client = any(
+            (
+                new_proxy != current_proxy,
+                new_proxy_tiktok != current_proxy_tiktok,
+                bool(getattr(self.client, "is_closed", False)),
+                bool(getattr(self.client_tiktok, "is_closed", False)),
+            )
         )
-        self.client_tiktok = create_client(
-            timeout=self.timeout,
-            proxy=self.proxy_tiktok,
-        )
+        if not should_refresh_client:
+            return
+        try:
+            new_client = create_client(
+                timeout=self.timeout,
+                proxy=self.proxy,
+            )
+            new_client_tiktok = create_client(
+                timeout=self.timeout,
+                proxy=self.proxy_tiktok,
+            )
+        except Exception:
+            self.proxy = current_proxy
+            self.proxy_tiktok = current_proxy_tiktok
+            raise
+        old_client = self.client
+        old_client_tiktok = self.client_tiktok
+        self.client = new_client
+        self.client_tiktok = new_client_tiktok
+        await old_client.aclose()
+        await old_client_tiktok.aclose()
 
     @staticmethod
     def merge_browser_info(
@@ -1002,10 +1337,50 @@ class Parameter:
         self.__set_browser_info_tiktok(self.browser_info_tiktok)
 
     @staticmethod
+    def load_signing_objects(console, ab, xb, xg):
+        external = load_objects_from_external_py(
+            "encipher.py",
+            ["ABogus", "XBogus", "XGnarly"],
+            console,
+        )
+        selected = {"ABogus": ab, "XBogus": xb, "XGnarly": xg}
+        methods = {
+            "ABogus": "get_value",
+            "XBogus": "get_x_bogus",
+            "XGnarly": "generate",
+        }
+        loaded: set[str] = set()
+        for name, fallback in tuple(selected.items()):
+            candidate = external.get(name)
+            if candidate is None:
+                continue
+            try:
+                instance = candidate()
+                if not callable(getattr(instance, methods[name], None)):
+                    raise TypeError(f"{name}.{methods[name]} is not callable")
+            except Exception as error:
+                console.error(
+                    _("外部 {name} 初始化失败，将使用项目内置实现：{error}").format(
+                        name=name,
+                        error=error,
+                    )
+                )
+                selected[name] = fallback
+                continue
+            selected[name] = instance
+            loaded.add(name)
+            console.info(_("已加载外部加密参数实现：{name}").format(name=name))
+        return selected["ABogus"], selected["XBogus"], selected["XGnarly"], loaded
+
+    @staticmethod
     def check_str(value: str) -> str:
         return value if isinstance(value, str) else ""
 
     async def close_client(self) -> None:
+        if self.tiktok_api_enabled and self.tiktok_bridge_fallback_enabled:
+            from ..module import TikTokAPIBridge
+
+            await TikTokAPIBridge.close_for_params(self)
         await self.client.aclose()
         await self.client_tiktok.aclose()
 
@@ -1046,12 +1421,13 @@ class Parameter:
                 i,
             ):
                 API.params[i] = v
-        self.ab = ABogus(
-            ua,
-            info.get(
-                "browser_platform",
-            ),
-        )
+        if "ABogus" not in self._external_signers:
+            self.ab = ABogus(
+                ua,
+                info.get(
+                    "browser_platform",
+                ),
+            )
 
     def __set_browser_info_tiktok(
         self,

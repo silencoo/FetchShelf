@@ -11,6 +11,7 @@ from ..custom import (
     WARNING,
 )
 from ..tools import Cleaner
+from ..webui.log_store import LOG_STORE
 
 if TYPE_CHECKING:
     from ..tools import ColorfulConsole
@@ -79,21 +80,42 @@ class BaseLogger:
     def run(self, *args, **kwargs):
         pass
 
-    def info(self, text: str, output=True, **kwargs):
+    @staticmethod
+    def push_web_log(level: str, text) -> None:
+        LOG_STORE.add(level, text)
+
+    def info(self, text: str, output=True, web: bool | None = None, **kwargs):
+        if web is None:
+            web = output
+        if web:
+            self.push_web_log("INFO", text)
         if output:
             self.console.print(text, style=INFO, **kwargs)
 
-    def warning(self, text: str, output=True, **kwargs):
+    def warning(self, text: str, output=True, web: bool | None = None, **kwargs):
+        if web is None:
+            web = output
+        if web:
+            self.push_web_log("WARNING", text)
         if output:
             self.console.print(text, style=WARNING, **kwargs)
 
-    def error(self, text: str, output=True, **kwargs):
+    def error(self, text: str, output=True, web: bool | None = None, **kwargs):
+        if web is None:
+            web = output
+        if web:
+            self.push_web_log("ERROR", text)
         if output:
             self.console.print(text, style=ERROR, **kwargs)
 
-    def debug(self, text: str, **kwargs):
+    def debug(self, text: str, output=True, web: bool | None = None, **kwargs):
         if self.DEBUG:
-            self.console.print(text, style=DEBUG, **kwargs)
+            if web is None:
+                web = output
+            if web:
+                self.push_web_log("DEBUG", text)
+            if output:
+                self.console.print(text, style=DEBUG, **kwargs)
 
     def print(self, text: str, style=GENERAL, **kwargs) -> None:
         self.console.print(text, style=style, **kwargs)

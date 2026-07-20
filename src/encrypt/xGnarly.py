@@ -1,6 +1,7 @@
 from hashlib import md5
 from random import randint
 from time import time
+from urllib.parse import urlencode
 
 from src.custom import USERAGENT
 
@@ -267,18 +268,30 @@ class XGnarly:
     # ── MAIN API ───────────────────────────────────────────
     def generate(
         self,
-        query_string: str,
-        body: str = "",
+        query: str,
+        data: dict | str | bytes | None = "",
+        method: str | None = None,
         user_agent: str = USERAGENT,
         envcode: int = 0,
         version: str = "5.1.1",
     ) -> str:
         timestamp_ms = int(time() * 1000)
 
+        if isinstance(data, dict):
+            body = urlencode(data)
+        elif isinstance(data, bytes):
+            body = data.decode("utf-8", errors="replace")
+        elif data is None:
+            body = ""
+        elif isinstance(data, str):
+            body = data
+        else:
+            body = str(data)
+
         obj = {
             1: 1,
             2: envcode,
-            3: md5(query_string.encode()).hexdigest(),
+            3: md5(query.encode()).hexdigest(),
             4: md5(body.encode()).hexdigest(),
             5: md5(user_agent.encode()).hexdigest(),
             6: timestamp_ms // 1000,
