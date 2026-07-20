@@ -74,66 +74,6 @@
 </ul>
 </details>
 
-# 💻 程序截图
-
-<p><a href="https://www.bilibili.com/video/BV1d7eAzTEFs/">前往 bilibili 观看演示</a>；<a href="https://youtu.be/yMU-RWl55hg">前往 YouTube 观看演示</a></p>
-
-## 终端交互模式
-
-<p>建议通过配置文件管理账号，更多介绍请查阅 <a href="https://github.com/JoeanAmier/TikTokDownloader/wiki/Documentation">文档</a></p>
-
-![终端模式截图](docs/screenshot/终端交互模式截图CN1.png)
-*****
-![终端模式截图](docs/screenshot/终端交互模式截图CN2.png)
-*****
-![终端模式截图](docs/screenshot/终端交互模式截图CN3.png)
-
-## Web UI 交互模式
-
-![WebUI模式截图](docs/screenshot/WebAPI模式截图CN1.png)
-
-> **启动该模式后，访问 `http://127.0.0.1:5555/ui` 可使用面向 NAS 的深色运维控制台（内置下载队列、定时任务、账户监控、实时日志、配置编辑、文件预览与账户媒体看板）。**
-
-- 日志面板支持“显示调试”开关：默认隐藏 DEBUG / 请求参数噪声，按需一键展开。
-- 使用账号批量下载时，若某行 `mark` 为空，程序会自动用解析到的昵称回填并写回 `settings.json`，避免后续改名导致重复下载。
-- `auto_backfill_mark` 可在设置中开关，关闭后不再自动回填 `mark`。
-- 账号行支持 `auto_update_earliest` 开关；当该账号下载成功后，会自动回写 `earliest` 到“今天 - earliest_update_days”对应日期（例如 `days=3`，今天为 `2026/03/29`，则回写 `2026/03/26`）。
-- `earliest_update_days` 为全局回溯天数（默认 `3`，可设为 `0`）；仅对开启了 `auto_update_earliest` 的账号生效。
-- 若不启用自动更新且账号 `earliest` 留空，程序会按默认最早日期 `2016/09/20` 继续翻页采集，再由下载记录过滤已存在文件；这会产生更多历史请求。
-- `settings.json Editor` 下新增“登录信息快捷编辑”面板，可直接编辑 `cookie`、`cookie_tiktok`、`browser_info_tiktok.device_id`、`browser_info_tiktok.User-Agent`，不用在大段 JSON 中来回查找。
-- 账户看板支持“视频优先刷新”、卡片密度滑块；文件浏览支持目录统计（文件/图片/视频/体积）与当前目录搜索过滤。
-
-WebUI 源码位于 `webui/`，生产静态资源位于 `src/webui/static/`。本地修改前端后可运行 `npm ci --prefix webui && npm run build --prefix webui`；Docker 构建会在独立的 Node 阶段自动完成该步骤，最终 Python 运行镜像不包含前端 Node 工具链或 `node_modules`。
-
-## Web API 接口模式
-
-![WebAPI模式截图](docs/screenshot/WebAPI模式截图CN1.png)
-*****
-![WebAPI模式截图](docs/screenshot/WebAPI模式截图CN2.png)
-
-> **启动该模式后，访问 `http://127.0.0.1:5555/docs` 或者 `http://127.0.0.1:5555/redoc` 可以查阅自动生成的文档！**
-
-### API 调用示例代码
-
-```python
-from httpx import post
-from rich import print
-
-
-def demo():
-    headers = {"token": ""}
-    data = {
-        "detail_id": "0123456789",
-        "pages": 2,
-    }
-    api = "http://127.0.0.1:5555/douyin/comment"
-    response = post(api, json=data, headers=headers)
-    print(response.json())
-
-
-demo()
-```
-
 # 📋 项目说明
 
 ## 快速入门
@@ -193,10 +133,15 @@ demo()
 
 ```shell
 cp .env.example .env
+# 将下面两条命令的输出分别写入 .env 的 DOUK_API_TOKEN 和 DOUK_IDENTITY_KEY
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+python -c "import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
 docker compose up -d --build
 ```
 
-<p>启动后访问 <code>http://NAS_IP:5555/ui</code>。可在 <code>.env</code> 修改宿主机端口、时区及持久化目录；Compose 会自动健康检查并在 NAS 重启后恢复服务。</p>
+<p>启动前必须为 <code>DOUK_API_TOKEN</code> 设置随机值；否则仅允许本机 loopback 访问，NAS/LAN 请求会返回 403。<code>DOUK_IDENTITY_KEY</code> 用于加密采集身份的 Cookie、Proxy 与设备信息。生产环境更推荐把 32 字节密钥以 Docker Secret 挂载到 <code>/run/secrets/douk_identity_key</code>，而不是放在 settings volume。启动后访问 <code>http://NAS_IP:5555/ui</code>，并在顶部 Token 输入框填写同一个 API Token。</p>
+<p><b>请单独安全备份身份加密密钥。</b> <code>collector_pool.sqlite3</code> 中只保存 AES-256-GCM 密文；密钥丢失或更换后，已有 Cookie、代理和设备指纹无法恢复，需要重新写入。不要把密钥提交到 Git，也不要和公开备份一起保存。</p>
+<p>在 WebUI 的“采集身份与路由”中，可为抖音和 TikTok 分别创建多个身份，并为每个身份写入独立 Cookie、代理、UA 与设备参数。单作品、账号、合集、直播、评论、回复、搜索、批量作品链接、账号检测、收藏夹监控和每日定时任务均接入同一套路由；支持“稳定粘连 + 均衡”或“最小负载”，也可把指定账号主页 URL 固定到某个身份。批量目标会按身份分组并行，同一身份受自身并发上限与请求延迟保护，平台还有总并发上限；连续失败达到阈值后会自动冷却。任务留空 <code>identity_id</code> 时自动路由，显式选择身份时固定使用其凭据；仅在填写临时 Cookie/Proxy 覆盖或身份池尚未配置时保留旧版兼容流程。分享链接重定向不需要登录态，因此保持独立。</p>
 
 <ol>
 <li>获取镜像</li>
@@ -427,82 +372,6 @@ A: 由于权限限制，您无法直接触发主仓库的 Actions。请通过 Fo
 <li>作者保留在不另行通知的情况下更新本声明的权利，使用者持续使用即视为接受修订后的条款。</li>
 </ol>
 <b>在使用本项目的代码和功能之前，请您认真考虑并接受以上免责声明。如果您对上述声明有任何疑问或不同意，请不要使用本项目的代码和功能。如果您使用了本项目的代码和功能，则视为您已完全理解并接受上述免责声明，并自愿承担使用本项目的一切风险和后果。</b>
-<h1>🌟 贡献指南</h1>
-<p><strong>欢迎对本项目做出贡献！为了保持代码库的整洁、高效和易于维护，请仔细阅读以下指南，以确保您的贡献能够顺利被接受和整合。</strong></p>
-<ul>
-<li>在开始开发前，请从 <code>develop</code> 分支拉取最新的代码，以此为基础进行修改；这有助于避免合并冲突并保证您的改动基于最新的项目状态。</li>
-<li>如果您的更改涉及多个不相关的功能或问题，请将它们分成多个独立的提交或拉取请求。</li>
-<li>每个拉取请求应尽可能专注于单一功能或修复，以便于代码审查和测试。</li>
-<li>遵循现有的代码风格；请确保您的代码与项目中已有的代码风格保持一致；建议使用 Ruff 工具保持代码格式规范。</li>
-<li>编写可读性强的代码；添加适当的注释帮助他人理解您的意图。</li>
-<li>每个提交都应该包含一个清晰、简洁的提交信息，以描述所做的更改。提交信息应遵循以下格式：<code>&lt;类型&gt;: &lt;简短描述&gt;</code></li>
-<li>当您准备提交拉取请求时，请优先将它们提交到 <code>develop</code> 分支；这是为了给维护者一个缓冲区，在最终合并到 <code>master</code>
-分支之前进行额外的测试和审查。</li>
-<li>建议在开发前或遇到疑问时与作者沟通，确保开发方向一致，避免重复劳动或无效提交。</li>
-</ul>
-<p><strong>参考资料：</strong></p>
-<ul>
-<li><a href="https://www.contributor-covenant.org/zh-cn/version/2/1/code_of_conduct/">贡献者公约</a></li>
-<li><a href="https://opensource.guide/zh-hans/how-to-contribute/">如何为开源做贡献</a></li>
-</ul>
-
-# ♥️ 支持项目
-
-<p>如果 <b>DouK-Downloader</b> 对您有帮助，请考虑为它点个 <b>Star</b> ⭐，感谢您的支持！</p>
-<table>
-<thead>
-<tr>
-<th align="center">微信(WeChat)</th>
-<th align="center">支付宝(Alipay)</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center"><img src="./docs/微信赞助二维码.png" alt="微信赞助二维码" height="200" width="200"></td>
-<td align="center"><img src="./docs/支付宝赞助二维码.png" alt="支付宝赞助二维码" height="200" width="200"></td>
-</tr>
-</tbody>
-</table>
-<p>如果您愿意，可以考虑提供资助为 <b>DouK-Downloader</b> 提供额外的支持！</p>
-
-# 💰 项目赞助
-
-## DartNode
-
-[![Powered by DartNode](docs/AD/DartNode_AD.png)](https://dartnode.com "Powered by DartNode - Free VPS for Open Source")
-
-***
-
-## ZMTO
-
-<p><a href="https://www.zmto.com/"><img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="ZMTO"></a></p>
-<p><a href="https://www.zmto.com/">ZMTO</a>：一家专业的云基础设施提供商，以可靠的尖端技术与专业支持，提供高效的解决方案，并为符合条件的开源项目提供企业级VPS基础设施，支持开源生态系统的可持续发展与创新。</p>
-
-***
-
-## TikHub
-
-<p><a href="https://tikhub.io/?utm_source=github&utm_medium=readme&utm_campaign=tiktok_downloader&ref=github_joeanamier_tiktokdownloader"><img src="docs/AD/TIKHUB_AD.jpg" alt="TIKHUB" width="458" height="319"></a></p>
-<p><a href="https://tikhub.io/?utm_source=github&utm_medium=readme&utm_campaign=tiktok_downloader&ref=github_joeanamier_tiktokdownloader">TikHub API</a> 提供超过 700 个端点，可用于从 14+ 个社交媒体平台获取与分析数据 —— 包括视频、用户、评论、商店、商品与趋势等，一站式完成所有数据访问与分析。</p>
-<p>使用 <strong>邀请码</strong>：<code>ZrdH8McC</code> 注册并充值即可获得 <code>$2</code> 额度。</p>
-
-# ✉️ 联系作者
-
-<ul>
-<li>作者邮箱：yonglelolu@foxmail.com</li>
-<li>作者微信: Downloader_Tools</li>
-<li>微信公众号: Downloader Tools</li>
-<li><b>Discord 社区</b>: <a href="https://discord.com/invite/ZYtmgKud9Y">点击加入社区</a></li>
-<li>QQ 群聊(用于项目交流与摸鱼闲聊): <a href="https://github.com/JoeanAmier/TikTokDownloader/blob/master/docs/QQ%E7%BE%A4%E8%81%8A%E4%BA%8C%E7%BB%B4%E7%A0%81.png">扫码加入群聊</a></li>
-</ul>
-<p>✨ <b>作者的其他开源项目：</b></p>
-<ul>
-<li><b>XHS-Downloader（小红书、XiaoHongShu、RedNote）</b>：<a href="https://github.com/JoeanAmier/XHS-Downloader">https://github.com/JoeanAmier/XHS-Downloader</a></li>
-<li><b>KS-Downloader（快手、KuaiShou）</b>：<a href="https://github.com/JoeanAmier/KS-Downloader">https://github.com/JoeanAmier/KS-Downloader</a></li>
-</ul>
-<h1>⭐ Star 趋势</h1>
-<p>
-<img alt="Star History Chart" src="https://api.star-history.com/svg?repos=JoeanAmier/TikTokDownloader&amp;type=Timeline"/>
-</p>
 
 # 💡 项目参考
 

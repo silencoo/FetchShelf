@@ -75,61 +75,6 @@
 </ul>
 </details>
 
-# 💻 Program Screenshot
-
-<p><a href="https://www.bilibili.com/video/BV1d7eAzTEFs/">Watch Demo on Bilibili</a>; <a href="https://youtu.be/yMU-RWl55hg">Watch Demo on YouTube</a></p>
-
-## Terminal interaction mode
-
-<p>It is recommended to manage accounts through configuration files. For more information, please refer to the <a href="https://github.com/JoeanAmier/TikTokDownloader/wiki/Documentation">documentation</a></p>
-
-![终端模式截图](docs/screenshot/终端交互模式截图EN1.png)
-*****
-![终端模式截图](docs/screenshot/终端交互模式截图EN2.png)
-*****
-![终端模式截图](docs/screenshot/终端交互模式截图EN3.png)
-
-## Web UI interaction mode
-
-![WebUI Screenshot](docs/screenshot/WebAPI模式截图EN1.png)
-
-> **After starting this mode, open `http://127.0.0.1:5555/ui` to use the card-based Web UI (real-time logs, settings editor, file gallery, and share-link tools).**
-
-- Account rows support `auto_update_earliest`. After a successful account batch run, `earliest` is auto-written as `today - earliest_update_days`.
-- `earliest_update_days` is a global backtrack days value (default `3`, supports `0`) and only applies to rows with `auto_update_earliest=true`.
-- If auto update is off and `earliest` is empty, crawler pagination falls back to `2016/09/20`, then local download records filter duplicates. This causes more historical requests.
-- The `settings.json Editor` now includes a quick login panel for `cookie`, `cookie_tiktok`, `browser_info_tiktok.device_id`, and `browser_info_tiktok.User-Agent`, so you do not need to scroll through large JSON blocks.
-
-## Web API mode
-
-![WebAPI模式截图](docs/screenshot/WebAPI模式截图EN1.png)
-*****
-![WebAPI模式截图](docs/screenshot/WebAPI模式截图EN2.png)
-
-> **After starting this mode, Open http://127.0.0.1:5555/docs or http://127.0.0.1:5555/redoc to access the automatically
-generated documentation!**
-
-### API call example code
-
-```python
-from httpx import post
-from rich import print
-
-
-def demo():
-    headers = {"token": ""}
-    data = {
-        "detail_id": "0123456789",
-        "pages": 2,
-    }
-    api = "http://127.0.0.1:5555/douyin/comment"
-    response = post(api, json=data, headers=headers)
-    print(response.json())
-
-
-demo()
-```
-
 # 📋 Project Instructions
 
 ## Quick Start
@@ -189,10 +134,15 @@ demo()
 
 ```shell
 cp .env.example .env
+# Write the outputs to DOUK_API_TOKEN and DOUK_IDENTITY_KEY in .env.
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+python -c "import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
 docker compose up -d --build
 ```
 
-<p>Open <code>http://NAS_IP:5555/ui</code> after startup. The host port, timezone, and persistent directories can be changed in <code>.env</code>. Compose includes a health check and restarts the service after a NAS reboot.</p>
+<p>Set <code>DOUK_API_TOKEN</code> to a random value before startup; without it only loopback clients are accepted and NAS/LAN requests receive 403. <code>DOUK_IDENTITY_KEY</code> encrypts collector Cookie, Proxy, and device data. For production, prefer mounting the 32-byte key as a Docker Secret at <code>/run/secrets/douk_identity_key</code> instead of storing it in the settings volume. Then open <code>http://NAS_IP:5555/ui</code> and enter the same API token in the top Token field.</p>
+<p><b>Back up the collector encryption key separately and securely.</b> <code>collector_pool.sqlite3</code> stores AES-256-GCM ciphertext only. If the key is lost or changed, existing Cookies, proxies, and device fingerprints cannot be recovered and must be entered again. Never commit the key to Git or bundle it with a public backup.</p>
+<p>The WebUI's “Collector Identities &amp; Routing” screen can hold multiple independent Douyin and TikTok identities, each with its own Cookie, proxy, user agent, and device parameters. Individual works, accounts, mixes, live rooms, comments, replies, searches, batched work links, account verification, collection monitoring, and daily schedules all use the same routing layer. Sticky-balanced and least-loaded strategies are available, and an account profile URL can be fixed to one identity. Batch targets are grouped by identity and run in parallel, while per-identity request delays and concurrency limits plus a platform-wide cap remain enforced; repeated failures trigger automatic cooldown. An empty <code>identity_id</code> uses automatic routing, while an explicit identity uses its stored credentials. The legacy path remains only for temporary Cookie/Proxy overrides or an unconfigured pool. Share-link redirects remain independent because they do not require an authenticated collector session.</p>
 
 <ol>
 <li>Get the image</li>
@@ -419,80 +369,6 @@ repository to execute the build process
 <li>The author reserves the right to update this disclaimer at any time without prior notice. Continued use of the project constitutes acceptance of the revised terms.</li>
 </ol>
 <b>Before using the code and functionalities of this project, please carefully consider and accept the above disclaimer. If you have any questions or disagree with the statement, please do not use the code and functionalities of this project. If you use the code and functionalities of this project, it is considered that you fully understand and accept the above disclaimer, and willingly assume all risks and consequences associated with the use of this project.</b>
-<h1>🌟 Contribution Guidelines</h1>
-<p><strong>Welcome to contributing to this project! To keep the codebase clean, efficient, and easy to maintain, please read the following guidelines carefully to ensure that your contributions can be accepted and integrated smoothly.</strong></p>
-<ul>
-<li>Before starting development, please pull the latest code from the <code>develop</code> branch as the basis for your modifications; this helps avoid merge conflicts and ensures your changes are based on the latest state of the project.</li>
-<li>If your changes involve multiple unrelated features or issues, please split them into several independent commits or pull requests.</li>
-<li>Each pull request should focus on a single feature or fix as much as possible, to facilitate code review and testing.</li>
-<li>Follow the existing coding style; make sure your code is consistent with the style already present in the project; please use the Ruff tool to maintain code formatting standards.</li>
-<li>Write code that is easy to read; add appropriate annotation to help others understand your intentions.</li>
-<li>Each commit should include a clear and concise commit message describing the changes made. The commit message should follow this format: <code>&lt;type&gt;: &lt;short description&gt;</code></li>
-<li>When you are ready to submit a pull request, please prioritize submitting them to the <code>develop</code> branch; this provides maintainers with a buffer zone for additional testing and review before final merging into the <code>master</code> branch.</li>
-<li>It is recommended to communicate with the author before starting development or when encountering questions to ensure alignment in direction and avoid redundant efforts or unnecessary commits.</li>
-</ul>
-<p><strong>Reference materials:</strong></p>
-<ul>
-<li><a href="https://www.contributor-covenant.org/version/2/1/code_of_conduct/">Contributor Covenant</a></li>
-<li><a href="https://opensource.guide/how-to-contribute/">How to Contribute to Open Source</a></li>
-</ul>
-
-# ♥️ Support the Project
-
-<p>If <b>DouK-Downloader</b> has been helpful to you, please consider giving it a <b>Star</b> ⭐. Your support is greatly appreciated!</p>
-<table>
-<thead>
-<tr>
-<th align="center">微信(WeChat)</th>
-<th align="center">支付宝(Alipay)</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center"><img src="./docs/微信赞助二维码.png" alt="微信赞助二维码" height="200" width="200"></td>
-<td align="center"><img src="./docs/支付宝赞助二维码.png" alt="支付宝赞助二维码" height="200" width="200"></td>
-</tr>
-</tbody>
-</table>
-<p>If you're willing, consider making a contribution to provide additional support for <b>DouK-Downloader</b>!</p>
-
-# 💰 Project Sponsorship
-
-## DartNode
-
-[![Powered by DartNode](docs/AD/DartNode_AD.png)](https://dartnode.com "Powered by DartNode - Free VPS for Open Source")
-
-***
-
-## ZMTO
-
-<p><a href="https://www.zmto.com/"><img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="ZMTO"></a></p>
-<p><a href="https://www.zmto.com/">ZMTO</a>: A professional cloud infrastructure provider offering sophisticated solutions with reliable technology and expert support. We also empower qualified open source initiatives with enterprise-grade VPS infrastructure, driving sustainable development and innovation in the open source ecosystem. </p>
-
-***
-
-## TikHub
-
-<p><a href="https://tikhub.io/?utm_source=github&utm_medium=readme&utm_campaign=tiktok_downloader&ref=github_joeanamier_tiktokdownloader"><img src="docs/AD/TIKHUB_AD.jpg" alt="TIKHUB" width="458" height="319"></a></p>
-<p><a href="https://tikhub.io/?utm_source=github&utm_medium=readme&utm_campaign=tiktok_downloader&ref=github_joeanamier_tiktokdownloader">TikHub API</a> offers over 700 endpoints to retrieve and analyze data from 14+ social media platforms—including videos, users, comments, stores, products, trends, and more—enabling one-stop access and analysis of all your data.</p>
-<p>Use <strong>invitation code</strong>: <code>ZrdH8McC</code> to register and recharge to get <code>$2</code> credit.</p>
-
-# ✉️ Contact the Author
-
-<ul>
-<li>Author's Email: yonglelolu@foxmail.com</li>
-<li>Author's WeChat: Downloader_Tools</li>
-<li>Official WeChat Account: Downloader Tools</li>
-<li><b>Discord Community</b>: <a href="https://discord.com/invite/ZYtmgKud9Y">Click to join the community</a></li>
-</ul>
-<p>✨ <b>The author's other open-source projects:</b></p>
-<ul>
-<li><b>XHS-Downloader（小红书、XiaoHongShu、RedNote）</b>：<a href="https://github.com/JoeanAmier/XHS-Downloader">https://github.com/JoeanAmier/XHS-Downloader</a></li>
-<li><b>KS-Downloader（快手、KuaiShou）</b>：<a href="https://github.com/JoeanAmier/KS-Downloader">https://github.com/JoeanAmier/KS-Downloader</a></li>
-</ul>
-<h1>⭐ Star History</h1>
-<p>
-<img alt="Star History Chart" src="https://api.star-history.com/svg?repos=JoeanAmier/TikTokDownloader&amp;type=Timeline"/>
-</p>
 
 # 💡 Project References
 
