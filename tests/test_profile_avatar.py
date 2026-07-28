@@ -112,6 +112,78 @@ def test_detect_faces_falls_back_to_opencv_when_api_missing(
     assert called["min_confidence"] == 0.5
 
 
+def test_video_avatar_checks_multiple_frames_and_selects_best_face(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    video_path = tmp_path / "account.mp4"
+    video_path.write_bytes(b"video")
+    first_frame = tmp_path / "frame-1.jpg"
+    second_frame = tmp_path / "frame-2.jpg"
+    first_frame.write_bytes(b"first")
+    second_frame.write_bytes(b"second")
+    output_path = tmp_path / "avatar.jpg"
+    detection_calls = []
+    saved = {}
+
+    monkeypatch.setattr(
+        profile_avatar,
+        "_extract_video_frames",
+        lambda path: [first_frame, second_frame],
+    )
+    monkeypatch.setattr(
+        profile_avatar,
+        "_load_rgb_array",
+        lambda path: _DummyArray(),
+    )
+
+    def detect(rgb_array, min_confidence: float):
+        detection_calls.append(min_confidence)
+        if len(detection_calls) == 1:
+            return [
+                {
+                    "x1": 0,
+                    "y1": 0,
+                    "x2": 20,
+                    "y2": 20,
+                    "width": 20,
+                    "height": 20,
+                    "area": 400,
+                    "score": 0.6,
+                }
+            ]
+        return [
+            {
+                "x1": 55,
+                "y1": 20,
+                "x2": 145,
+                "y2": 110,
+                "width": 90,
+                "height": 90,
+                "area": 8100,
+                "score": 0.95,
+            }
+        ]
+
+    def save(source, output_path, face_box, padding_ratio, output_size):
+        saved["source"] = source
+        saved["face"] = face_box
+
+    monkeypatch.setattr(profile_avatar, "_detect_faces", detect)
+    monkeypatch.setattr(profile_avatar, "_save_face_crop", save)
+
+    result = profile_avatar.generate_face_avatar(video_path, output_path)
+
+    assert result["source_kind"] == "video"
+    assert result["frames_checked"] == 2
+    assert result["selected_frame"] == 2
+    assert result["faces_detected"] == 2
+    assert saved["source"] == second_frame
+    assert len(detection_calls) == 2
+    assert not first_frame.exists()
+    assert not second_frame.exists()
+
+
 def test_runtime_probe_mediapipe_with_profile_webp():
     image_path = Path("profile.webp")
     if not image_path.exists():

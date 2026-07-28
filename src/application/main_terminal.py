@@ -1072,6 +1072,7 @@ class TikTok:
         return_context: bool = False,
     ):
         self.logger.info(_("开始提取作品数据"))
+        latest_seen = self._latest_account_work(data, tiktok=tiktok)
         id_, name, mark = self.extractor.preprocessing_data(
             info or data,
             tiktok,
@@ -1123,6 +1124,11 @@ class TikTok:
                     "mix",
                 },
             )
+        latest_saved = self._latest_account_work(
+            data,
+            tiktok=tiktok,
+            extracted=True,
+        )
         if api:
             return data
         await self.cache.update_cache(
@@ -1150,8 +1156,51 @@ class TikTok:
                 "id": id_,
                 "name": name,
                 "mark": mark,
+                "latest_seen_work_at": latest_seen["at"],
+                "latest_seen_work_id": latest_seen["id"],
+                "latest_saved_work_at": latest_saved["at"],
+                "latest_saved_work_id": latest_saved["id"],
+                "item_count": len(data),
             }
         return True
+
+    @staticmethod
+    def _latest_account_work(
+        data: list[dict],
+        *,
+        tiktok: bool,
+        extracted: bool = False,
+    ) -> dict[str, str]:
+        latest_timestamp = 0
+        latest_id = ""
+        time_key = "create_timestamp" if extracted else (
+            "createTime" if tiktok else "create_time"
+        )
+        id_key = "id" if extracted or tiktok else "aweme_id"
+        for item in data or []:
+            if not isinstance(item, dict):
+                continue
+            raw_timestamp = item.get(time_key)
+            try:
+                timestamp = int(float(raw_timestamp or 0))
+            except (TypeError, ValueError):
+                continue
+            if timestamp <= latest_timestamp:
+                continue
+            latest_timestamp = timestamp
+            latest_id = str(item.get(id_key) or "").strip()
+        if latest_timestamp <= 0:
+            return {"at": "", "id": ""}
+        try:
+            published_at = datetime.fromtimestamp(
+                latest_timestamp,
+            ).astimezone().isoformat(timespec="seconds")
+        except (OSError, OverflowError, ValueError):
+            published_at = ""
+        return {
+            "at": published_at,
+            "id": latest_id if published_at else "",
+        }
 
     @staticmethod
     def _generate_prefix(

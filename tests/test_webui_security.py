@@ -1,3 +1,4 @@
+from asyncio import Event
 from json import loads
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,7 +7,11 @@ import pytest
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from src.application.main_server import APIServer, token_dependency
+from src.application.main_server import (
+    APIServer,
+    WEBUI_SESSION_COOKIE,
+    token_dependency,
+)
 from src.custom.function import is_valid_token
 from src.record.base import BaseLogger
 from src.webui.log_store import LogStore
@@ -45,18 +50,166 @@ def test_configured_token_is_required_for_every_client(monkeypatch):
 def test_fastapi_dependency_rejects_remote_default_and_accepts_env_token(monkeypatch):
     app = FastAPI()
 
-    @app.get("/private")
+    @app.get("/ui/private")
     async def private_route(_: None = Depends(token_dependency)):
         return {"ok": True}
 
     client = TestClient(app)
-    assert client.get("/private").status_code == 403
+    assert client.get("/ui/private").status_code == 403
 
     monkeypatch.setenv("DOUK_API_TOKEN", "nas-secret")
-    assert client.get("/private", headers={"token": "wrong"}).status_code == 403
-    response = client.get("/private", headers={"token": "nas-secret"})
+    assert client.get("/ui/private", headers={"token": "wrong"}).status_code == 403
+    response = client.get("/ui/private", headers={"token": "nas-secret"})
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+    client.cookies.set(
+        WEBUI_SESSION_COOKIE,
+        "nas-secret",
+        path="/ui",
+    )
+    response = client.get("/ui/private")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+def test_raw_settings_require_explicit_secret_reveal(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOUK_API_TOKEN", "settings-test-token")
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        '{"cookie":"sessionid=real-secret","timeout":30}',
+        encoding="utf-8",
+    )
+    download_root = tmp_path / "downloads"
+    download_root.mkdir()
+    server = APIServer.__new__(APIServer)
+    server.server = FastAPI()
+    server.parameter = SimpleNamespace(
+        root=download_root,
+        settings=SimpleNamespace(path=settings_path, encode="utf-8"),
+    )
+    server.setup_routes()
+    client = TestClient(server.server)
+    headers = {"token": "settings-test-token"}
+
+    safe_response = client.get("/ui/api/settings/raw", headers=headers)
+    revealed_response = client.get(
+        "/ui/api/settings/raw?include_secrets=true",
+        headers=headers,
+    )
+
+    assert safe_response.status_code == 200
+    assert "real-secret" not in safe_response.json()["text"]
+    assert safe_response.json()["secrets_included"] is False
+    assert revealed_response.status_code == 200
+    assert "real-secret" in revealed_response.json()["text"]
+    assert revealed_response.json()["secrets_included"] is True
+    assert revealed_response.headers["cache-control"] == "no-store"
+
+
+def test_account_batch_task_can_pause_at_boundary_and_resume(monkeypatch):
+    monkeypatch.setenv("DOUK_API_TOKEN", "pause-test-token")
+
+    class _Runner:
+        def done(self):
+            return False
+
+    pause_event = Event()
+    pause_event.set()
+    server = APIServer.__new__(APIServer)
+    server.server = FastAPI()
+    server.ui_tasks = {
+        "T000001": {
+            "task_id": "T000001",
+            "endpoint": "/workflow/douyin/account_batch",
+            "payload": {"use_settings": True},
+            "status": "running",
+            "created_at": "",
+            "started_at": "",
+            "finished_at": None,
+            "updated_at": "",
+            "retry_of": None,
+            "worker": 1,
+            "error": "",
+            "message": "",
+            "result": None,
+            "pause_supported": True,
+            "progress": {
+                "current": 4,
+                "total": 12,
+                "label": "正在执行账号批次",
+            },
+            "_runner": _Runner(),
+            "_pause_event": pause_event,
+            "_pause_requested": False,
+            "_active_units": 1,
+        }
+    }
+    server.setup_routes()
+    client = TestClient(server.server)
+    headers = {"token": "pause-test-token"}
+
+    pause_response = client.post(
+        "/ui/api/tasks/T000001/pause",
+        headers=headers,
+    )
+    assert pause_response.status_code == 200
+    assert pause_response.json()["task"]["status"] == "pausing"
+    assert pause_event.is_set() is False
+    assert "_pause_event" not in pause_response.json()["task"]
+
+    task = server.ui_tasks["T000001"]
+    task["_active_units"] = 0
+    assert server._mark_ui_task_paused_if_quiescent(task) is True
+    assert task["status"] == "paused"
+    assert task["progress"]["current"] == 4
+
+    resume_response = client.post(
+        "/ui/api/tasks/T000001/resume",
+        headers=headers,
+    )
+    assert resume_response.status_code == 200
+    assert resume_response.json()["task"]["status"] == "running"
+    assert pause_event.is_set() is True
+    assert task["progress"]["current"] == 4
+
+
+def test_file_browser_api_paginates_and_searches(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOUK_API_TOKEN", "files-test-token")
+    download_root = tmp_path / "downloads"
+    download_root.mkdir()
+    for index in range(30):
+        (download_root / f"clip-{index:02d}.txt").write_text("demo", encoding="utf-8")
+    (download_root / "album").mkdir()
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text("{}", encoding="utf-8")
+    server = APIServer.__new__(APIServer)
+    server.server = FastAPI()
+    server.parameter = SimpleNamespace(
+        root=download_root,
+        settings=SimpleNamespace(path=settings_path, encode="utf-8"),
+    )
+    server.setup_routes()
+    client = TestClient(server.server)
+    headers = {"token": "files-test-token"}
+
+    page = client.get(
+        "/ui/api/files?page=2&page_size=12",
+        headers=headers,
+    )
+    search = client.get(
+        "/ui/api/files?page_size=12&search=clip-29",
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert page.json()["page"] == 2
+    assert page.json()["pages"] == 3
+    assert page.json()["total"] == 31
+    assert len(page.json()["entries"]) == 12
+    assert search.status_code == 200
+    assert search.json()["total"] == 1
+    assert search.json()["entries"][0]["name"] == "clip-29.txt"
 
 
 def test_recursive_redaction_covers_settings_schedules_tasks_and_text():
@@ -234,6 +387,8 @@ def test_redacted_raw_settings_can_be_saved_without_overwriting_secrets():
         "browser_debug/20260714/session_1.html",
         "collector_pool.sqlite3",
         "collector_pool.sqlite3-wal",
+        "ui_task_runtime.sqlite3",
+        "ui_task_runtime.sqlite3-wal",
         "cache/tiktok_api_profiles/identity-a/Default/Cookies",
         "secrets/identity-secrets.enc",
         "keys/master.key",

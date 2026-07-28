@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
+import { AppSelect } from "@/components/ui/app-select";
 import { GridPattern } from "@/components/ui/grid-pattern";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import "@/styles.css";
@@ -19,6 +20,7 @@ interface Metrics {
 declare global {
   interface Window {
     __doukMagicRoots?: Map<string, Root>;
+    __doukSelectRoots?: Map<HTMLSelectElement, { mount: HTMLElement; root: Root }>;
   }
 }
 
@@ -129,7 +131,7 @@ function applyTheme(preference: ThemePreference, systemPrefersDark: boolean) {
   root.style.colorScheme = resolvedTheme;
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", resolvedTheme === "light" ? "#eef3f7" : "#090b10");
+    ?.setAttribute("content", resolvedTheme === "light" ? "#eef3f7" : "#000000");
 }
 
 function ThemeControl() {
@@ -288,7 +290,98 @@ function mountMagicUi() {
   renderRoot("theme-control-root", <ThemeControl />);
 }
 
+function getSelectLabel(nativeSelect: HTMLSelectElement) {
+  const explicitLabel =
+    nativeSelect.getAttribute("aria-label") ||
+    nativeSelect.getAttribute("title");
+  if (explicitLabel) {
+    return explicitLabel;
+  }
+
+  const label = nativeSelect.labels?.[0];
+  const fieldLabel = label?.querySelector(":scope > span")?.textContent?.trim();
+  if (fieldLabel) {
+    return fieldLabel;
+  }
+
+  return nativeSelect.name || nativeSelect.id || "选择选项";
+}
+
+function mountEnhancedSelects() {
+  const roots = (window.__doukSelectRoots ??= new Map());
+
+  const enhance = (nativeSelect: HTMLSelectElement) => {
+    if (
+      roots.has(nativeSelect) ||
+      nativeSelect.dataset.uiSelect === "false" ||
+      nativeSelect.closest(".app-select-mount")
+    ) {
+      return;
+    }
+
+    const mount = document.createElement("span");
+    mount.className = "app-select-mount";
+    nativeSelect.insertAdjacentElement("afterend", mount);
+    nativeSelect.classList.add("native-select-enhanced");
+    nativeSelect.tabIndex = -1;
+    nativeSelect.setAttribute("aria-hidden", "true");
+
+    const root = createRoot(mount);
+    roots.set(nativeSelect, { mount, root });
+    root.render(
+      <AppSelect
+        ariaLabel={getSelectLabel(nativeSelect)}
+        nativeSelect={nativeSelect}
+      />,
+    );
+  };
+
+  const remove = (nativeSelect: HTMLSelectElement) => {
+    const entry = roots.get(nativeSelect);
+    if (!entry) {
+      return;
+    }
+    entry.root.unmount();
+    entry.mount.remove();
+    roots.delete(nativeSelect);
+  };
+
+  document.querySelectorAll("select").forEach((element) => {
+    enhance(element as HTMLSelectElement);
+  });
+
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) {
+          return;
+        }
+        if (node instanceof HTMLSelectElement) {
+          enhance(node);
+        }
+        node.querySelectorAll("select").forEach((element) => {
+          enhance(element as HTMLSelectElement);
+        });
+      });
+
+      mutation.removedNodes.forEach((node) => {
+        if (!(node instanceof Element)) {
+          return;
+        }
+        if (node instanceof HTMLSelectElement) {
+          remove(node);
+        }
+        node.querySelectorAll("select").forEach((element) => {
+          remove(element as HTMLSelectElement);
+        });
+      });
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
 mountMagicUi();
+mountEnhancedSelects();
 
 void import("./legacy/app.js").catch((error: unknown) => {
   const status = document.getElementById("api-status");

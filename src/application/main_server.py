@@ -1,14 +1,14 @@
-from asyncio import Queue, CancelledError, create_task, gather, sleep
+from asyncio import Event, Queue, CancelledError, create_task, gather, sleep
 from datetime import datetime, timedelta
 from hashlib import md5
 from json import JSONDecodeError, dumps, loads
 from mimetypes import guess_type
 from pathlib import Path
 from random import choice
-from re import sub
+from re import compile, sub
 from shutil import copy2
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -19,6 +19,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     Body,
     WebSocket,
     WebSocketDisconnect,
@@ -105,6 +106,7 @@ from ..webui.files import (
 )
 from ..webui.account_backfill import attach_settings_index_by_url
 from ..webui.profile_avatar import generate_face_avatar
+from ..webui.task_journal import ACTIVE_TASK_STATUSES, TaskJournal
 from .main_terminal import TikTok
 
 try:
@@ -127,17 +129,26 @@ if TYPE_CHECKING:
 
 __all__ = ["APIServer"]
 
+WEBUI_SESSION_COOKIE = "douk_webui_session"
+WEBUI_SESSION_MAX_AGE = 60 * 60 * 24 * 30
+WORK_FILENAME_DATE_PATTERN = compile(
+    r"(?<!\d)(20\d{2})[-_.](\d{2})[-_.](\d{2})"
+    r"(?:[ T_.-](\d{2})[.:-](\d{2})[.:-](\d{2}))?"
+)
+
 
 def token_dependency(
     request: Request,
     token: str | None = Header(None),
 ):
     client_host = request.client.host if request.client else ""
-    if not is_valid_token(token, client_host):
+    supplied_token = token or request.cookies.get(WEBUI_SESSION_COOKIE)
+    if not is_valid_token(supplied_token, client_host):
         raise HTTPException(
             status_code=403,
             detail=_("验证失败！"),
         )
+    return supplied_token or ""
 
 
 class APIServer(TikTok):
@@ -155,6 +166,8 @@ class APIServer(TikTok):
     )
     ACCOUNT_BATCH_SCHEDULE = "account_batch"
     COLLECT_MONITOR_SCHEDULE = "collect_monitor"
+    SCHEDULE_OVERLAP_POLICIES = frozenset({"wait", "skip", "allow"})
+    IDENTITY_FAILURE_ACTIONS = frozenset({"continue", "pause"})
     COLLECT_MONITOR_PAGE_COUNT = 20
     COLLECT_MONITOR_MAX_PAGES = 30
     UI_TASK_SENSITIVE_FIELDS = WEBUI_SENSITIVE_FIELDS
@@ -175,6 +188,8 @@ class APIServer(TikTok):
         self.ui_task_workers = []
         self.ui_tasks: dict[str, dict] = {}
         self.ui_task_counter = 0
+        self.ui_tasks_restored = False
+        self.ui_task_shutdown = False
         self.ui_schedules: dict[str, dict] = {}
         self.ui_schedule_tasks: dict[str, Any] = {}
         self.ui_schedule_counter = 0
@@ -188,6 +203,9 @@ class APIServer(TikTok):
             self.parameter.settings.path.parent,
             codec=collector_codec,
         )
+        self.task_journal = TaskJournal.in_settings_dir(
+            self.parameter.settings.path.parent,
+        )
         self.collector_leases = IdentityLeaseManager()
         self._initialize_legacy_collectors()
 
@@ -198,6 +216,15 @@ class APIServer(TikTok):
     def _new_task_id(self) -> str:
         self.ui_task_counter += 1
         return f"T{self.ui_task_counter:06d}"
+
+    def _refresh_task_counter(self) -> None:
+        max_id = 0
+        for key in self.ui_tasks:
+            try:
+                max_id = max(max_id, int(str(key).lstrip("T")))
+            except ValueError:
+                continue
+        self.ui_task_counter = max_id
 
     def _new_schedule_id(self) -> str:
         self.ui_schedule_counter += 1
@@ -417,6 +444,7 @@ class APIServer(TikTok):
         endpoint: str,
         payload: dict,
         retry_of: str | None = None,
+        retry_mode: str = "",
     ) -> dict:
         task = {
             "task_id": self._new_task_id(),
@@ -428,14 +456,83 @@ class APIServer(TikTok):
             "finished_at": None,
             "updated_at": self._now_text(),
             "retry_of": retry_of,
+            "retry_mode": retry_mode,
             "worker": None,
             "error": "",
             "message": "",
             "result": None,
+            "pause_supported": self._ui_task_pause_supported(endpoint),
+            "progress": {
+                "current": 0,
+                "total": 0,
+                "success": 0,
+                "failed": 0,
+                "skipped": 0,
+                "percent": 0,
+                "label": _("等待执行"),
+            },
             "_runner": None,
+            "_pause_event": None,
+            "_pause_requested": False,
+            "_active_units": 0,
+            "_identity_failure_notified": "",
         }
         self.ui_tasks[task["task_id"]] = task
+        self._persist_ui_task(task)
         return task
+
+    @staticmethod
+    def _hydrate_ui_task(task: dict) -> dict:
+        task = dict(task)
+        task.setdefault("pause_supported", APIServer._ui_task_pause_supported(
+            str(task.get("endpoint") or "")
+        ))
+        task.setdefault("progress", {})
+        task.setdefault("retry_of", None)
+        task.setdefault("retry_mode", "")
+        task.setdefault("result", None)
+        task.setdefault("error", "")
+        task.setdefault("message", "")
+        task.setdefault("worker", None)
+        task.setdefault("started_at", None)
+        task.setdefault("finished_at", None)
+        task["_runner"] = None
+        task["_pause_event"] = None
+        task["_pause_requested"] = False
+        task["_active_units"] = 0
+        task["_identity_failure_notified"] = ""
+        return task
+
+    def _persist_ui_task(self, task: dict) -> None:
+        journal = getattr(self, "task_journal", None)
+        if journal is None:
+            return
+        task_id = self._normalize_string(task.get("task_id"))
+        if task_id:
+            try:
+                task["account_summary"] = journal.account_summary(task_id)
+            except Exception:
+                task.setdefault("account_summary", {})
+        journal.save_task(task)
+
+    async def _restore_ui_tasks(self) -> None:
+        if getattr(self, "ui_tasks_restored", False):
+            return
+        journal = getattr(self, "task_journal", None)
+        if journal is None:
+            self.ui_tasks_restored = True
+            return
+        journal.recover_interrupted()
+        for stored in reversed(journal.load_tasks()):
+            task_id = self._normalize_string(stored.get("task_id"))
+            if not task_id:
+                continue
+            self.ui_tasks[task_id] = self._hydrate_ui_task(stored)
+        self._refresh_task_counter()
+        for task in self.ui_tasks.values():
+            if task.get("status") == "pending":
+                self.ui_task_queue.put_nowait(task["task_id"])
+        self.ui_tasks_restored = True
 
     @classmethod
     def _redact_ui_task_value(cls, value, key: str = ""):
@@ -463,25 +560,61 @@ class APIServer(TikTok):
         except ValueError:
             return 0
 
+    @staticmethod
+    def _ui_task_pause_supported(endpoint: str) -> bool:
+        return endpoint in {
+            "/workflow/douyin/account_batch",
+            "/workflow/tiktok/account_batch",
+            "/workflow/accounts/avatar_batch",
+        }
+
+    def _set_ui_task_progress_label(self, task: dict, label: str) -> None:
+        progress = task.get("progress")
+        if isinstance(progress, dict):
+            progress["label"] = label
+
+    def _mark_ui_task_paused_if_quiescent(self, task: dict) -> bool:
+        if (
+            task.get("_pause_requested")
+            and int(task.get("_active_units") or 0) == 0
+            and task.get("status") == "pausing"
+        ):
+            task["status"] = "paused"
+            task["message"] = _("任务已暂停，可从当前进度继续")
+            task["updated_at"] = self._now_text()
+            self._set_ui_task_progress_label(task, _("已暂停"))
+            self._persist_ui_task(task)
+            return True
+        return task.get("status") == "paused"
+
     def _enqueue_ui_task(
         self,
         endpoint: str,
         payload: dict,
         retry_of: str | None = None,
+        retry_mode: str = "",
     ) -> dict:
-        task = self._build_ui_task(endpoint, payload, retry_of=retry_of)
+        task = self._build_ui_task(
+            endpoint,
+            payload,
+            retry_of=retry_of,
+            retry_mode=retry_mode,
+        )
         self.ui_task_queue.put_nowait(task["task_id"])
         return task
 
     async def _start_ui_task_workers(self, workers: int = 2) -> None:
+        await self._restore_ui_tasks()
         if self.ui_task_workers:
             return
+        self.ui_task_shutdown = False
         for i in range(max(1, workers)):
             self.ui_task_workers.append(create_task(self._ui_task_worker(i + 1)))
 
     async def _stop_ui_task_workers(self) -> None:
         if not self.ui_task_workers:
             return
+        self.ui_task_shutdown = True
         for worker in self.ui_task_workers:
             worker.cancel()
         await gather(*self.ui_task_workers, return_exceptions=True)
@@ -564,10 +697,97 @@ class APIServer(TikTok):
         task["worker"] = worker_id
         task["started_at"] = self._now_text()
         task["updated_at"] = self._now_text()
+        self._persist_ui_task(task)
+        execution_payload = dict(task["payload"])
+        pause_supported = bool(task.get("pause_supported"))
+        pause_event = Event()
+        pause_event.set()
+        task["_pause_event"] = pause_event
+        task["_pause_requested"] = False
+        task["_active_units"] = 0
+
+        def update_progress(progress: dict) -> None:
+            task["progress"] = {
+                **task.get("progress", {}),
+                **progress,
+            }
+            task["updated_at"] = self._now_text()
+            self._persist_ui_task(task)
+
+        async def pause_checkpoint() -> None:
+            if not pause_supported:
+                return
+            while task.get("_pause_requested"):
+                self._mark_ui_task_paused_if_quiescent(task)
+                await pause_event.wait()
+
+        def unit_started() -> None:
+            if pause_supported:
+                task["_active_units"] = int(task.get("_active_units") or 0) + 1
+
+        def unit_finished() -> None:
+            if not pause_supported:
+                return
+            task["_active_units"] = max(
+                0,
+                int(task.get("_active_units") or 0) - 1,
+            )
+            self._mark_ui_task_paused_if_quiescent(task)
+
+        async def identity_failure(
+            identity_id: str,
+            error_code: str,
+            message: str,
+        ) -> bool:
+            policy = self._normalize_string(
+                task.get("payload", {}).get("identity_failure_action")
+            ).lower()
+            task["identity_failure"] = {
+                "identity_id": self._normalize_string(identity_id),
+                "error_code": self._normalize_string(error_code)
+                or "identity_unavailable",
+                "message": self._normalize_string(message)
+                or _("采集身份不可用"),
+                "at": self._now_text(),
+            }
+            task["updated_at"] = self._now_text()
+            if self._normalize_bool(
+                task.get("payload", {}).get("notify_on_identity_failure"),
+                default=False,
+            ):
+                signature = "|".join(
+                    (
+                        task["identity_failure"]["identity_id"],
+                        task["identity_failure"]["error_code"],
+                    )
+                )
+                if task.get("_identity_failure_notified") != signature:
+                    task["_identity_failure_notified"] = signature
+                    create_task(self._notify_ui_identity_failure(task))
+            if policy != "pause" or not pause_supported:
+                self._persist_ui_task(task)
+                return False
+            task["_pause_requested"] = True
+            pause_event.clear()
+            task["status"] = "pausing"
+            task["message"] = _("采集身份异常，任务将在安全边界暂停")
+            self._set_ui_task_progress_label(task, _("等待修复采集身份"))
+            self._mark_ui_task_paused_if_quiescent(task)
+            self._persist_ui_task(task)
+            return True
+
+        execution_payload["_ui_progress_callback"] = update_progress
+        execution_payload["_ui_pause_control"] = {
+            "checkpoint": pause_checkpoint,
+            "unit_started": unit_started,
+            "unit_finished": unit_finished,
+            "identity_failure": identity_failure,
+            "task_id": task_id,
+        }
         runner = create_task(
             self._execute_ui_endpoint(
                 task["endpoint"],
-                task["payload"],
+                execution_payload,
             )
         )
         task["_runner"] = runner
@@ -582,9 +802,23 @@ class APIServer(TikTok):
             )
             task["status"] = "failed" if self._is_failed_response(result) else "success"
         except CancelledError:
-            task["status"] = "canceled"
-            task["error"] = "task_canceled"
-            task["message"] = _("任务已取消")
+            journal = getattr(self, "task_journal", None)
+            if journal is not None:
+                journal.reset_running_accounts(task_id)
+            if getattr(self, "ui_task_shutdown", False) and pause_supported:
+                keep_paused = task.get("status") in {"pausing", "paused"}
+                task["status"] = "paused" if keep_paused else "pending"
+                task["worker"] = None
+                task["error"] = ""
+                task["message"] = (
+                    _("服务停止，任务保持暂停")
+                    if keep_paused
+                    else _("服务停止，任务将在下次启动时继续")
+                )
+            else:
+                task["status"] = "canceled"
+                task["error"] = "task_canceled"
+                task["message"] = _("任务已取消")
         except ValidationError:
             task["status"] = "failed"
             task["error"] = "validation_error"
@@ -608,7 +842,7 @@ class APIServer(TikTok):
                     await old_client_tiktok.aclose()
                     retry_response = await self._execute_ui_endpoint(
                         task["endpoint"],
-                        task["payload"],
+                        execution_payload,
                     )
                     retry_result = self._serialize_response(retry_response)
                     task["result"] = retry_result
@@ -627,11 +861,26 @@ class APIServer(TikTok):
             task["error"] = "task_execution_failed"
             task["message"] = _("任务执行失败！")
         finally:
-            task["finished_at"] = self._now_text()
+            progress = task.get("progress")
+            if isinstance(progress, dict):
+                if task.get("status") == "success":
+                    progress["label"] = _("执行完成")
+                elif task.get("status") == "failed":
+                    progress["label"] = _("执行失败")
+                elif task.get("status") == "canceled":
+                    progress["label"] = _("已取消")
+            if task.get("status") in {"success", "failed", "canceled"}:
+                task["finished_at"] = self._now_text()
+            else:
+                task["finished_at"] = None
             task["updated_at"] = self._now_text()
             task["_runner"] = None
+            task["_pause_event"] = None
+            task["_pause_requested"] = False
+            task["_active_units"] = 0
+            self._persist_ui_task(task)
             schedule_url = self._normalize_string(task.get("schedule_uptime_kuma_url"))
-            if schedule_url:
+            if schedule_url and task.get("status") in {"success", "failed", "canceled"}:
                 status, message = self._build_uptime_kuma_status(
                     task,
                     self._normalize_string(task.get("schedule_name")),
@@ -647,6 +896,9 @@ class APIServer(TikTok):
                     )
 
     async def _execute_ui_endpoint(self, endpoint: str, payload: dict):
+        payload = dict(payload)
+        progress_callback = payload.pop("_ui_progress_callback", None)
+        pause_control = payload.pop("_ui_pause_control", None)
         if endpoint == "/douyin/detail":
             return await self.handle_detail(Detail(**payload), False)
         if endpoint == "/douyin/account":
@@ -676,13 +928,29 @@ class APIServer(TikTok):
         if endpoint == "/tiktok/live":
             return await self._handle_live_request(LiveTikTok(**payload), True)
         if endpoint == "/workflow/douyin/account_batch":
-            return await self._run_ui_account_batch(payload, False)
+            return await self._run_ui_account_batch(
+                payload,
+                False,
+                progress_callback=progress_callback,
+                pause_control=pause_control,
+            )
         if endpoint == "/workflow/tiktok/account_batch":
-            return await self._run_ui_account_batch(payload, True)
+            return await self._run_ui_account_batch(
+                payload,
+                True,
+                progress_callback=progress_callback,
+                pause_control=pause_control,
+            )
         if endpoint == "/workflow/douyin/detail_links":
             return await self._run_ui_detail_links(payload, False)
         if endpoint == "/workflow/tiktok/detail_links":
             return await self._run_ui_detail_links(payload, True)
+        if endpoint == "/workflow/accounts/avatar_batch":
+            return await self._run_ui_avatar_batch(
+                payload,
+                progress_callback=progress_callback,
+                pause_control=pause_control,
+            )
         raise HTTPException(
             status_code=400,
             detail="Unsupported endpoint.",
@@ -813,6 +1081,7 @@ class APIServer(TikTok):
             "/workflow/tiktok/account_batch",
             "/workflow/douyin/detail_links",
             "/workflow/tiktok/detail_links",
+            "/workflow/accounts/avatar_batch",
         }
 
     @staticmethod
@@ -848,6 +1117,9 @@ class APIServer(TikTok):
             "/workflow/tiktok/detail_links",
         }:
             APIServer._validate_ui_workflow_detail_payload(payload)
+            return
+        if endpoint == "/workflow/accounts/avatar_batch":
+            APIServer._validate_ui_avatar_batch_payload(payload)
 
     @staticmethod
     def _normalize_string(value: Any) -> str:
@@ -961,6 +1233,28 @@ class APIServer(TikTok):
         task["schedule_uptime_kuma_url"] = self._normalize_string(
             schedule.get("uptime_kuma_url")
         )
+        task["schedule_bark_url"] = self._normalize_string(
+            schedule.get("bark_url")
+        )
+        self._persist_ui_task(task)
+
+    def _inherit_schedule_task_meta(self, task: dict, source: dict) -> None:
+        for key in (
+            "schedule_id",
+            "schedule_name",
+            "schedule_platform",
+            "schedule_uptime_kuma_url",
+            "schedule_bark_url",
+        ):
+            if source.get(key):
+                task[key] = source[key]
+        schedule_id = self._normalize_string(task.get("schedule_id"))
+        schedule = getattr(self, "ui_schedules", {}).get(schedule_id)
+        if schedule is not None:
+            schedule["last_task_id"] = task.get("task_id", "")
+            schedule["updated_at"] = self._now_text()
+            self._persist_ui_schedules()
+        self._persist_ui_task(task)
 
     async def _send_uptime_kuma_push(self, url: str, proxy: str | None = None) -> None:
         target = self._normalize_string(url)
@@ -975,6 +1269,46 @@ class APIServer(TikTok):
             self.logger.warning(
                 _("Uptime Kuma push failed: {error}").format(error=error)
             )
+
+    async def _notify_ui_identity_failure(self, task: dict) -> None:
+        failure = (
+            task.get("identity_failure")
+            if isinstance(task.get("identity_failure"), dict)
+            else {}
+        )
+        identity_id = self._normalize_string(failure.get("identity_id")) or "自动路由"
+        error_code = (
+            self._normalize_string(failure.get("error_code"))
+            or "identity_unavailable"
+        )
+        schedule_name = (
+            self._normalize_string(task.get("schedule_name"))
+            or self._normalize_string(task.get("task_id"))
+            or "账号批量任务"
+        )
+        message = f"{schedule_name} · identity={identity_id} · error={error_code}"
+        proxy = self._normalize_string(task.get("payload", {}).get("proxy"))
+        uptime_url = self._normalize_string(task.get("schedule_uptime_kuma_url"))
+        if uptime_url:
+            push_url = self._build_uptime_kuma_url(
+                uptime_url,
+                "down",
+                message,
+            )
+            if push_url:
+                await self._send_uptime_kuma_push(push_url, proxy=proxy)
+        bark_url = self._normalize_string(task.get("schedule_bark_url"))
+        if bark_url:
+            ok, error = await self._send_bark_notification(
+                bark_url,
+                f"采集身份异常: {schedule_name}",
+                message,
+                proxy=proxy,
+            )
+            if not ok and error:
+                self.logger.warning(
+                    _("Bark 通知发送失败：{error}").format(error=error),
+                )
 
     @staticmethod
     def _normalize_optional_int(value: Any) -> int | None:
@@ -1085,6 +1419,42 @@ class APIServer(TikTok):
             value = payload.get(key)
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"{key} must be string or null.")
+        action = APIServer._normalize_string(payload.get("identity_failure_action"))
+        if action and action not in APIServer.IDENTITY_FAILURE_ACTIONS:
+            raise ValueError("identity_failure_action must be continue or pause.")
+        notify = payload.get("notify_on_identity_failure")
+        if notify is not None and not isinstance(notify, bool):
+            raise ValueError("notify_on_identity_failure must be bool.")
+        threshold = payload.get("identity_failure_threshold")
+        if threshold not in {None, ""}:
+            try:
+                threshold_value = int(threshold)
+            except (TypeError, ValueError):
+                raise ValueError("identity_failure_threshold must be integer.")
+            if not 1 <= threshold_value <= 20:
+                raise ValueError("identity_failure_threshold must be between 1 and 20.")
+
+    @staticmethod
+    def _validate_ui_avatar_batch_payload(payload: dict) -> None:
+        platform = APIServer._normalize_string(payload.get("platform")).lower()
+        if platform not in {"douyin", "tiktok"}:
+            raise ValueError("platform must be douyin or tiktok.")
+        urls = payload.get("urls", [])
+        if not isinstance(urls, list) or any(
+            not isinstance(item, str) for item in urls
+        ):
+            raise ValueError("urls must be a string list.")
+        for key in ("skip_existing",):
+            value = payload.get(key)
+            if value is not None and not isinstance(value, bool):
+                raise ValueError(f"{key} must be boolean.")
+        raw_candidates = payload.get("max_candidates", 12)
+        try:
+            candidates = int(raw_candidates)
+        except (TypeError, ValueError):
+            raise ValueError("max_candidates must be integer.") from None
+        if not 1 <= candidates <= 30:
+            raise ValueError("max_candidates must be between 1 and 30.")
 
     @staticmethod
     def _normalize_link_inputs(raw_links: str | list[str]) -> list[str]:
@@ -1548,8 +1918,39 @@ class APIServer(TikTok):
             except OSError:
                 images = []
                 videos = []
+        images.sort(reverse=True)
+        videos.sort(reverse=True)
         cache[key] = (images, videos)
         return images, videos
+
+    @staticmethod
+    def _latest_work_from_media_paths(paths: list[str]) -> dict[str, str]:
+        latest_at = ""
+        latest_path = ""
+        for relative in paths:
+            match = WORK_FILENAME_DATE_PATTERN.search(Path(relative).name)
+            if not match:
+                continue
+            parts = [int(value or 0) for value in match.groups()]
+            year, month, day, hour, minute, second = parts
+            try:
+                published_at = datetime(
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                    second,
+                ).astimezone().isoformat(timespec="seconds")
+            except ValueError:
+                continue
+            if published_at > latest_at:
+                latest_at = published_at
+                latest_path = relative
+        return {
+            "at": latest_at,
+            "path": latest_path,
+        }
 
     @staticmethod
     def _media_kind_from_relpath(path: str) -> str:
@@ -1634,9 +2035,114 @@ class APIServer(TikTok):
         platform: str,
         page: int,
         page_size: int,
+        search: str = "",
+        status: str = "all",
+        sort_by: str = "configured",
     ) -> dict:
         normalized_platform = self._normalize_board_platform(platform)
         rows = self._active_account_rows(normalized_platform)
+        unfiltered_total = len(rows)
+        normalized_search = self._normalize_string(search).lower()
+        normalized_status = self._normalize_string(status).lower()
+        if normalized_status not in {
+            "all",
+            "success",
+            "failed",
+            "never",
+            "no_avatar",
+        }:
+            normalized_status = "all"
+        normalized_sort = self._normalize_string(sort_by).lower()
+        if normalized_sort not in {
+            "configured",
+            "latest_desc",
+            "latest_asc",
+            "checked_desc",
+        }:
+            normalized_sort = "configured"
+
+        journal = getattr(self, "task_journal", None)
+        activity_items = (
+            journal.list_account_activity(normalized_platform)
+            if journal is not None
+            else []
+        )
+        activity_by_url = {
+            self._normalize_string(item.get("url")): item
+            for item in activity_items
+            if self._normalize_string(item.get("url"))
+        }
+        avatars = self._load_account_board_avatars()
+
+        if normalized_search:
+            rows = [
+                row
+                for row in rows
+                if normalized_search
+                in " ".join(
+                    (
+                        self._normalize_string(row.get("mark")),
+                        self._normalize_string(row.get("url")),
+                        self._normalize_string(row.get("tab")),
+                    )
+                ).lower()
+            ]
+        if normalized_status != "all":
+            filtered_rows = []
+            for row in rows:
+                url = self._normalize_string(row.get("url"))
+                activity = activity_by_url.get(url, {})
+                if normalized_status == "no_avatar":
+                    pin_key = self._account_pin_key(normalized_platform, url)
+                    if not self._coerce_project_image_relpath(
+                        avatars.get(pin_key, "")
+                    ):
+                        filtered_rows.append(row)
+                    continue
+                activity_status = self._normalize_string(
+                    activity.get("last_status")
+                ) or "never"
+                if activity_status == normalized_status:
+                    filtered_rows.append(row)
+            rows = filtered_rows
+
+        def activity_date(row: dict, key: str) -> str:
+            return self._normalize_string(
+                activity_by_url.get(
+                    self._normalize_string(row.get("url")),
+                    {},
+                ).get(key)
+            )
+
+        if normalized_sort == "latest_desc":
+            rows.sort(
+                key=lambda row: max(
+                    activity_date(row, "latest_seen_work_at"),
+                    activity_date(row, "latest_saved_work_at"),
+                ),
+                reverse=True,
+            )
+        elif normalized_sort == "latest_asc":
+            rows.sort(
+                key=lambda row: (
+                    not bool(
+                        max(
+                            activity_date(row, "latest_seen_work_at"),
+                            activity_date(row, "latest_saved_work_at"),
+                        )
+                    ),
+                    max(
+                        activity_date(row, "latest_seen_work_at"),
+                        activity_date(row, "latest_saved_work_at"),
+                    ),
+                )
+            )
+        elif normalized_sort == "checked_desc":
+            rows.sort(
+                key=lambda row: activity_date(row, "last_checked_at"),
+                reverse=True,
+            )
+
         total = len(rows)
         size = self._normalize_board_page_size(page_size)
         pages = max(1, (total + size - 1) // size)
@@ -1648,7 +2154,6 @@ class APIServer(TikTok):
         root = self._scope_root("download").expanduser().resolve()
         candidates = self._account_board_dirs(root)
         pins = self._load_account_board_pins()
-        avatars = self._load_account_board_avatars()
         media_cache: dict[str, tuple[list[str], list[str]]] = {}
         items = []
         for offset, row in enumerate(page_rows, start=start + 1):
@@ -1666,6 +2171,34 @@ class APIServer(TikTok):
                 use_pinned=True,
             )
             avatar_path = self._coerce_project_image_relpath(avatars.get(pin_key, ""))
+            activity = activity_by_url.get(
+                self._normalize_string(row.get("url")),
+                {},
+            )
+            latest_seen_at = self._normalize_string(
+                activity.get("latest_seen_work_at")
+            )
+            latest_saved_at = self._normalize_string(
+                activity.get("latest_saved_work_at")
+            )
+            latest_work_at = max(latest_seen_at, latest_saved_at)
+            latest_work_id = (
+                self._normalize_string(activity.get("latest_seen_work_id"))
+                if latest_seen_at >= latest_saved_at
+                else self._normalize_string(activity.get("latest_saved_work_id"))
+            )
+            latest_work_source = "crawl" if latest_work_at else ""
+            if not latest_work_at:
+                images, videos = self._collect_media_relpaths(
+                    root,
+                    folder,
+                    media_cache,
+                )
+                historical = self._latest_work_from_media_paths(
+                    [*images, *videos]
+                )
+                latest_work_at = historical["at"]
+                latest_work_source = "filename" if latest_work_at else ""
             items.append(
                 {
                     "index": offset,
@@ -1681,6 +2214,24 @@ class APIServer(TikTok):
                     "pinned": bool(media.get("pinned", False)),
                     "avatar_path": avatar_path,
                     "avatar_scope": "project" if avatar_path else "",
+                    "latest_work_at": latest_work_at,
+                    "latest_work_id": latest_work_id,
+                    "latest_work_source": latest_work_source,
+                    "latest_seen_work_at": latest_seen_at,
+                    "latest_saved_work_at": latest_saved_at,
+                    "last_checked_at": self._normalize_string(
+                        activity.get("last_checked_at")
+                    ),
+                    "last_status": self._normalize_string(
+                        activity.get("last_status")
+                    )
+                    or "never",
+                    "last_error": self._normalize_string(
+                        activity.get("last_error")
+                    ),
+                    "last_item_count": int(
+                        activity.get("last_item_count") or 0
+                    ),
                 }
             )
 
@@ -1690,6 +2241,10 @@ class APIServer(TikTok):
             "page_size": size,
             "pages": pages,
             "total": total,
+            "unfiltered_total": unfiltered_total,
+            "search": normalized_search,
+            "status": normalized_status,
+            "sort": normalized_sort,
             "items": items,
         }
 
@@ -1818,6 +2373,39 @@ class APIServer(TikTok):
         uptime_kuma_url = payload.get("uptime_kuma_url")
         if uptime_kuma_url is not None and not isinstance(uptime_kuma_url, str):
             raise ValueError("uptime_kuma_url must be string or null.")
+        bark_url = payload.get("bark_url")
+        if bark_url is not None and not isinstance(bark_url, str):
+            raise ValueError("bark_url must be string or null.")
+        overlap_policy = APIServer._normalize_string(
+            payload.get("overlap_policy")
+        )
+        if (
+            overlap_policy
+            and overlap_policy not in APIServer.SCHEDULE_OVERLAP_POLICIES
+        ):
+            raise ValueError("overlap_policy must be wait, skip, or allow.")
+        identity_failure_action = APIServer._normalize_string(
+            payload.get("identity_failure_action")
+        )
+        if (
+            identity_failure_action
+            and identity_failure_action not in APIServer.IDENTITY_FAILURE_ACTIONS
+        ):
+            raise ValueError("identity_failure_action must be continue or pause.")
+        notify_on_identity_failure = payload.get("notify_on_identity_failure")
+        if (
+            notify_on_identity_failure is not None
+            and not isinstance(notify_on_identity_failure, bool)
+        ):
+            raise ValueError("notify_on_identity_failure must be bool.")
+        threshold = payload.get("identity_failure_threshold")
+        if threshold not in {None, ""}:
+            try:
+                threshold_value = int(threshold)
+            except (TypeError, ValueError):
+                raise ValueError("identity_failure_threshold must be integer.")
+            if not 1 <= threshold_value <= 20:
+                raise ValueError("identity_failure_threshold must be between 1 and 20.")
         identity_id = payload.get("identity_id")
         if identity_id is not None and not isinstance(identity_id, str):
             raise ValueError("identity_id must be string or null.")
@@ -1951,6 +2539,22 @@ class APIServer(TikTok):
             if not use_settings
             else []
         )
+        overlap_policy = self._normalize_string(
+            payload.get("overlap_policy")
+        ).lower()
+        if overlap_policy not in self.SCHEDULE_OVERLAP_POLICIES:
+            overlap_policy = "wait"
+        identity_failure_action = self._normalize_string(
+            payload.get("identity_failure_action")
+        ).lower()
+        if identity_failure_action not in self.IDENTITY_FAILURE_ACTIONS:
+            identity_failure_action = "continue"
+        identity_failure_threshold = self._normalize_optional_int(
+            payload.get("identity_failure_threshold")
+        )
+        if identity_failure_threshold is None:
+            identity_failure_threshold = 3
+        identity_failure_threshold = max(1, min(identity_failure_threshold, 20))
         now = self._now_text()
         normalized = {
             "schedule_type": self.ACCOUNT_BATCH_SCHEDULE,
@@ -1967,10 +2571,28 @@ class APIServer(TikTok):
             "cookie": self._normalize_string(payload.get("cookie")),
             "proxy": self._normalize_string(payload.get("proxy")),
             "uptime_kuma_url": self._normalize_string(payload.get("uptime_kuma_url")),
+            "bark_url": self._normalize_string(payload.get("bark_url")),
+            "overlap_policy": overlap_policy,
+            "identity_failure_action": identity_failure_action,
+            "identity_failure_threshold": identity_failure_threshold,
+            "notify_on_identity_failure": self._normalize_bool(
+                payload.get("notify_on_identity_failure"),
+                default=False,
+            ),
             "created_at": self._normalize_string(payload.get("created_at")) or now,
             "updated_at": now,
             "last_run_at": self._normalize_string(payload.get("last_run_at")),
             "next_run_at": self._normalize_string(payload.get("next_run_at")),
+            "last_task_id": self._normalize_string(payload.get("last_task_id")),
+            "overlap_state": self._normalize_string(payload.get("overlap_state")),
+            "waiting_for_task_id": self._normalize_string(
+                payload.get("waiting_for_task_id")
+            ),
+            "last_result": (
+                payload.get("last_result")
+                if isinstance(payload.get("last_result"), dict)
+                else {}
+            ),
         }
         if normalized["enabled"]:
             normalized["next_run_at"] = normalized["next_run_at"] or self._next_run_text(
@@ -2011,6 +2633,24 @@ class APIServer(TikTok):
             "identity_id": self._normalize_string(schedule.get("identity_id")),
             "cookie": schedule.get("cookie", ""),
             "proxy": schedule.get("proxy", ""),
+            "identity_failure_action": schedule.get(
+                "identity_failure_action",
+                "continue",
+            ),
+            "identity_failure_threshold": max(
+                1,
+                min(
+                    self._normalize_optional_int(
+                        schedule.get("identity_failure_threshold")
+                    )
+                    or 3,
+                    20,
+                ),
+            ),
+            "notify_on_identity_failure": self._normalize_bool(
+                schedule.get("notify_on_identity_failure"),
+                default=False,
+            ),
         }
         return endpoint, payload
 
@@ -2360,6 +3000,77 @@ class APIServer(TikTok):
             self._ui_schedule_runner(schedule_id),
         )
 
+    def _active_schedule_task(self, schedule_id: str) -> dict | None:
+        candidates = [
+            task
+            for task in getattr(self, "ui_tasks", {}).values()
+            if self._normalize_string(task.get("schedule_id")) == schedule_id
+            and task.get("status") in ACTIVE_TASK_STATUSES
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=self._ui_task_sort_key)
+
+    def _create_schedule_task(self, schedule: dict) -> dict:
+        endpoint, payload = self._schedule_task_payload(schedule)
+        task = self._enqueue_ui_task(
+            endpoint=endpoint,
+            payload=loads(dumps(payload, ensure_ascii=False)),
+        )
+        self._attach_schedule_task_meta(task, schedule)
+        schedule["last_task_id"] = task["task_id"]
+        schedule["overlap_state"] = ""
+        return task
+
+    async def _resolve_schedule_overlap(
+        self,
+        schedule: dict,
+        *,
+        wait_for_slot: bool,
+    ) -> tuple[str, dict | None]:
+        policy = self._normalize_string(
+            schedule.get("overlap_policy")
+        ).lower()
+        if policy not in self.SCHEDULE_OVERLAP_POLICIES:
+            policy = "wait"
+        active = self._active_schedule_task(
+            self._normalize_string(schedule.get("schedule_id"))
+        )
+        if not active or policy == "allow":
+            return "enqueue", None
+        if policy == "skip":
+            schedule["overlap_state"] = "skipped"
+            schedule["last_result"] = {
+                "ok": True,
+                "skipped": True,
+                "reason": "active_task_exists",
+                "active_task_id": active.get("task_id", ""),
+            }
+            return "skip", active
+        if not wait_for_slot:
+            schedule["overlap_state"] = "waiting"
+            return "wait", active
+        schedule["overlap_state"] = "waiting"
+        schedule["waiting_for_task_id"] = active.get("task_id", "")
+        self._persist_ui_schedules()
+        while True:
+            current = self.ui_schedules.get(
+                self._normalize_string(schedule.get("schedule_id"))
+            )
+            if not current or not current.get("enabled", False):
+                return "disabled", active
+            active = self._active_schedule_task(
+                self._normalize_string(schedule.get("schedule_id"))
+            )
+            if not active:
+                schedule["overlap_state"] = ""
+                schedule["waiting_for_task_id"] = ""
+                return "enqueue", None
+            try:
+                await sleep(5)
+            except CancelledError:
+                raise
+
     async def _stop_single_schedule_runner(self, schedule_id: str) -> None:
         task = self.ui_schedule_tasks.pop(schedule_id, None)
         if task:
@@ -2414,12 +3125,23 @@ class APIServer(TikTok):
                         error_text=self._normalize_string(result.get("error")),
                     )
             else:
-                endpoint, payload = self._schedule_task_payload(schedule)
-                task = self._enqueue_ui_task(
-                    endpoint=endpoint,
-                    payload=loads(dumps(payload, ensure_ascii=False)),
+                overlap_action, active_task = await self._resolve_schedule_overlap(
+                    schedule,
+                    wait_for_slot=True,
                 )
-                self._attach_schedule_task_meta(task, schedule)
+                if overlap_action == "enqueue":
+                    self._create_schedule_task(schedule)
+                elif overlap_action == "skip":
+                    self.logger.info(
+                        _(
+                            "定时任务因上次任务仍在运行而跳过: {schedule} active={task}"
+                        ).format(
+                            schedule=schedule_id,
+                            task=(active_task or {}).get("task_id", ""),
+                        )
+                    )
+                elif overlap_action == "disabled":
+                    continue
             schedule["last_run_at"] = self._now_text()
             schedule["updated_at"] = self._now_text()
             if schedule_type == self.COLLECT_MONITOR_SCHEDULE:
@@ -2897,6 +3619,8 @@ class APIServer(TikTok):
         self,
         payload: dict,
         tiktok: bool,
+        progress_callback: Callable[[dict], None] | None = None,
+        pause_control: dict[str, Callable] | None = None,
     ) -> DataResponse:
         use_settings = payload.get("use_settings", True)
         cookie = self._normalize_string(payload.get("cookie")) or None
@@ -2924,8 +3648,187 @@ class APIServer(TikTok):
                 normalizer=self._normalize_string,
             )
         queued_items = [item for item in items if item["url"] and item["enable"]]
+        skipped_items = max(0, len(items) - len(queued_items))
+        pause_checkpoint = (
+            pause_control.get("checkpoint")
+            if isinstance(pause_control, dict)
+            else None
+        )
+        unit_started = (
+            pause_control.get("unit_started")
+            if isinstance(pause_control, dict)
+            else None
+        )
+        identity_failure = (
+            pause_control.get("identity_failure")
+            if isinstance(pause_control, dict)
+            else None
+        )
+        task_id = (
+            self._normalize_string(pause_control.get("task_id"))
+            if isinstance(pause_control, dict)
+            else ""
+        )
+        journal = getattr(self, "task_journal", None) if task_id else None
+        journal_accounts = (
+            journal.prepare_accounts(task_id, queued_items)
+            if journal is not None
+            else []
+        )
+        if journal_accounts:
+            queued_items = []
+            for account in journal_accounts:
+                stored_item = dict(account["item"])
+                normalized_items = self._normalize_account_items([stored_item])
+                item = normalized_items[0] if normalized_items else stored_item
+                item["_task_position"] = account["position"]
+                if account["status"] not in {"success", "failed", "skipped"}:
+                    queued_items.append(item)
+            attach_settings_index_by_url(
+                queued_items,
+                settings_rows,
+                normalizer=self._normalize_string,
+            )
+            progress_success = sum(
+                1 for account in journal_accounts if account["status"] == "success"
+            )
+            progress_failed = sum(
+                1 for account in journal_accounts if account["status"] == "failed"
+            )
+            progress_current = progress_success + progress_failed + sum(
+                1 for account in journal_accounts if account["status"] == "skipped"
+            )
+            total_queued_items = len(journal_accounts)
+            failures = [
+                {
+                    "index": account["position"],
+                    "url": account["item"].get("url", ""),
+                    "identity_id": account["identity_id"],
+                    "reason": account["reason"] or _("账号作品下载失败"),
+                }
+                for account in journal_accounts
+                if account["status"] == "failed"
+            ]
+        else:
+            for position, item in enumerate(queued_items, start=1):
+                item["_task_position"] = position
+            progress_current = 0
+            progress_success = 0
+            progress_failed = 0
+            total_queued_items = len(queued_items)
+            failures = []
+        unit_finished = (
+            pause_control.get("unit_finished")
+            if isinstance(pause_control, dict)
+            else None
+        )
 
-        if not queued_items:
+        async def wait_for_resume() -> None:
+            if callable(pause_checkpoint):
+                await pause_checkpoint()
+
+        def mark_unit_started(item: dict, identity_id: str = "") -> None:
+            if journal is not None:
+                journal.mark_account_running(
+                    task_id,
+                    int(item.get("_task_position") or 0),
+                    identity_id=identity_id,
+                )
+            if callable(unit_started):
+                unit_started()
+
+        def mark_unit_finished() -> None:
+            if callable(unit_finished):
+                unit_finished()
+
+        def report_progress(label: str) -> None:
+            if not progress_callback:
+                return
+            total = total_queued_items
+            progress_callback(
+                {
+                    "current": progress_current,
+                    "total": total,
+                    "success": progress_success,
+                    "failed": progress_failed,
+                    "skipped": skipped_items,
+                    "percent": (
+                        round(progress_current * 100 / total)
+                        if total
+                        else 0
+                    ),
+                    "label": label,
+                }
+            )
+
+        def complete_progress_item(
+            ok: bool,
+            item: dict,
+            *,
+            identity_id: str = "",
+            reason: str = "",
+        ) -> None:
+            nonlocal progress_current, progress_success, progress_failed
+            if journal is not None:
+                journal.mark_account_finished(
+                    task_id,
+                    int(item.get("_task_position") or 0),
+                    status="success" if ok else "failed",
+                    identity_id=identity_id,
+                    reason=reason,
+                )
+            progress_current += 1
+            if ok:
+                progress_success += 1
+            else:
+                progress_failed += 1
+            report_progress(_("正在执行账号批次"))
+
+        def save_account_activity(
+            item: dict,
+            *,
+            sec_uid: str,
+            execution: dict,
+        ) -> None:
+            activity_journal = getattr(self, "task_journal", None)
+            if activity_journal is None:
+                return
+            context = (
+                execution.get("context", {})
+                if isinstance(execution.get("context"), dict)
+                else {}
+            )
+            try:
+                activity_journal.save_account_activity(
+                    platform=platform,
+                    url=self._normalize_string(item.get("url")),
+                    sec_uid=self._normalize_string(sec_uid),
+                    mark=self._normalize_string(
+                        context.get("mark") or item.get("mark")
+                    ),
+                    latest_seen_work_at=self._normalize_string(
+                        context.get("latest_seen_work_at")
+                    ),
+                    latest_seen_work_id=self._normalize_string(
+                        context.get("latest_seen_work_id")
+                    ),
+                    latest_saved_work_at=self._normalize_string(
+                        context.get("latest_saved_work_at")
+                    ),
+                    latest_saved_work_id=self._normalize_string(
+                        context.get("latest_saved_work_id")
+                    ),
+                    status="success" if execution.get("ok") else "failed",
+                    error=self._normalize_string(execution.get("reason")),
+                    item_count=max(0, int(context.get("item_count") or 0)),
+                )
+            except (OSError, TypeError, ValueError) as error:
+                self.logger.warning(
+                    _("保存账号看板状态失败: {error}").format(error=error)
+                )
+
+        if total_queued_items == 0:
+            report_progress(_("没有可执行账号"))
             return DataResponse(
                 message=_("未找到可执行的账号任务！"),
                 data={
@@ -2941,32 +3844,64 @@ class APIServer(TikTok):
                 params=payload,
             )
 
-        success = 0
-        failed = 0
-        failures = []
+        success = progress_success
+        failed = progress_failed
         auto_filled_mark = 0
         auto_updated_earliest = 0
         earliest_days = self._normalize_earliest_update_days(
             getattr(self.parameter, "earliest_update_days", 0)
         )
         legacy_override = bool(cookie or proxy) and not forced_identity_id
-        routes = (
-            []
-            if legacy_override
-            else self._plan_collector_account_routes(
-                platform_value,
-                queued_items,
-                forced_identity_id=forced_identity_id,
+        identity_failure_threshold = max(
+            1,
+            min(
+                self._normalize_optional_int(
+                    payload.get("identity_failure_threshold")
+                )
+                or 3,
+                20,
+            ),
+        )
+        identity_failure_policy_enabled = (
+            self._normalize_string(payload.get("identity_failure_action")).lower()
+            == "pause"
+            or self._normalize_bool(
+                payload.get("notify_on_identity_failure"),
+                default=False,
             )
         )
-        pool_has_credentials = any(
-            item.cookie_configured
-            for item in self.collector_store.list_public(platform_value)
-        )
-        if not routes and not legacy_override and (
-            forced_identity_id or pool_has_credentials
-        ):
-            raise RouteUnavailable("no eligible collector identity")
+        routes = []
+        if queued_items and not legacy_override:
+            while True:
+                try:
+                    routes = self._plan_collector_account_routes(
+                        platform_value,
+                        queued_items,
+                        forced_identity_id=forced_identity_id,
+                    )
+                    pool_has_credentials = any(
+                        item.cookie_configured
+                        for item in self.collector_store.list_public(platform_value)
+                    )
+                    if not routes and (forced_identity_id or pool_has_credentials):
+                        raise RouteUnavailable(
+                            "no eligible collector identity",
+                            identity_id=forced_identity_id,
+                        )
+                    break
+                except RouteUnavailable as error:
+                    paused = (
+                        await identity_failure(
+                            error.identity_id or forced_identity_id,
+                            "identity_unavailable",
+                            str(error),
+                        )
+                        if callable(identity_failure)
+                        else False
+                    )
+                    if not paused:
+                        raise
+                    await wait_for_resume()
 
         async def run_entries(
             worker: "TikTok",
@@ -2977,43 +3912,52 @@ class APIServer(TikTok):
             identity_proxy: str | None = None,
         ) -> list[dict]:
             results = []
-            for index, item, route_reason, target_key in entries:
+            identity_failure_streak = 0
+            for entry_offset, (
+                index,
+                item,
+                route_reason,
+                target_key,
+            ) in enumerate(entries):
+                await wait_for_resume()
+                mark_unit_started(item, identity_id)
+                execution = None
+                identity_request_failed = False
+                sec_user_id = ""
                 try:
                     sec_user_id = await worker.check_sec_user_id(
                         item["url"],
                         tiktok,
                     )
                     if not sec_user_id:
-                        results.append(
-                            {
-                                "index": index,
-                                "item": item,
-                                "ok": False,
-                                "identity_id": identity_id,
-                                "route_reason": route_reason,
-                                "target_key": target_key,
-                                "reason": _("提取 sec_user_id 失败"),
-                            }
+                        execution = {
+                            "index": index,
+                            "item": item,
+                            "ok": False,
+                            "identity_id": identity_id,
+                            "route_reason": route_reason,
+                            "target_key": target_key,
+                            "reason": _("提取 sec_user_id 失败"),
+                        }
+                    else:
+                        context = await worker.deal_account_detail(
+                            index,
+                            sec_user_id=sec_user_id,
+                            mark=item["mark"],
+                            url=item["url"],
+                            tab=item["tab"],
+                            earliest=item["earliest"],
+                            latest=item["latest"],
+                            pages=item["pages"],
+                            api=False,
+                            source=False,
+                            cookie=identity_cookie,
+                            proxy=identity_proxy,
+                            tiktok=tiktok,
+                            return_context=True,
                         )
-                        continue
-                    context = await worker.deal_account_detail(
-                        index,
-                        sec_user_id=sec_user_id,
-                        mark=item["mark"],
-                        url=item["url"],
-                        tab=item["tab"],
-                        earliest=item["earliest"],
-                        latest=item["latest"],
-                        pages=item["pages"],
-                        api=False,
-                        source=False,
-                        cookie=identity_cookie,
-                        proxy=identity_proxy,
-                        tiktok=tiktok,
-                        return_context=True,
-                    )
-                    results.append(
-                        {
+                        identity_request_failed = not bool(context)
+                        execution = {
                             "index": index,
                             "item": item,
                             "ok": bool(context),
@@ -3021,23 +3965,60 @@ class APIServer(TikTok):
                             "identity_id": identity_id,
                             "route_reason": route_reason,
                             "target_key": target_key,
-                            "reason": "" if context else _("账号作品下载失败"),
+                            "reason": (
+                                "" if context else _("账号作品下载失败")
+                            ),
                         }
-                    )
                 except CancelledError:
                     raise
                 except Exception:
-                    results.append(
-                        {
-                            "index": index,
-                            "item": item,
-                            "ok": False,
-                            "identity_id": identity_id,
-                            "route_reason": route_reason,
-                            "target_key": target_key,
-                            "reason": _("采集请求失败"),
-                        }
-                    )
+                    identity_request_failed = True
+                    execution = {
+                        "index": index,
+                        "item": item,
+                        "ok": False,
+                        "identity_id": identity_id,
+                        "route_reason": route_reason,
+                        "target_key": target_key,
+                        "reason": _("采集请求失败"),
+                    }
+                finally:
+                    mark_unit_finished()
+                results.append(execution)
+                save_account_activity(
+                    item,
+                    sec_uid=sec_user_id,
+                    execution=execution,
+                )
+                complete_progress_item(
+                    bool(execution.get("ok")),
+                    item,
+                    identity_id=identity_id,
+                    reason=execution.get("reason", ""),
+                )
+                if (
+                    identity_id
+                    and identity_failure_policy_enabled
+                    and identity_request_failed
+                ):
+                    identity_failure_streak += 1
+                    if (
+                        identity_failure_streak >= identity_failure_threshold
+                        and entry_offset + 1 < len(entries)
+                        and callable(identity_failure)
+                    ):
+                        paused = await identity_failure(
+                            identity_id,
+                            "identity_failure_threshold",
+                            _(
+                                "已配置身份连续 {count} 个账号采集失败"
+                            ).format(count=identity_failure_streak),
+                        )
+                        identity_failure_streak = 0
+                        if paused:
+                            await wait_for_resume()
+                elif execution.get("ok"):
+                    identity_failure_streak = 0
             return results
 
         async def run_identity_group(identity_id: str, entries: list[tuple]) -> list[dict]:
@@ -3058,32 +4039,60 @@ class APIServer(TikTok):
                     len(group_results) - group_success,
                 )
 
-            try:
-                return await self._execute_collector_identity_operation(
-                    platform_value,
-                    identity_id,
-                    operation,
-                    failure_error_code="account_collection_failed",
-                )
-            except CancelledError:
-                raise
-            except Exception:
-                return [
-                    {
-                        "index": index,
-                        "item": item,
-                        "ok": False,
-                        "identity_id": identity_id,
-                        "route_reason": reason,
-                        "target_key": target_key,
-                        "reason": _("身份运行环境执行失败"),
-                    }
-                    for index, item, reason, target_key in entries
-                ]
+            while True:
+                try:
+                    return await self._execute_collector_identity_operation(
+                        platform_value,
+                        identity_id,
+                        operation,
+                        failure_error_code="account_collection_failed",
+                    )
+                except CancelledError:
+                    raise
+                except Exception as error:
+                    paused = (
+                        await identity_failure(
+                            identity_id,
+                            "identity_runtime_unavailable",
+                            str(error),
+                        )
+                        if callable(identity_failure)
+                        else False
+                    )
+                    if paused:
+                        await wait_for_resume()
+                        continue
+                    failed_results = [
+                        {
+                            "index": index,
+                            "item": item,
+                            "ok": False,
+                            "identity_id": identity_id,
+                            "route_reason": reason,
+                            "target_key": target_key,
+                            "reason": _("身份运行环境执行失败"),
+                        }
+                        for index, item, reason, target_key in entries
+                    ]
+                    for execution in failed_results:
+                        save_account_activity(
+                            execution["item"],
+                            sec_uid="",
+                            execution=execution,
+                        )
+                        complete_progress_item(
+                            False,
+                            execution["item"],
+                            identity_id=identity_id,
+                            reason=execution["reason"],
+                        )
+                    return failed_results
 
+        report_progress(_("准备账号批次"))
         if routes:
             grouped: dict[str, list[tuple]] = {}
-            for index, route in enumerate(routes, start=1):
+            for route in routes:
+                index = int(route["item"].get("_task_position") or 0)
                 grouped.setdefault(route["identity_id"], []).append(
                     (
                         index,
@@ -3112,7 +4121,13 @@ class APIServer(TikTok):
                         "legacy_settings",
                         self._normalize_account_url(item["url"]) or item["url"],
                     )
-                    for index, item in enumerate(queued_items, start=1)
+                    for index, item in (
+                        (
+                            int(item.get("_task_position") or 0),
+                            item,
+                        )
+                        for item in queued_items
+                    )
                 ],
                 identity_cookie=cookie,
                 identity_proxy=proxy,
@@ -3170,7 +4185,7 @@ class APIServer(TikTok):
                                 date=earliest_target,
                             )
                         )
-        skipped = max(0, len(items) - len(queued_items))
+        skipped = skipped_items
         if success == 0:
             message = _("账号批量下载任务失败！")
         elif failed > 0:
@@ -3182,13 +4197,14 @@ class APIServer(TikTok):
             earliest_updated=auto_updated_earliest,
             tiktok=tiktok,
         )
+        report_progress(_("账号批次执行完成"))
         return DataResponse(
             message=message,
             data={
                 "platform": platform,
                 "source": "settings" if use_settings else "editor",
-                "total": len(items),
-                "queued": len(queued_items),
+                "total": total_queued_items + skipped_items,
+                "queued": total_queued_items,
                 "success": success,
                 "failed": failed,
                 "skipped": skipped,
@@ -3197,6 +4213,280 @@ class APIServer(TikTok):
                 "earliest_updated": auto_updated_earliest,
                 "failures": failures,
                 "routes": route_results,
+            },
+            params=payload,
+        )
+
+    async def _run_ui_avatar_batch(
+        self,
+        payload: dict,
+        progress_callback: Callable[[dict], None] | None = None,
+        pause_control: dict[str, Callable] | None = None,
+    ) -> DataResponse:
+        self._validate_ui_avatar_batch_payload(payload)
+        platform = self._normalize_board_platform(payload.get("platform"))
+        requested_urls = {
+            self._normalize_string(item)
+            for item in payload.get("urls", [])
+            if self._normalize_string(item)
+        }
+        skip_existing = self._normalize_bool(
+            payload.get("skip_existing"),
+            default=True,
+        )
+        max_candidates = max(
+            1,
+            min(int(payload.get("max_candidates") or 12), 30),
+        )
+        rows = [
+            {
+                "url": self._normalize_string(row.get("url")),
+                "mark": self._normalize_string(row.get("mark")),
+            }
+            for row in self._active_account_rows(platform)
+            if self._normalize_string(row.get("url"))
+            and (
+                not requested_urls
+                or self._normalize_string(row.get("url")) in requested_urls
+            )
+        ]
+
+        pause_checkpoint = (
+            pause_control.get("checkpoint")
+            if isinstance(pause_control, dict)
+            else None
+        )
+        unit_started = (
+            pause_control.get("unit_started")
+            if isinstance(pause_control, dict)
+            else None
+        )
+        unit_finished = (
+            pause_control.get("unit_finished")
+            if isinstance(pause_control, dict)
+            else None
+        )
+        task_id = (
+            self._normalize_string(pause_control.get("task_id"))
+            if isinstance(pause_control, dict)
+            else ""
+        )
+        journal = getattr(self, "task_journal", None) if task_id else None
+        journal_accounts = (
+            journal.prepare_accounts(task_id, rows)
+            if journal is not None
+            else []
+        )
+        if journal_accounts:
+            pending_rows = []
+            for account in journal_accounts:
+                item = dict(account["item"])
+                item["_task_position"] = account["position"]
+                if account["status"] not in {"success", "failed", "skipped"}:
+                    pending_rows.append(item)
+            rows = pending_rows
+            success = sum(
+                1 for account in journal_accounts if account["status"] == "success"
+            )
+            failed = sum(
+                1 for account in journal_accounts if account["status"] == "failed"
+            )
+            skipped = sum(
+                1 for account in journal_accounts if account["status"] == "skipped"
+            )
+            total = len(journal_accounts)
+        else:
+            for position, item in enumerate(rows, start=1):
+                item["_task_position"] = position
+            success = 0
+            failed = 0
+            skipped = 0
+            total = len(rows)
+        current = success + failed + skipped
+        failures = []
+
+        def report_progress(label: str) -> None:
+            if not progress_callback:
+                return
+            progress_callback(
+                {
+                    "current": current,
+                    "total": total,
+                    "success": success,
+                    "failed": failed,
+                    "skipped": skipped,
+                    "percent": round(current * 100 / total) if total else 0,
+                    "label": label,
+                }
+            )
+
+        async def wait_for_resume() -> None:
+            if callable(pause_checkpoint):
+                await pause_checkpoint()
+
+        def start_item(item: dict) -> None:
+            if journal is not None:
+                journal.mark_account_running(
+                    task_id,
+                    int(item.get("_task_position") or 0),
+                )
+            if callable(unit_started):
+                unit_started()
+
+        def finish_item(
+            item: dict,
+            *,
+            status: str,
+            reason: str = "",
+        ) -> None:
+            nonlocal current, success, failed, skipped
+            if journal is not None:
+                journal.mark_account_finished(
+                    task_id,
+                    int(item.get("_task_position") or 0),
+                    status=status,
+                    reason=reason,
+                )
+            current += 1
+            if status == "success":
+                success += 1
+            elif status == "skipped":
+                skipped += 1
+            else:
+                failed += 1
+            if callable(unit_finished):
+                unit_finished()
+            report_progress(_("正在处理账户头像"))
+
+        report_progress(_("正在准备账户头像"))
+        if total == 0:
+            return DataResponse(
+                message=_("没有可处理的账户头像。"),
+                data={
+                    "platform": platform,
+                    "total": 0,
+                    "success": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                    "failures": [],
+                },
+                params=payload,
+            )
+
+        root = self._scope_root("download").expanduser().resolve()
+        account_dirs = self._account_board_dirs(root)
+        media_cache: dict[str, tuple[list[str], list[str]]] = {}
+        avatars = self._load_account_board_avatars()
+        for item in rows:
+            await wait_for_resume()
+            start_item(item)
+            url = self._normalize_string(item.get("url"))
+            mark = self._normalize_string(item.get("mark"))
+            pin_key = self._account_pin_key(platform, url)
+            if skip_existing and self._coerce_project_image_relpath(
+                avatars.get(pin_key, "")
+            ):
+                finish_item(
+                    item,
+                    status="skipped",
+                    reason=_("已有固定头像"),
+                )
+                continue
+            folder = self._match_account_board_dir(
+                mark=mark,
+                url=url,
+                candidates=account_dirs,
+            )
+            if not folder:
+                reason = _("未匹配到账户媒体目录")
+                failures.append({"url": url, "reason": reason})
+                finish_item(item, status="failed", reason=reason)
+                continue
+            images, videos = self._collect_media_relpaths(
+                root,
+                folder,
+                media_cache,
+            )
+            # If an account contains images, inspect images exclusively. Video
+            # extraction is a fallback only for accounts without any images.
+            media_kind = "image" if images else "video"
+            media_paths = (images if images else videos)[:max_candidates]
+            if not media_paths:
+                reason = _("账户目录中没有可处理的图片或视频")
+                failures.append({"url": url, "reason": reason})
+                finish_item(item, status="failed", reason=reason)
+                continue
+
+            output_path = self._account_avatar_output_path(
+                platform=platform,
+                url=url,
+                mark=mark,
+                extension=".jpg",
+            )
+            generated = None
+            last_error = ""
+            for media_path in media_paths:
+                try:
+                    generated = generate_face_avatar(
+                        resolve_within_root(root, media_path),
+                        output_path,
+                    )
+                    generated["source_path"] = media_path
+                    break
+                except (OSError, RuntimeError, ValueError) as error:
+                    last_error = str(error)
+            if not generated:
+                reason = (
+                    _("图片中未找到可用人脸")
+                    if media_kind == "image"
+                    else _("视频抽帧中未找到可用人脸")
+                )
+                if last_error:
+                    reason = f"{reason}: {last_error}"
+                failures.append({"url": url, "reason": reason})
+                finish_item(item, status="failed", reason=reason)
+                continue
+            try:
+                avatar_rel = self._set_account_avatar_path(
+                    platform,
+                    url,
+                    relative_path(PROJECT_ROOT, output_path),
+                )
+            except OSError as error:
+                reason = _("保存头像映射失败: {error}").format(error=error)
+                failures.append({"url": url, "reason": reason})
+                finish_item(item, status="failed", reason=reason)
+                continue
+            avatars[pin_key] = avatar_rel
+            finish_item(item, status="success")
+
+        if success == 0 and failed > 0:
+            message = _("账户头像批量处理失败！")
+        elif failed > 0:
+            message = _(
+                "账户头像处理完成，部分账户未完成：成功 {success}，跳过 {skipped}，未完成 {failed}。"
+            ).format(
+                success=success,
+                skipped=skipped,
+                failed=failed,
+            )
+        else:
+            message = _(
+                "账户头像处理完成：成功 {success}，跳过 {skipped}。"
+            ).format(
+                success=success,
+                skipped=skipped,
+            )
+        return DataResponse(
+            message=message,
+            data={
+                "platform": platform,
+                "total": total,
+                "success": success,
+                "failed": failed,
+                "skipped": skipped,
+                "failures": failures[:200],
+                "media_policy": "image_first_video_only_when_no_images",
             },
             params=payload,
         )
@@ -3753,8 +5043,9 @@ class APIServer(TikTok):
         try:
             await server.serve()
         finally:
-            await self._stop_ui_task_workers()
             await self._stop_ui_schedules()
+            await self._stop_ui_task_workers()
+            self.task_journal.close()
             self.collector_store.close()
 
     def setup_routes(self):
@@ -3796,6 +5087,9 @@ class APIServer(TikTok):
         async def webui_files(
             scope: ScopeType = Query("download"),
             path: str = Query(""),
+            page: int = Query(1, ge=1),
+            page_size: int = Query(24, ge=12, le=96),
+            search: str = Query(""),
             token: str = Depends(token_dependency),
         ):
             if scope not in {"project", "download"}:
@@ -3830,6 +5124,19 @@ class APIServer(TikTok):
                 ),
                 key=lambda item: (not item["is_dir"], item["name"].lower()),
             )
+            search_value = search.strip().casefold()
+            if search_value:
+                entries = [
+                    item
+                    for item in entries
+                    if search_value in str(item.get("name", "")).casefold()
+                    or search_value in str(item.get("path", "")).casefold()
+                ]
+            total = len(entries)
+            pages = max(1, (total + page_size - 1) // page_size)
+            page = min(page, pages)
+            offset = (page - 1) * page_size
+            page_entries = entries[offset:offset + page_size]
             root_path = root.expanduser().resolve()
             current_path = current.expanduser().resolve()
             return {
@@ -3842,8 +5149,13 @@ class APIServer(TikTok):
                     if current_path == root_path
                     else relative_path(root_path, current_path.parent)
                 ),
-                "entries": entries,
-                "count": len(entries),
+                "entries": page_entries,
+                "count": len(page_entries),
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "pages": pages,
+                "search": search.strip(),
             }
 
         @self.server.get(
@@ -3939,8 +5251,12 @@ class APIServer(TikTok):
             tags=[_("配置")],
         )
         async def webui_settings_raw(
+            response: Response,
+            include_secrets: bool = Query(False),
             token: str = Depends(token_dependency),
         ):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
             settings_path = self.parameter.settings.path
             if not settings_path.exists():
                 self.parameter.settings.read()
@@ -3952,8 +5268,9 @@ class APIServer(TikTok):
             )
             return {
                 "path": str(settings_path),
-                "text": redact_webui_json_text(text),
+                "text": text if include_secrets else redact_webui_json_text(text),
                 "updated_at": updated_at,
+                "secrets_included": include_secrets,
             }
 
         @self.server.put(
@@ -4581,12 +5898,18 @@ class APIServer(TikTok):
             platform: str = Query("douyin"),
             page: int = Query(1, ge=1),
             page_size: int = Query(24, ge=6, le=80),
+            search: str = Query("", max_length=240),
+            status: str = Query("all"),
+            sort: str = Query("configured"),
             token: str = Depends(token_dependency),
         ):
             return self._build_account_board_page(
                 platform=platform,
                 page=page,
                 page_size=page_size,
+                search=search,
+                status=status,
+                sort_by=sort,
             )
 
         @self.server.post(
@@ -4734,6 +6057,49 @@ class APIServer(TikTok):
                 "platform": platform,
                 "updated": updated,
                 "requested": len(raw_items),
+            }
+
+        @self.server.post(
+            "/ui/api/accounts/board/avatar/batch",
+            summary="Web UI 创建账户头像批处理任务",
+            description="图片优先、无图片时视频抽帧，并使用持久任务队列处理头像",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_board_avatar_batch(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                self._validate_ui_avatar_batch_payload(body)
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Payload validation failed: {error}",
+                )
+            task = self._enqueue_ui_task(
+                "/workflow/accounts/avatar_batch",
+                {
+                    "platform": self._normalize_board_platform(
+                        body.get("platform")
+                    ),
+                    "urls": [
+                        self._normalize_string(item)
+                        for item in body.get("urls", [])
+                        if self._normalize_string(item)
+                    ],
+                    "skip_existing": self._normalize_bool(
+                        body.get("skip_existing"),
+                        default=True,
+                    ),
+                    "max_candidates": max(
+                        1,
+                        min(int(body.get("max_candidates") or 12), 30),
+                    ),
+                },
+            )
+            return {
+                "message": _("账户头像任务已加入队列。"),
+                "task": self._public_ui_task(task),
             }
 
         @self.server.post(
@@ -5010,7 +6376,16 @@ class APIServer(TikTok):
                 "items": tasks,
                 "count": len(tasks),
                 "pending": sum(1 for i in self.ui_tasks.values() if i["status"] == "pending"),
-                "running": sum(1 for i in self.ui_tasks.values() if i["status"] in {"running", "canceling"}),
+                "running": sum(
+                    1
+                    for i in self.ui_tasks.values()
+                    if i["status"] in {"running", "pausing", "canceling"}
+                ),
+                "paused": sum(
+                    1
+                    for i in self.ui_tasks.values()
+                    if i["status"] == "paused"
+                ),
             }
 
         @self.server.get(
@@ -5029,6 +6404,103 @@ class APIServer(TikTok):
             return {
                 "task": self._public_ui_task(task),
             }
+
+        @self.server.post(
+            "/ui/api/tasks/{task_id}/pause",
+            summary="Web UI 暂停任务",
+            description="在当前账号处理完成后暂停可暂停的批量任务",
+            tags=[_("项目")],
+        )
+        async def webui_pause_task(
+            task_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            task = self.ui_tasks.get(task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found.")
+            pause_supported = bool(
+                task.get(
+                    "pause_supported",
+                    self._ui_task_pause_supported(task.get("endpoint", "")),
+                )
+            )
+            if not pause_supported:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Task does not support pause.",
+                )
+            if task.get("status") in {"pausing", "paused"}:
+                return {"task": self._public_ui_task(task)}
+            if task.get("status") != "running":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Only a running task can be paused.",
+                )
+            pause_event = task.get("_pause_event")
+            runner = task.get("_runner")
+            if not isinstance(pause_event, Event) or not runner or runner.done():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Task is not available for pause.",
+                )
+            task["_pause_requested"] = True
+            pause_event.clear()
+            task["status"] = "pausing"
+            task["message"] = _("正在等待当前账号处理完成后暂停…")
+            task["updated_at"] = self._now_text()
+            self._set_ui_task_progress_label(task, _("正在安全暂停…"))
+            self._mark_ui_task_paused_if_quiescent(task)
+            self._persist_ui_task(task)
+            return {"task": self._public_ui_task(task)}
+
+        @self.server.post(
+            "/ui/api/tasks/{task_id}/resume",
+            summary="Web UI 继续任务",
+            description="从已完成的账号进度继续执行暂停的批量任务",
+            tags=[_("项目")],
+        )
+        async def webui_resume_task(
+            task_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            task = self.ui_tasks.get(task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found.")
+            if task.get("status") == "running":
+                return {"task": self._public_ui_task(task)}
+            if task.get("status") not in {"pausing", "paused"}:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Only a paused task can be resumed.",
+                )
+            pause_event = task.get("_pause_event")
+            runner = task.get("_runner")
+            if (not runner or runner.done()) and task.get("status") == "paused":
+                task["_pause_requested"] = False
+                task["_identity_failure_notified"] = ""
+                task["status"] = "pending"
+                task["worker"] = None
+                task["finished_at"] = None
+                task["message"] = _("已重新加入队列，将从持久化进度继续")
+                task["updated_at"] = self._now_text()
+                self._set_ui_task_progress_label(task, _("等待恢复执行"))
+                self._persist_ui_task(task)
+                self.ui_task_queue.put_nowait(task_id)
+                return {"task": self._public_ui_task(task)}
+            if not isinstance(pause_event, Event) or not runner or runner.done():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Task is not available for resume.",
+                )
+            task["_pause_requested"] = False
+            task["status"] = "running"
+            task["message"] = _("任务已继续执行")
+            task["updated_at"] = self._now_text()
+            task["_identity_failure_notified"] = ""
+            self._set_ui_task_progress_label(task, _("继续执行账号批次"))
+            pause_event.set()
+            self._persist_ui_task(task)
+            return {"task": self._public_ui_task(task)}
 
         @self.server.post(
             "/ui/api/tasks/{task_id}/cancel",
@@ -5050,18 +6522,21 @@ class APIServer(TikTok):
                 task["message"] = _("任务已取消")
                 task["finished_at"] = self._now_text()
                 task["updated_at"] = self._now_text()
+                self._persist_ui_task(task)
                 return {"task": self._public_ui_task(task)}
             runner = task.get("_runner")
             if runner and not runner.done():
                 task["status"] = "canceling"
                 task["message"] = _("正在取消任务…")
                 task["updated_at"] = self._now_text()
+                self._persist_ui_task(task)
                 runner.cancel()
             else:
                 task["status"] = "canceled"
                 task["message"] = _("任务已取消")
                 task["finished_at"] = self._now_text()
                 task["updated_at"] = self._now_text()
+                self._persist_ui_task(task)
             return {"task": self._public_ui_task(task)}
 
         @self.server.post(
@@ -5081,8 +6556,100 @@ class APIServer(TikTok):
                 endpoint=task["endpoint"],
                 payload=loads(dumps(task["payload"], ensure_ascii=False)),
                 retry_of=task_id,
+                retry_mode="full",
             )
+            self._inherit_schedule_task_meta(new_task, task)
             return {"task": self._public_ui_task(new_task)}
+
+        @self.server.post(
+            "/ui/api/tasks/{task_id}/retry-failed",
+            summary="Web UI 仅重试失败账号",
+            description="根据账号级持久化检查点创建仅包含失败账号的新任务",
+            tags=[_("项目")],
+        )
+        async def webui_retry_failed_task(
+            task_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            task = self.ui_tasks.get(task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found.")
+            if not self._ui_task_pause_supported(task.get("endpoint", "")):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Task does not contain account checkpoints.",
+                )
+            journal = getattr(self, "task_journal", None)
+            failed_items = journal.failed_items(task_id) if journal is not None else []
+            if not failed_items:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Task has no failed account checkpoints.",
+                )
+            base_payload = loads(
+                dumps(task.get("payload", {}), ensure_ascii=False)
+            )
+            if task.get("endpoint") == "/workflow/accounts/avatar_batch":
+                retry_payload = {
+                    **base_payload,
+                    "urls": [
+                        self._normalize_string(item.get("url"))
+                        for item in failed_items
+                        if self._normalize_string(item.get("url"))
+                    ],
+                }
+            else:
+                retry_payload = {
+                    **base_payload,
+                    "use_settings": False,
+                    "items": failed_items,
+                }
+            new_task = self._enqueue_ui_task(
+                endpoint=task["endpoint"],
+                payload=retry_payload,
+                retry_of=task_id,
+                retry_mode="failed_only",
+            )
+            self._inherit_schedule_task_meta(new_task, task)
+            return {"task": self._public_ui_task(new_task)}
+
+        @self.server.get(
+            "/ui/api/tasks/{task_id}/accounts",
+            summary="Web UI 任务账号检查点",
+            description="返回父任务下的账号级持久化执行状态",
+            tags=[_("项目")],
+        )
+        async def webui_task_accounts(
+            task_id: str,
+            status: str = Query(""),
+            limit: int = Query(500, ge=1, le=5000),
+            offset: int = Query(0, ge=0),
+            token: str = Depends(token_dependency),
+        ):
+            if task_id not in self.ui_tasks:
+                raise HTTPException(status_code=404, detail="Task not found.")
+            if status and status not in {
+                "pending",
+                "running",
+                "success",
+                "failed",
+                "skipped",
+            }:
+                raise HTTPException(status_code=400, detail="Invalid account status.")
+            journal = getattr(self, "task_journal", None)
+            if journal is None:
+                return {"items": [], "summary": {}}
+            return {
+                "items": redact_webui_value(
+                    journal.list_accounts(
+                        task_id,
+                        status=status,
+                        limit=limit,
+                        offset=offset,
+                    )
+                ),
+                "summary": journal.account_summary(task_id),
+            }
 
         @self.server.get(
             "/ui/api/schedules",
@@ -5193,12 +6760,14 @@ class APIServer(TikTok):
             )
             if not schedule:
                 raise HTTPException(status_code=404, detail="Schedule not found.")
-            endpoint, payload = self._schedule_task_payload(schedule)
-            task = self._enqueue_ui_task(
-                endpoint=endpoint,
-                payload=loads(dumps(payload, ensure_ascii=False)),
+            overlap_action, active_task = await self._resolve_schedule_overlap(
+                schedule,
+                wait_for_slot=False,
             )
-            self._attach_schedule_task_meta(task, schedule)
+            if overlap_action == "enqueue":
+                task = self._create_schedule_task(schedule)
+            else:
+                task = active_task
             schedule["last_run_at"] = self._now_text()
             schedule["updated_at"] = self._now_text()
             schedule["next_run_at"] = self._next_run_text(
@@ -5208,7 +6777,8 @@ class APIServer(TikTok):
             self._persist_ui_schedules()
             return {
                 "schedule": self._schedule_public(schedule),
-                "task": self._public_ui_task(task),
+                "task": self._public_ui_task(task) if task else None,
+                "overlap_action": overlap_action,
             }
 
         @self.server.delete(
@@ -5403,12 +6973,10 @@ class APIServer(TikTok):
 
         @self.server.websocket("/ui/ws/logs")
         async def webui_logs_ws(websocket: WebSocket):
-            token = websocket.headers.get("token")
-            if not token:
-                # Compatibility only: the current plain WebSocket client cannot
-                # set custom headers. Remove this query fallback after the UI
-                # migrates to an HttpOnly session cookie or one-time WS ticket.
-                token = websocket.query_params.get("token")
+            token = (
+                websocket.headers.get("token")
+                or websocket.cookies.get(WEBUI_SESSION_COOKIE)
+            )
             client_host = websocket.client.host if websocket.client else ""
             if not is_valid_token(token, client_host):
                 await websocket.close(
@@ -5468,12 +7036,43 @@ class APIServer(TikTok):
             tags=[_("项目")],
             response_model=DataResponse,
         )
-        async def handle_test(token: str = Depends(token_dependency)):
+        async def handle_test(
+            request: Request,
+            response: Response,
+            token: str = Depends(token_dependency),
+        ):
+            response.set_cookie(
+                key=WEBUI_SESSION_COOKIE,
+                value=token,
+                max_age=WEBUI_SESSION_MAX_AGE,
+                httponly=True,
+                secure=request.url.scheme == "https",
+                samesite="strict",
+                path="/ui",
+            )
             return DataResponse(
                 message=_("验证成功！"),
                 data=None,
                 params=None,
             )
+
+        @self.server.delete(
+            "/ui/api/session",
+            summary="清除 Web UI 浏览器会话",
+            description="清除当前浏览器保存的 HttpOnly WebUI 会话 Cookie",
+            tags=[_("项目")],
+        )
+        async def clear_webui_session():
+            response = JSONResponse(
+                content={"message": _("Web UI 会话已清除！")},
+            )
+            response.delete_cookie(
+                key=WEBUI_SESSION_COOKIE,
+                path="/ui",
+                httponly=True,
+                samesite="strict",
+            )
+            return response
 
         @self.server.post(
             "/settings",

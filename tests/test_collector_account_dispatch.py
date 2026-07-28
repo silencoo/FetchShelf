@@ -121,19 +121,232 @@ async def test_account_batch_parallelizes_between_identities_not_within_one(
         lambda base, identity, credentials, settings_dir: _Runtime(identity),
     )
 
+    progress_updates = []
     result = await server._run_ui_account_batch(
         {"use_settings": False, "items": items},
         tiktok=False,
+        progress_callback=lambda progress: progress_updates.append(progress.copy()),
     )
 
     assert result.data["success"] == 4
     assert result.data["failed"] == 0
     assert max_per_identity == {"dy-one": 1, "dy-two": 1}
     assert max_total_active == 2
+    assert progress_updates[0]["current"] == 0
+    assert progress_updates[-1]["current"] == 4
+    assert progress_updates[-1]["total"] == 4
+    assert progress_updates[-1]["success"] == 4
+    assert progress_updates[-1]["failed"] == 0
+    assert progress_updates[-1]["skipped"] == 0
+    assert progress_updates[-1]["percent"] == 100
     assert {route["identity_id"] for route in result.data["routes"]} == {
         "dy-one",
         "dy-two",
     }
+    server.collector_store.close()
+
+
+@pytest.mark.asyncio
+async def test_account_batch_pause_gate_waits_between_accounts(tmp_path: Path):
+    server = APIServer.__new__(APIServer)
+    server.collector_store = CollectorStore(
+        tmp_path / "pause.sqlite3",
+        codec=AESGCMSecretCodec(b"g" * 32),
+    )
+    server.logger = SimpleNamespace(info=lambda *args, **kwargs: None)
+    server.parameter = SimpleNamespace(
+        accounts_urls=[],
+        accounts_urls_tiktok=[],
+        earliest_update_days=3,
+        auto_backfill_mark=True,
+        settings=SimpleNamespace(path=tmp_path / "settings.json"),
+    )
+    server._persist_account_runtime_updates = lambda **kwargs: None
+
+    items = [
+        {
+            "mark": key,
+            "url": f"https://www.douyin.com/user/{key}",
+            "enable": True,
+        }
+        for key in ("first", "second", "third")
+    ]
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    pause_reached = asyncio.Event()
+    pause_gate = asyncio.Event()
+    pause_gate.set()
+    pause_requested = False
+    active_units = 0
+    processed = []
+    progress_updates = []
+
+    async def check_sec_user_id(url, tiktok=False):
+        return url.rsplit("/", 1)[-1]
+
+    async def deal_account_detail(*args, **kwargs):
+        processed.append(kwargs["url"].rsplit("/", 1)[-1])
+        if len(processed) == 1:
+            first_started.set()
+            await release_first.wait()
+        return {"mark": kwargs.get("mark", "")}
+
+    async def pause_checkpoint():
+        while pause_requested:
+            pause_reached.set()
+            await pause_gate.wait()
+
+    def unit_started():
+        nonlocal active_units
+        active_units += 1
+
+    def unit_finished():
+        nonlocal active_units
+        active_units -= 1
+
+    server.check_sec_user_id = check_sec_user_id
+    server.deal_account_detail = deal_account_detail
+    batch = asyncio.create_task(
+        server._run_ui_account_batch(
+            {
+                "use_settings": False,
+                "items": items,
+                "cookie": "sessionid=legacy-override",
+            },
+            tiktok=False,
+            progress_callback=lambda progress: progress_updates.append(progress.copy()),
+            pause_control={
+                "checkpoint": pause_checkpoint,
+                "unit_started": unit_started,
+                "unit_finished": unit_finished,
+            },
+        )
+    )
+
+    await first_started.wait()
+    pause_requested = True
+    pause_gate.clear()
+    release_first.set()
+    await asyncio.wait_for(pause_reached.wait(), timeout=1)
+
+    assert processed == ["first"]
+    assert active_units == 0
+    assert progress_updates[-1]["current"] == 1
+
+    pause_requested = False
+    pause_gate.set()
+    result = await asyncio.wait_for(batch, timeout=1)
+
+    assert processed == ["first", "second", "third"]
+    assert active_units == 0
+    assert result.data["success"] == 3
+    assert progress_updates[-1]["current"] == 3
+    assert progress_updates[-1]["percent"] == 100
+    server.collector_store.close()
+
+
+@pytest.mark.asyncio
+async def test_configured_identity_failure_threshold_pauses_before_next_account(
+    tmp_path: Path,
+    monkeypatch,
+):
+    server = APIServer.__new__(APIServer)
+    server.collector_store = CollectorStore(
+        tmp_path / "identity-threshold.sqlite3",
+        codec=AESGCMSecretCodec(b"t" * 32),
+    )
+    server.collector_leases = IdentityLeaseManager()
+    server.database = object()
+    server.logger = SimpleNamespace(info=lambda *args, **kwargs: None)
+    server.parameter = SimpleNamespace(
+        accounts_urls=[],
+        accounts_urls_tiktok=[],
+        earliest_update_days=3,
+        auto_backfill_mark=True,
+        settings=SimpleNamespace(path=tmp_path / "settings.json"),
+    )
+    server._persist_account_runtime_updates = lambda **kwargs: None
+    identity = CollectorIdentity(
+        identity_id="dy-risk-check",
+        name="dy-risk-check",
+        platform="douyin",
+        max_concurrency=1,
+    )
+    server.collector_store.save_identity(
+        identity,
+        credentials=CollectorCredentials(cookie="sessionid=configured"),
+    )
+
+    processed = []
+    failure_reached = asyncio.Event()
+    resume_gate = asyncio.Event()
+    pause_requested = False
+
+    class _FailingWorker:
+        async def check_sec_user_id(self, url, tiktok=False):
+            return url.rsplit("/", 1)[-1]
+
+        async def deal_account_detail(self, *args, **kwargs):
+            processed.append(kwargs["mark"])
+            return None if len(processed) <= 3 else {"mark": kwargs["mark"]}
+
+    async def pause_checkpoint():
+        while pause_requested:
+            await resume_gate.wait()
+
+    async def identity_failure(identity_id, error_code, message):
+        nonlocal pause_requested
+        assert identity_id == "dy-risk-check"
+        assert error_code == "identity_failure_threshold"
+        pause_requested = True
+        resume_gate.clear()
+        failure_reached.set()
+        return True
+
+    monkeypatch.setattr(
+        main_server_module,
+        "TikTok",
+        lambda parameter, database, server_mode=True: _FailingWorker(),
+    )
+    monkeypatch.setattr(
+        main_server_module,
+        "build_collector_runtime",
+        lambda base, identity, credentials, settings_dir: _Runtime(identity),
+    )
+    items = [
+        {
+            "mark": f"account-{index}",
+            "url": f"https://www.douyin.com/user/account-{index}",
+            "enable": True,
+        }
+        for index in range(1, 5)
+    ]
+    batch = asyncio.create_task(
+        server._run_ui_account_batch(
+            {
+                "use_settings": False,
+                "items": items,
+                "identity_id": "dy-risk-check",
+                "identity_failure_action": "pause",
+                "identity_failure_threshold": 3,
+            },
+            tiktok=False,
+            pause_control={
+                "checkpoint": pause_checkpoint,
+                "identity_failure": identity_failure,
+            },
+        )
+    )
+
+    await asyncio.wait_for(failure_reached.wait(), timeout=1)
+    assert processed == ["account-1", "account-2", "account-3"]
+    pause_requested = False
+    resume_gate.set()
+    result = await asyncio.wait_for(batch, timeout=1)
+
+    assert processed == ["account-1", "account-2", "account-3", "account-4"]
+    assert result.data["failed"] == 3
+    assert result.data["success"] == 1
     server.collector_store.close()
 
 

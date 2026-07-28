@@ -28,3 +28,7 @@ demo
 /settings/
 node_modules/
 webui/node_modules/
+/deploy/nas-migration/artifacts/
+/deploy/nas-migration/private/
+/deploy/nas-migration/env.nas-test
+/deploy/nas-migration/env.nas-final

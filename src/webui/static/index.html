@@ -7,7 +7,7 @@
       name="description"
       content="DouK-Downloader 的自托管下载、账户监控与媒体管理控制台。"
     />
-    <meta name="theme-color" content="#090b10" />
+    <meta name="theme-color" content="#000000" />
     <link
       rel="icon"
       type="image/png"
@@ -46,17 +46,17 @@
         document.documentElement.style.colorScheme = resolvedTheme;
         document
           .querySelector('meta[name="theme-color"]')
-          ?.setAttribute("content", resolvedTheme === "light" ? "#eef3f7" : "#090b10");
+          ?.setAttribute("content", resolvedTheme === "light" ? "#f4f4f3" : "#000000");
       })();
     </script>
     <title>下载工作台 · DouK Downloader</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-CdgyD7U-.js"></script>
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-fHgQgpVg.css">
+    <script type="module" crossorigin src="/ui/static/assets/index-DhO-AN66.js"></script>
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-DkH98wAC.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
     <div class="app-shell">
-      <aside class="app-sidebar" aria-label="主导航">
+      <aside id="primary-sidebar" class="app-sidebar" aria-label="主导航">
         <div class="sidebar-brand">
           <span class="brand-mark" aria-hidden="true">
             <img
@@ -73,6 +73,17 @@
             <span class="brand-name-primary">DouK</span>
             <span class="brand-suffix">Downloader</span>
           </p>
+          <button
+            id="sidebar-toggle-btn"
+            class="sidebar-toggle-btn"
+            type="button"
+            aria-controls="primary-sidebar"
+            aria-expanded="true"
+            title="收起导航"
+          >
+            <i data-lucide="panel-left-close" aria-hidden="true"></i>
+            <span class="sr-only">收起导航</span>
+          </button>
         </div>
 
         <nav class="sidebar-nav" aria-label="功能导航">
@@ -87,7 +98,7 @@
               aria-controls="panel-workbench"
               data-tab-target="workbench"
             >
-              <span class="nav-index" aria-hidden="true">01</span>
+              <i class="nav-icon" data-lucide="download" aria-hidden="true"></i>
               <span class="nav-label">下载工作台</span>
               <span class="nav-description">任务、链接与定时下载</span>
             </button>
@@ -100,7 +111,7 @@
               aria-controls="panel-monitor"
               data-tab-target="monitor"
             >
-              <span class="nav-index" aria-hidden="true">02</span>
+              <i class="nav-icon" data-lucide="radar" aria-hidden="true"></i>
               <span class="nav-label">账户监控</span>
               <span class="nav-description">收藏夹发现与自动追踪</span>
             </button>
@@ -113,7 +124,7 @@
               aria-controls="panel-collectors"
               data-tab-target="collectors"
             >
-              <span class="nav-index" aria-hidden="true">03</span>
+              <i class="nav-icon" data-lucide="key-round" aria-hidden="true"></i>
               <span class="nav-label">采集身份</span>
               <span class="nav-description">登录凭据、路由与目标绑定</span>
             </button>
@@ -126,9 +137,9 @@
               aria-controls="panel-control-settings panel-control-logs"
               data-tab-target="control"
             >
-              <span class="nav-index" aria-hidden="true">04</span>
-              <span class="nav-label">设置与日志</span>
-              <span class="nav-description">运行参数与实时状态</span>
+              <i class="nav-icon" data-lucide="settings" aria-hidden="true"></i>
+              <span class="nav-label">设置</span>
+              <span class="nav-description">界面、访问、运行参数与日志</span>
             </button>
             <button
               id="tab-files"
@@ -139,7 +150,7 @@
               aria-controls="panel-files"
               data-tab-target="files"
             >
-              <span class="nav-index" aria-hidden="true">05</span>
+              <i class="nav-icon" data-lucide="folder-open" aria-hidden="true"></i>
               <span class="nav-label">文件浏览</span>
               <span class="nav-description">下载成果与媒体预览</span>
             </button>
@@ -152,49 +163,26 @@
               aria-controls="panel-profiles"
               data-tab-target="profiles"
             >
-              <span class="nav-index" aria-hidden="true">06</span>
+              <i class="nav-icon" data-lucide="users" aria-hidden="true"></i>
               <span class="nav-label">账户看板</span>
               <span class="nav-description">头像、媒体与账户目录</span>
             </button>
           </div>
         </nav>
 
+        <div class="sidebar-runtime-status" aria-label="连接状态" aria-live="polite">
+          <span id="ws-status" class="badge warn">日志: 轮询</span>
+          <span id="api-status" class="badge">API: 就绪</span>
+        </div>
+
         <div class="sidebar-footer">
           <div id="magic-metrics-root" class="magic-metrics-root"></div>
-          <p class="sidebar-note">自托管 · NAS Ready</p>
         </div>
       </aside>
 
       <div class="app-main">
-        <header class="topbar command-header">
-          <div class="command-copy">
-            <img
-              class="command-logo"
-              src="data:image/png;base64,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"
-              srcset="data:image/png;base64,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 1x, /ui/static/assets/douk-mark-96-BWzYRHQZ.png 2x"
-              width="34"
-              height="34"
-              alt=""
-              aria-hidden="true"
-              decoding="async"
-            />
-            <h1 id="command-title" class="command-title">下载工作台</h1>
-          </div>
-          <div class="topbar-tools" aria-label="外观、连接与鉴权">
-            <div id="theme-control-root" class="theme-control-root"></div>
-            <label class="field compact token-field">
-              <span>访问 Token</span>
-              <input id="token-input" type="text" placeholder="可选" autocomplete="off" />
-            </label>
-            <button id="apply-token-btn" type="button" class="btn">应用</button>
-            <div class="status-cluster" aria-live="polite">
-              <span id="ws-status" class="badge warn">日志: 轮询</span>
-              <span id="api-status" class="badge">API: 就绪</span>
-            </div>
-          </div>
-        </header>
-
         <main id="main-content" class="workspace-shell" tabindex="-1">
+          <h1 id="command-title" class="sr-only">下载工作台</h1>
           <div class="workspace-backdrop" aria-hidden="true">
             <div id="magic-grid-root" class="magic-grid-root"></div>
           </div>
@@ -206,12 +194,28 @@
           aria-labelledby="tab-control"
           data-tab-panel="control"
         >
-          <div class="card-head">
-            <div class="section-heading">
-              <p class="section-eyebrow">CONFIGURATION</p>
-              <h2>设置配置</h2>
-              <p class="section-subtitle">管理下载目录、媒体选项、访问参数与账户来源。</p>
+          <section
+            class="settings-console-preferences"
+            aria-labelledby="settings-console-preferences-title"
+          >
+            <div class="settings-console-copy">
+              <h2 id="settings-console-preferences-title">界面与访问</h2>
+              <p>主题和浏览器访问凭据只影响当前控制台。</p>
             </div>
+            <div id="theme-control-root" class="theme-control-root"></div>
+            <label class="field compact token-field">
+              <span>访问 Token</span>
+              <input
+                id="token-input"
+                type="text"
+                placeholder="粘贴后保存到此浏览器"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <button id="apply-token-btn" type="button" class="btn">应用</button>
+          </section>
+          <div class="card-head page-actions-only">
             <div class="card-actions">
               <button id="settings-reload-btn" type="button" class="btn ghost">重新加载</button>
               <button id="settings-save-btn" type="button" class="btn primary">保存配置</button>
@@ -370,7 +374,7 @@
                 </div>
                 <div class="batch-toolbar">
                   <button id="accounts-douyin-select-all-btn" type="button" class="btn ghost">
-                    全选
+                    全选当前页
                   </button>
                   <button id="accounts-douyin-clear-select-btn" type="button" class="btn ghost">
                     清空选择
@@ -422,6 +426,11 @@
                     <tbody id="accounts-douyin-body"></tbody>
                   </table>
                 </div>
+                <div
+                  id="accounts-douyin-pager"
+                  class="table-pager"
+                  aria-label="抖音账号分页"
+                ></div>
                 <div id="accounts-douyin-duplicate-status" class="status-line"></div>
                 <div class="card-head mini account-subhead">
                   <h3>Deleted Accounts（抖音）</h3>
@@ -431,14 +440,14 @@
                       type="button"
                       class="btn ghost"
                     >
-                      全选
+                      全选当前页
                     </button>
                     <button
                       id="deleted-douyin-clear-select-btn"
                       type="button"
                       class="btn ghost"
                     >
-                      清空选择
+                      取消勾选
                     </button>
                     <button
                       id="deleted-douyin-open-selected-btn"
@@ -453,6 +462,20 @@
                       class="btn ghost"
                     >
                       批量撤销
+                    </button>
+                    <button
+                      id="deleted-douyin-purge-selected-btn"
+                      type="button"
+                      class="btn ghost danger"
+                    >
+                      永久移除所选
+                    </button>
+                    <button
+                      id="deleted-douyin-purge-all-btn"
+                      type="button"
+                      class="btn ghost danger"
+                    >
+                      清空回收站
                     </button>
                   </div>
                 </div>
@@ -472,6 +495,11 @@
                     <tbody id="deleted-douyin-body"></tbody>
                   </table>
                 </div>
+                <div
+                  id="deleted-douyin-pager"
+                  class="table-pager"
+                  aria-label="已删除抖音账号分页"
+                ></div>
                 <div id="accounts-douyin-status" class="status-line"></div>
               </div>
 
@@ -512,7 +540,7 @@
                 </div>
                 <div class="batch-toolbar">
                   <button id="accounts-tiktok-select-all-btn" type="button" class="btn ghost">
-                    全选
+                    全选当前页
                   </button>
                   <button id="accounts-tiktok-clear-select-btn" type="button" class="btn ghost">
                     清空选择
@@ -564,6 +592,11 @@
                     <tbody id="accounts-tiktok-body"></tbody>
                   </table>
                 </div>
+                <div
+                  id="accounts-tiktok-pager"
+                  class="table-pager"
+                  aria-label="TikTok 账号分页"
+                ></div>
                 <div id="accounts-tiktok-duplicate-status" class="status-line"></div>
                 <div class="card-head mini account-subhead">
                   <h3>Deleted Accounts（TikTok）</h3>
@@ -573,14 +606,14 @@
                       type="button"
                       class="btn ghost"
                     >
-                      全选
+                      全选当前页
                     </button>
                     <button
                       id="deleted-tiktok-clear-select-btn"
                       type="button"
                       class="btn ghost"
                     >
-                      清空选择
+                      取消勾选
                     </button>
                     <button
                       id="deleted-tiktok-open-selected-btn"
@@ -595,6 +628,20 @@
                       class="btn ghost"
                     >
                       批量撤销
+                    </button>
+                    <button
+                      id="deleted-tiktok-purge-selected-btn"
+                      type="button"
+                      class="btn ghost danger"
+                    >
+                      永久移除所选
+                    </button>
+                    <button
+                      id="deleted-tiktok-purge-all-btn"
+                      type="button"
+                      class="btn ghost danger"
+                    >
+                      清空回收站
                     </button>
                   </div>
                 </div>
@@ -614,6 +661,11 @@
                     <tbody id="deleted-tiktok-body"></tbody>
                   </table>
                 </div>
+                <div
+                  id="deleted-tiktok-pager"
+                  class="table-pager"
+                  aria-label="已删除 TikTok 账号分页"
+                ></div>
                 <div id="accounts-tiktok-status" class="status-line"></div>
               </div>
             </div>
@@ -623,74 +675,137 @@
             <div id="accounts-io-status" class="status-line">可导入或导出账号配置 JSON</div>
           </div>
           <div id="settings-status" class="status-line">等待加载配置…</div>
-          <div class="raw-settings-block">
-            <div class="card-head mini">
-              <h3>settings.json Editor</h3>
-              <div class="card-actions">
-                <button id="settings-raw-load-btn" type="button" class="btn ghost">加载原文</button>
-                <button id="settings-raw-format-btn" type="button" class="btn ghost">格式化</button>
-                <button id="settings-raw-save-btn" type="button" class="btn primary">保存原文</button>
-              </div>
-            </div>
-            <div class="quick-settings-panel">
-              <div class="card-head mini">
-                <h3>登录信息快捷编辑</h3>
+          <details
+            id="settings-raw-disclosure"
+            class="raw-settings-block raw-settings-disclosure"
+            open
+          >
+            <summary class="raw-settings-summary">
+              <span class="raw-settings-summary-copy">
+                <span class="raw-settings-summary-title">settings.json Editor</span>
+                <span>固定尺寸编辑区；默认精简配置不会覆盖未展示的账号列表。</span>
+              </span>
+              <span class="raw-settings-summary-state" aria-hidden="true">
+                <span class="raw-settings-summary-open">收起</span>
+                <span class="raw-settings-summary-closed">展开</span>
+                <i data-lucide="chevron-down"></i>
+              </span>
+            </summary>
+            <div class="raw-settings-content">
+              <div class="card-head mini page-actions-only">
                 <div class="card-actions">
-                  <button id="settings-auth-load-btn" type="button" class="btn ghost">载入当前值</button>
-                  <button id="settings-auth-apply-btn" type="button" class="btn ghost">写入原文</button>
-                  <button id="settings-auth-save-btn" type="button" class="btn primary">保存登录信息</button>
+                  <button id="settings-raw-load-btn" type="button" class="btn ghost">
+                    <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                    加载配置
+                  </button>
+                  <button id="settings-raw-format-btn" type="button" class="btn ghost">
+                    <i data-lucide="braces" aria-hidden="true"></i>
+                    格式化
+                  </button>
+                  <button id="settings-raw-save-btn" type="button" class="btn primary">
+                    <i data-lucide="save" aria-hidden="true"></i>
+                    保存配置
+                  </button>
                 </div>
               </div>
-              <div class="quick-settings-grid">
-                <label class="field">
-                  <span>抖音 Cookie</span>
-                  <textarea
-                    id="settings-auth-cookie-douyin"
-                    class="payload-editor quick-cookie-editor"
-                    rows="5"
-                    placeholder="粘贴抖音完整 Cookie"
-                  ></textarea>
-                </label>
-                <label class="field">
-                  <span>TikTok Cookie</span>
-                  <textarea
-                    id="settings-auth-cookie-tiktok"
-                    class="payload-editor quick-cookie-editor"
-                    rows="5"
-                    placeholder="粘贴 TikTok Web 完整 Cookie"
-                  ></textarea>
-                </label>
+              <div class="quick-settings-panel">
+                <div class="card-head mini">
+                  <h3>登录信息快捷编辑</h3>
+                  <div class="card-actions">
+                    <button id="settings-auth-load-btn" type="button" class="btn ghost">载入当前值</button>
+                    <button id="settings-auth-apply-btn" type="button" class="btn ghost">写入原文</button>
+                    <button id="settings-auth-save-btn" type="button" class="btn primary">保存登录信息</button>
+                  </div>
+                </div>
+                <div class="quick-settings-grid">
+                  <label class="field">
+                    <span>抖音 Cookie</span>
+                    <textarea
+                      id="settings-auth-cookie-douyin"
+                      class="payload-editor quick-cookie-editor"
+                      rows="5"
+                      placeholder="粘贴抖音完整 Cookie"
+                    ></textarea>
+                  </label>
+                  <label class="field">
+                    <span>TikTok Cookie</span>
+                    <textarea
+                      id="settings-auth-cookie-tiktok"
+                      class="payload-editor quick-cookie-editor"
+                      rows="5"
+                      placeholder="粘贴 TikTok Web 完整 Cookie"
+                    ></textarea>
+                  </label>
+                </div>
+                <div class="quick-settings-grid quick-settings-grid-compact">
+                  <label class="field">
+                    <span>TikTok device_id</span>
+                    <input
+                      id="settings-auth-tiktok-device-id"
+                      type="text"
+                      placeholder="browser_info_tiktok.device_id"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>TikTok User-Agent</span>
+                    <input
+                      id="settings-auth-tiktok-user-agent"
+                      type="text"
+                      placeholder="browser_info_tiktok.User-Agent"
+                    />
+                  </label>
+                </div>
+                <div id="settings-auth-status" class="status-line">
+                  可在这里快速修改抖音 / TikTok 登录信息，并同步到 settings.json
+                </div>
               </div>
-              <div class="quick-settings-grid quick-settings-grid-compact">
-                <label class="field">
-                  <span>TikTok device_id</span>
-                  <input
-                    id="settings-auth-tiktok-device-id"
-                    type="text"
-                    placeholder="browser_info_tiktok.device_id"
-                  />
+              <div class="raw-editor-toolbar" aria-label="原始配置编辑工具">
+                <label class="field compact">
+                  <span>编辑范围</span>
+                  <select id="settings-raw-scope">
+                    <option value="core">常用配置（不含账号列表）</option>
+                    <option value="auth">登录信息</option>
+                    <option value="automation">自动化与调度</option>
+                    <option value="full">完整 settings.json</option>
+                  </select>
                 </label>
-                <label class="field">
-                  <span>TikTok User-Agent</span>
-                  <input
-                    id="settings-auth-tiktok-user-agent"
-                    type="text"
-                    placeholder="browser_info_tiktok.User-Agent"
-                  />
+                <label class="toggle-field raw-secret-toggle">
+                  <input id="settings-raw-include-secrets" type="checkbox" />
+                  <span>
+                    <i data-lucide="eye" aria-hidden="true"></i>
+                    显示敏感值
+                  </span>
                 </label>
+                <label class="field compact raw-key-search">
+                  <span>查找键或文本</span>
+                  <input id="settings-raw-search" type="search" placeholder="例如 timeout" />
+                </label>
+                <button id="settings-raw-search-btn" type="button" class="btn ghost">
+                  <i data-lucide="search" aria-hidden="true"></i>
+                  查找
+                </button>
+                <button
+                  id="settings-raw-wrap-btn"
+                  type="button"
+                  class="btn ghost"
+                  aria-pressed="false"
+                >自动换行</button>
               </div>
-              <div id="settings-auth-status" class="status-line">
-                可在这里快速修改抖音 / TikTok 登录信息，并同步到 settings.json
+              <textarea
+                id="settings-raw-editor"
+                class="payload-editor"
+                rows="18"
+                wrap="off"
+                spellcheck="false"
+                aria-describedby="settings-raw-meta settings-raw-status"
+                placeholder="加载并编辑选定范围的 settings.json 内容"
+              ></textarea>
+              <div id="settings-raw-meta" class="raw-editor-meta" aria-live="polite">
+                尚未加载 · JSON 校验等待中
               </div>
+              <div id="settings-raw-status" class="status-line">等待加载 settings.json…</div>
             </div>
-            <textarea
-              id="settings-raw-editor"
-              class="payload-editor"
-              rows="10"
-              placeholder="加载并直接编辑 settings.json 原始内容"
-            ></textarea>
-            <div id="settings-raw-status" class="status-line">等待加载 settings.json…</div>
-          </div>
+          </details>
         </section>
 
         <section
@@ -700,12 +815,7 @@
           aria-labelledby="tab-control"
           data-tab-panel="control"
         >
-          <div class="card-head">
-            <div class="section-heading">
-              <p class="section-eyebrow">LIVE TELEMETRY</p>
-              <h2>实时运行日志</h2>
-              <p class="section-subtitle">通过 WebSocket 跟踪任务进度，并在断线时自动切换轮询。</p>
-            </div>
+          <div class="card-head page-actions-only">
             <div class="card-actions">
               <label class="toggle-field compact-inline">
                 <input id="logs-autoscroll" type="checkbox" checked />
@@ -731,41 +841,74 @@
           aria-labelledby="tab-files"
           data-tab-panel="files"
         >
-          <div class="card-head">
-            <div class="section-heading">
-              <p class="section-eyebrow">MEDIA LIBRARY</p>
-              <h2>文件浏览 Gallery</h2>
-              <p class="section-subtitle">浏览下载目录、预览媒体，并为账户固定封面或头像。</p>
-            </div>
+          <div class="card-head page-actions-only">
             <div class="card-actions">
-              <button id="files-up-btn" type="button" class="btn ghost">上一级</button>
-              <button id="files-refresh-btn" type="button" class="btn ghost">刷新</button>
+              <button id="files-refresh-btn" type="button" class="btn ghost">
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                刷新
+              </button>
             </div>
+          </div>
+
+          <div class="file-location-bar">
+            <button id="files-home-btn" type="button" class="btn ghost file-location-action">
+              <i data-lucide="house" aria-hidden="true"></i>
+              根目录
+            </button>
+            <nav
+              id="files-breadcrumb"
+              class="file-breadcrumb"
+              aria-label="当前文件路径"
+            ></nav>
+            <button id="files-up-btn" type="button" class="btn ghost file-location-action">
+              <i data-lucide="arrow-up" aria-hidden="true"></i>
+              上一级
+            </button>
           </div>
 
           <div class="files-toolbar">
             <label class="field compact">
-              <span>scope</span>
+              <span>位置</span>
               <select id="files-scope">
-                <option value="download">download</option>
-                <option value="project">project</option>
+                <option value="download">下载目录</option>
+                <option value="project">项目目录</option>
               </select>
             </label>
             <label class="field compact grow">
-              <span>path</span>
-              <input id="files-path" type="text" placeholder="相对路径，留空为根目录" />
+              <span>直接跳转</span>
+              <input id="files-path" type="text" placeholder="输入相对路径，留空返回根目录" />
             </label>
             <label class="field compact grow">
-              <span>search</span>
-              <input id="files-search" type="text" placeholder="按文件名过滤（当前目录）" />
+              <span>搜索当前目录</span>
+              <input id="files-search" type="search" placeholder="输入文件名" />
             </label>
-            <button id="files-open-btn" type="button" class="btn">打开</button>
-            <button id="files-stats-refresh-btn" type="button" class="btn ghost">刷新统计</button>
+            <label class="field compact">
+              <span>每页</span>
+              <select id="files-page-size">
+                <option value="12">12 项</option>
+                <option value="24" selected>24 项</option>
+                <option value="48">48 项</option>
+                <option value="96">96 项</option>
+              </select>
+            </label>
+            <button id="files-search-clear-btn" type="button" class="btn ghost">
+              <i data-lucide="x" aria-hidden="true"></i>
+              清除
+            </button>
+            <button id="files-open-btn" type="button" class="btn">
+              <i data-lucide="corner-down-right" aria-hidden="true"></i>
+              跳转
+            </button>
           </div>
 
-          <div id="files-meta" class="status-line">等待加载目录…</div>
-          <div id="files-stats" class="status-line">统计信息待加载…</div>
-          <div class="file-account-tools">
+          <div class="files-summary" aria-live="polite">
+            <div id="files-meta" class="status-line">等待加载目录…</div>
+            <div id="files-stats" class="status-line">统计信息待加载…</div>
+            <button id="files-stats-refresh-btn" type="button" class="btn ghost">
+              刷新统计
+            </button>
+          </div>
+          <div id="file-account-tools" class="file-account-tools" hidden>
             <div id="files-account-context" class="status-line">
               账户上下文：未从看板选择账户
             </div>
@@ -777,16 +920,30 @@
             </div>
           </div>
 
-          <div class="gallery-layout">
+          <div class="file-browser-content">
             <div
               id="files-list"
-              class="files-list"
-              role="listbox"
-              aria-label="当前目录文件"
+              class="files-list file-masonry"
+              role="list"
+              aria-label="当前目录媒体"
               tabindex="-1"
             ></div>
-            <div id="file-preview" class="file-preview">
-              <div class="empty-tip">选择文件后显示预览</div>
+            <div class="file-pagination" aria-label="文件分页">
+              <button id="files-prev-btn" type="button" class="btn ghost">
+                <i data-lucide="chevron-left" aria-hidden="true"></i>
+                上一页
+              </button>
+              <span id="files-page-meta" class="status-line">第 1 / 1 页</span>
+              <button id="files-next-btn" type="button" class="btn ghost">
+                下一页
+                <i data-lucide="chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
+            <div id="file-preview" class="file-preview file-preview-drawer">
+              <div class="file-preview-empty">
+                <strong>选择一个文件</strong>
+                <span>图片、视频、音频和文本会在这里展开预览</span>
+              </div>
             </div>
           </div>
         </section>
@@ -798,25 +955,49 @@
           aria-labelledby="tab-profiles"
           data-tab-panel="profiles"
         >
-          <div class="card-head">
-            <div class="section-heading">
-              <p class="section-eyebrow">PROFILE STUDIO</p>
-              <h2>账户媒体看板</h2>
-              <p class="section-subtitle">集中检查账户媒体、生成头像，并维护 Profile Pin。</p>
-            </div>
+          <div class="card-head page-actions-only">
             <div class="card-actions">
               <button id="board-reload-btn" type="button" class="btn ghost">刷新看板</button>
-              <button id="board-avatar-page-btn" type="button" class="btn ghost">AI 头像当前页</button>
-              <button id="board-avatar-all-btn" type="button" class="btn ghost">AI 头像全部未 Pin</button>
-              <button id="board-pin-all-btn" type="button" class="btn primary">批量 Pin 当前页</button>
+              <button id="board-avatar-page-btn" type="button" class="btn ghost">处理当前页头像</button>
+              <button id="board-avatar-all-btn" type="button" class="btn primary">一键处理头像</button>
+              <button id="board-pin-all-btn" type="button" class="btn ghost">固定当前页媒体</button>
             </div>
           </div>
           <div class="board-toolbar">
+            <label class="field compact board-search-field">
+              <span>搜索账户</span>
+              <input
+                id="board-search"
+                type="search"
+                autocomplete="off"
+                placeholder="搜索 mark、URL 或 tab"
+              />
+            </label>
+            <button id="board-search-clear-btn" type="button" class="btn ghost">清除搜索</button>
             <label class="field compact">
               <span>平台</span>
               <select id="board-platform">
                 <option value="douyin">douyin / accounts_urls</option>
                 <option value="tiktok">tiktok / accounts_urls_tiktok</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>状态</span>
+              <select id="board-status-filter">
+                <option value="all">全部账户</option>
+                <option value="success">最近成功</option>
+                <option value="failed">最近失败</option>
+                <option value="never">从未爬取</option>
+                <option value="no_avatar">没有头像</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>排序</span>
+              <select id="board-sort">
+                <option value="configured">配置顺序</option>
+                <option value="latest_desc">最新作品优先</option>
+                <option value="latest_asc">最久作品优先</option>
+                <option value="checked_desc">最近检查优先</option>
               </select>
             </label>
             <label class="field compact">
@@ -863,12 +1044,7 @@
           aria-labelledby="tab-monitor"
           data-tab-panel="monitor"
         >
-          <div class="card-head">
-            <div class="section-heading">
-              <p class="section-eyebrow">AUTOMATION</p>
-              <h2>账户监控（收藏夹 → 账号）</h2>
-              <p class="section-subtitle">按计划发现收藏夹中的新账户，并自动加入下载流程。</p>
-            </div>
+          <div class="card-head page-actions-only">
             <div class="card-actions">
               <button id="monitor-refresh-btn" type="button" class="btn ghost">刷新监控列表</button>
             </div>
@@ -963,13 +1139,7 @@
           aria-labelledby="tab-collectors"
           data-tab-panel="collectors"
         >
-          <div class="card-head collector-head">
-            <div class="section-heading">
-              <h2>采集身份与路由</h2>
-              <p class="section-subtitle">
-                将登录身份与待采集账号分开管理，为任务选择稳定的 Cookie、代理和浏览器环境。
-              </p>
-            </div>
+          <div class="card-head collector-head page-actions-only">
             <div class="card-actions">
               <button id="collector-refresh-btn" type="button" class="btn ghost">刷新状态</button>
               <button id="collector-create-btn" type="button" class="btn primary">创建采集身份</button>
@@ -1212,7 +1382,11 @@
                 type="button"
                 class="btn ghost collector-dialog-close"
                 aria-label="关闭采集身份编辑器"
-              >关闭</button>
+                title="关闭"
+              >
+                <i data-lucide="x" aria-hidden="true"></i>
+                <span class="sr-only">关闭</span>
+              </button>
             </div>
             <input id="collector-identity-id" type="hidden" />
             <div class="collector-dialog-body">
@@ -1335,18 +1509,6 @@
           aria-labelledby="tab-workbench"
           data-tab-panel="workbench"
         >
-          <div class="card-head workbench-head">
-            <div class="section-heading">
-              <h2>下载工作台</h2>
-              <p class="section-subtitle">
-                粘贴作品链接即可创建任务；批量、定时与开发工具按需展开。
-              </p>
-            </div>
-            <div class="workbench-capabilities" aria-label="支持的下载方式">
-              <span>单条 / 批量</span>
-              <span>抖音 / TikTok</span>
-            </div>
-          </div>
           <form
             id="workflow-detail-form"
             class="tool-block tool-block-full workbench-primary"
@@ -1438,7 +1600,9 @@
             <div class="tool-block-heading task-center-heading">
               <div>
                 <h3 id="task-center-title">任务中心</h3>
-                <p class="tool-subtitle">本次服务运行的最近 120 条任务；容器重启后记录会清空。</p>
+                <p class="tool-subtitle">
+                  批量任务按账号保存检查点；暂停、容器重启或异常退出后都可继续。
+                </p>
               </div>
               <button id="task-queue-refresh-btn" type="button" class="btn ghost">刷新</button>
             </div>
@@ -1468,6 +1632,31 @@
                   aria-atomic="true"
                 >选择一条任务查看状态</div>
                 <div id="task-summary" class="status-line"></div>
+                <div id="task-progress-block" class="task-progress-block" hidden>
+                  <div class="task-progress-copy">
+                    <span id="task-progress-label">等待开始</span>
+                    <strong id="task-progress-value">0 / 0</strong>
+                  </div>
+                  <progress id="task-progress" max="100" value="0">0%</progress>
+                  <div id="task-progress-meta" class="status-line"></div>
+                </div>
+                <details id="task-account-checkpoints" class="task-account-checkpoints" hidden>
+                  <summary>
+                    <span>账号检查点</span>
+                    <span id="task-account-summary">等待任务数据</span>
+                  </summary>
+                  <div class="task-account-toolbar">
+                    <span>按任务顺序显示前 100 个账号</span>
+                    <button id="task-account-refresh-btn" type="button" class="btn ghost">
+                      刷新检查点
+                    </button>
+                  </div>
+                  <div
+                    id="task-account-list"
+                    class="task-account-list"
+                    aria-live="polite"
+                  ></div>
+                </details>
                 <pre
                   id="task-result"
                   class="json-output task-result"
@@ -1572,9 +1761,34 @@
                       <input id="schedule-minute" type="number" min="0" max="59" value="0" />
                     </div>
                   </label>
+                  <label class="field">
+                    <span>上次任务未完成</span>
+                    <select id="schedule-overlap-policy">
+                      <option value="wait">等待完成后执行（推荐）</option>
+                      <option value="skip">跳过本次</option>
+                      <option value="allow">允许并行</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>已配置身份异常时</span>
+                    <select id="schedule-identity-failure-action">
+                      <option value="continue">记录失败并继续（默认）</option>
+                      <option value="pause">安全暂停，修复后继续</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>身份连续失败阈值</span>
+                    <input
+                      id="schedule-identity-failure-threshold"
+                      type="number"
+                      min="1"
+                      max="20"
+                      value="3"
+                    />
+                  </label>
                 </div>
                 <p id="schedule-identity-help" class="field-help identity-route-help" role="status" aria-live="polite">
-                  定时任务会保存身份 ID；自动路由按执行当下的最新状态分配，填写兼容覆盖会绕过身份池。
+                  身份异常策略只针对已明确配置或路由到的采集身份；未配置 Cookie 的普通账号不会因此暂停。
                 </p>
                 <div class="inline-grid inline-grid-two">
                   <label class="field">
@@ -1594,6 +1808,20 @@
                     placeholder="如 https://kuma.example/api/push/xxxx"
                   />
                 </label>
+                <label class="field">
+                  <span>Bark URL（可选）</span>
+                  <input
+                    id="schedule-bark-url"
+                    type="url"
+                    placeholder="如 https://api.day.app/xxxx"
+                  />
+                </label>
+                <div class="monitor-toggle-row">
+                  <label class="toggle-field">
+                    <input id="schedule-notify-identity-failure" type="checkbox" />
+                    <span>身份异常时发送通知</span>
+                  </label>
+                </div>
                 <div class="card-actions">
                   <button id="schedule-create-btn" type="button" class="btn primary">创建定时任务</button>
                   <button id="schedule-refresh-btn" type="button" class="btn ghost">刷新列表</button>
@@ -1701,6 +1929,107 @@
         </main>
       </div>
     </div>
+
+    <dialog
+      id="file-lightbox"
+      class="file-lightbox"
+      aria-labelledby="file-lightbox-title"
+      aria-describedby="file-lightbox-meta"
+    >
+      <div class="file-lightbox-shell">
+        <header class="file-lightbox-header">
+          <div class="file-lightbox-heading">
+            <h2 id="file-lightbox-title">媒体预览</h2>
+            <p id="file-lightbox-meta">等待选择图片或视频</p>
+          </div>
+          <div class="file-lightbox-actions">
+            <span id="file-lightbox-position" class="badge">0 / 0</span>
+            <a
+              id="file-lightbox-open-link"
+              class="btn ghost"
+              target="_blank"
+              rel="noreferrer"
+              aria-disabled="true"
+            >新标签打开</a>
+            <button
+              id="file-lightbox-close-btn"
+              type="button"
+              class="btn ghost"
+              aria-label="关闭媒体预览"
+            >
+              <i data-lucide="x" aria-hidden="true"></i>
+            </button>
+          </div>
+        </header>
+        <div class="file-lightbox-canvas">
+          <button
+            id="file-lightbox-prev-btn"
+            type="button"
+            class="file-lightbox-nav file-lightbox-prev"
+            aria-label="上一个媒体"
+          >
+            <i data-lucide="chevron-left" aria-hidden="true"></i>
+          </button>
+          <div
+            id="file-lightbox-stage"
+            class="file-lightbox-stage"
+            role="group"
+            aria-live="polite"
+            aria-label="放大媒体"
+          ></div>
+          <button
+            id="file-lightbox-next-btn"
+            type="button"
+            class="file-lightbox-nav file-lightbox-next"
+            aria-label="下一个媒体"
+          >
+            <i data-lucide="chevron-right" aria-hidden="true"></i>
+          </button>
+        </div>
+        <p class="file-lightbox-help">
+          使用 ← / → 切换媒体，按 Esc 关闭。图片和视频始终按原始比例完整显示。
+        </p>
+      </div>
+    </dialog>
+
+    <dialog
+      id="deleted-accounts-dialog"
+      class="collector-dialog deleted-accounts-dialog"
+      aria-labelledby="deleted-accounts-dialog-title"
+      aria-describedby="deleted-accounts-dialog-description"
+    >
+      <div class="collector-dialog-form">
+        <div class="collector-dialog-head">
+          <div>
+            <h2 id="deleted-accounts-dialog-title">确认清理回收站</h2>
+            <p id="deleted-accounts-dialog-description">
+              此操作只会移除 Deleted Accounts 记录，不会删除已经下载的媒体文件。
+            </p>
+          </div>
+          <button
+            id="deleted-accounts-dialog-close-btn"
+            type="button"
+            class="btn ghost collector-dialog-close"
+            aria-label="关闭"
+          >
+            <i data-lucide="x" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="collector-dialog-body">
+          <section class="collector-dialog-section">
+            <h3 id="deleted-accounts-dialog-summary">等待选择清理范围</h3>
+            <p>
+              保存前会自动备份 settings.json。清理后仍可通过备份恢复，但不能直接在界面撤销。
+            </p>
+          </section>
+          <div id="deleted-accounts-dialog-status" class="status-line" role="status" aria-live="polite"></div>
+        </div>
+        <div class="collector-dialog-actions">
+          <button id="deleted-accounts-dialog-cancel-btn" type="button" class="btn ghost">取消</button>
+          <button id="deleted-accounts-dialog-confirm-btn" type="button" class="btn danger">确认永久移除</button>
+        </div>
+      </div>
+    </dialog>
 
   </body>
 </html>

@@ -82,6 +82,7 @@ _PROTECTED_PROJECT_COMPONENTS = frozenset(
         "encipher.py",
         "identities.json",
         "identity_runtime.sqlite3",
+        "ui_task_runtime.sqlite3",
         "keys",
         "profiles",
         "secrets",
@@ -330,6 +331,8 @@ def _looks_like_protected_project_component(component: str) -> bool:
     ):
         return True
     if name.startswith(("collector_", "collector-", "identity-secret")):
+        return True
+    if name.startswith("ui_task_runtime.sqlite3"):
         return True
     if any(marker in name for marker in ("cookie", "secret", "token")):
         return True

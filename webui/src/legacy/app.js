@@ -1,3 +1,97 @@
+import {
+  ArrowUp,
+  Braces,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  Copy,
+  CornerDownRight,
+  Download,
+  Ellipsis,
+  Eye,
+  ExternalLink,
+  File,
+  FileAudio,
+  FileImage,
+  FileText,
+  FileVideo,
+  Folder,
+  FolderOpen,
+  House,
+  ImagePlus,
+  KeyRound,
+  Maximize2,
+  Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pin,
+  Play,
+  Radar,
+  RefreshCw,
+  Save,
+  Search,
+  Settings,
+  Trash2,
+  Users,
+  Video,
+  X,
+  createIcons,
+} from "lucide";
+
+const LUCIDE_ICONS = {
+  ArrowUp,
+  Braces,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  Copy,
+  CornerDownRight,
+  Download,
+  Ellipsis,
+  Eye,
+  ExternalLink,
+  File,
+  FileAudio,
+  FileImage,
+  FileText,
+  FileVideo,
+  Folder,
+  FolderOpen,
+  House,
+  ImagePlus,
+  KeyRound,
+  Maximize2,
+  Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pin,
+  Play,
+  Radar,
+  RefreshCw,
+  Save,
+  Search,
+  Settings,
+  Trash2,
+  Users,
+  Video,
+  X,
+};
+
+function refreshIcons(root = document) {
+  createIcons({
+    root,
+    icons: LUCIDE_ICONS,
+    attrs: {
+      "aria-hidden": "true",
+      "stroke-width": 1.8,
+    },
+  });
+}
+
 const state = {
   token: "",
   logAfterId: 0,
@@ -10,10 +104,21 @@ const state = {
   logRecords: [],
   fileEntries: [],
   fileSearch: "",
+  filePage: 1,
+  filePageSize: 24,
+  filePages: 1,
+  fileTotal: 0,
+  fileSearchTimer: null,
   focusFilesAfterLoad: false,
   currentScope: "download",
   currentPath: "",
+  currentParentPath: "",
   selectedFilePath: "",
+  filePreviewRequestId: 0,
+  fileMasonryObserver: null,
+  fileMasonryFrame: 0,
+  fileLightboxIndex: -1,
+  fileLightboxRestoreFocus: null,
   fileAccountContext: {
     platform: "",
     url: "",
@@ -21,6 +126,7 @@ const state = {
   },
   selectedTaskId: "",
   taskListLoading: false,
+  taskAccountsLoading: false,
   settingsData: {},
   collectorIdentities: [],
   collectMonitorItems: [],
@@ -47,6 +153,23 @@ const state = {
     douyin: [],
     tiktok: [],
   },
+  deletedPurge: {
+    platform: "",
+    mode: "",
+    restoreFocus: null,
+  },
+  accountPagination: {
+    active: {
+      douyin: { page: 1, pageSize: 25 },
+      tiktok: { page: 1, pageSize: 25 },
+    },
+    deleted: {
+      douyin: { page: 1, pageSize: 15 },
+      tiktok: { page: 1, pageSize: 15 },
+    },
+  },
+  rawSettingsSource: {},
+  rawSettingsSecretsIncluded: false,
   activeTab: "workbench",
   selectionAnchors: {
     active: {
@@ -64,9 +187,14 @@ const state = {
     pageSize: 24,
     pages: 1,
     total: 0,
+    unfilteredTotal: 0,
     columns: 4,
     refreshKind: "auto",
     viewMode: "avatar",
+    search: "",
+    status: "all",
+    sort: "configured",
+    searchTimer: null,
   },
   accountBoardDirty: true,
   boardAvatarBatchRunning: false,
@@ -74,6 +202,8 @@ const state = {
 
 const refs = {
   tabButtons: Array.from(document.querySelectorAll(".tab-btn")),
+  sidebar: document.getElementById("primary-sidebar"),
+  sidebarToggleBtn: document.getElementById("sidebar-toggle-btn"),
   commandTitle: document.getElementById("command-title"),
   tokenInput: document.getElementById("token-input"),
   applyTokenBtn: document.getElementById("apply-token-btn"),
@@ -89,6 +219,12 @@ const refs = {
   settingsRawSaveBtn: document.getElementById("settings-raw-save-btn"),
   settingsRawFormatBtn: document.getElementById("settings-raw-format-btn"),
   settingsRawStatus: document.getElementById("settings-raw-status"),
+  settingsRawScope: document.getElementById("settings-raw-scope"),
+  settingsRawIncludeSecrets: document.getElementById("settings-raw-include-secrets"),
+  settingsRawSearch: document.getElementById("settings-raw-search"),
+  settingsRawSearchBtn: document.getElementById("settings-raw-search-btn"),
+  settingsRawWrapBtn: document.getElementById("settings-raw-wrap-btn"),
+  settingsRawMeta: document.getElementById("settings-raw-meta"),
   settingsAuthLoadBtn: document.getElementById("settings-auth-load-btn"),
   settingsAuthApplyBtn: document.getElementById("settings-auth-apply-btn"),
   settingsAuthSaveBtn: document.getElementById("settings-auth-save-btn"),
@@ -101,6 +237,8 @@ const refs = {
   accountsToggleBtn: document.getElementById("accounts-toggle-btn"),
   accountsDouyinBody: document.getElementById("accounts-douyin-body"),
   accountsTiktokBody: document.getElementById("accounts-tiktok-body"),
+  accountsDouyinPager: document.getElementById("accounts-douyin-pager"),
+  accountsTikTokPager: document.getElementById("accounts-tiktok-pager"),
   accountsDouyinAddBtn: document.getElementById("accounts-douyin-add-btn"),
   accountsTiktokAddBtn: document.getElementById("accounts-tiktok-add-btn"),
   accountsExportJsonBtn: document.getElementById("accounts-export-json-btn"),
@@ -137,15 +275,46 @@ const refs = {
   accountsTikTokDuplicateStatus: document.getElementById("accounts-tiktok-duplicate-status"),
   deletedDouyinBody: document.getElementById("deleted-douyin-body"),
   deletedTikTokBody: document.getElementById("deleted-tiktok-body"),
+  deletedDouyinPager: document.getElementById("deleted-douyin-pager"),
+  deletedTikTokPager: document.getElementById("deleted-tiktok-pager"),
   deletedDouyinSelectAllBtn: document.getElementById("deleted-douyin-select-all-btn"),
   deletedDouyinClearSelectBtn: document.getElementById("deleted-douyin-clear-select-btn"),
   deletedDouyinOpenSelectedBtn: document.getElementById("deleted-douyin-open-selected-btn"),
   deletedDouyinRestoreSelectedBtn: document.getElementById("deleted-douyin-restore-selected-btn"),
+  deletedDouyinPurgeSelectedBtn: document.getElementById(
+    "deleted-douyin-purge-selected-btn",
+  ),
+  deletedDouyinPurgeAllBtn: document.getElementById("deleted-douyin-purge-all-btn"),
   deletedTikTokSelectAllBtn: document.getElementById("deleted-tiktok-select-all-btn"),
   deletedTikTokClearSelectBtn: document.getElementById("deleted-tiktok-clear-select-btn"),
   deletedTikTokOpenSelectedBtn: document.getElementById("deleted-tiktok-open-selected-btn"),
   deletedTikTokRestoreSelectedBtn: document.getElementById("deleted-tiktok-restore-selected-btn"),
+  deletedTikTokPurgeSelectedBtn: document.getElementById(
+    "deleted-tiktok-purge-selected-btn",
+  ),
+  deletedTikTokPurgeAllBtn: document.getElementById("deleted-tiktok-purge-all-btn"),
+  deletedAccountsDialog: document.getElementById("deleted-accounts-dialog"),
+  deletedAccountsDialogTitle: document.getElementById("deleted-accounts-dialog-title"),
+  deletedAccountsDialogSummary: document.getElementById(
+    "deleted-accounts-dialog-summary",
+  ),
+  deletedAccountsDialogStatus: document.getElementById(
+    "deleted-accounts-dialog-status",
+  ),
+  deletedAccountsDialogCloseBtn: document.getElementById(
+    "deleted-accounts-dialog-close-btn",
+  ),
+  deletedAccountsDialogCancelBtn: document.getElementById(
+    "deleted-accounts-dialog-cancel-btn",
+  ),
+  deletedAccountsDialogConfirmBtn: document.getElementById(
+    "deleted-accounts-dialog-confirm-btn",
+  ),
   boardPlatform: document.getElementById("board-platform"),
+  boardSearch: document.getElementById("board-search"),
+  boardSearchClearBtn: document.getElementById("board-search-clear-btn"),
+  boardStatusFilter: document.getElementById("board-status-filter"),
+  boardSort: document.getElementById("board-sort"),
   boardPageSize: document.getElementById("board-page-size"),
   boardRefreshKind: document.getElementById("board-refresh-kind"),
   boardViewMode: document.getElementById("board-view-mode"),
@@ -170,12 +339,20 @@ const refs = {
   filesScope: document.getElementById("files-scope"),
   filesPath: document.getElementById("files-path"),
   filesSearch: document.getElementById("files-search"),
+  filesSearchClearBtn: document.getElementById("files-search-clear-btn"),
+  filesPageSize: document.getElementById("files-page-size"),
+  filesPrevBtn: document.getElementById("files-prev-btn"),
+  filesNextBtn: document.getElementById("files-next-btn"),
+  filesPageMeta: document.getElementById("files-page-meta"),
   filesOpenBtn: document.getElementById("files-open-btn"),
+  filesHomeBtn: document.getElementById("files-home-btn"),
   filesUpBtn: document.getElementById("files-up-btn"),
   filesRefreshBtn: document.getElementById("files-refresh-btn"),
   filesStatsRefreshBtn: document.getElementById("files-stats-refresh-btn"),
+  filesBreadcrumb: document.getElementById("files-breadcrumb"),
   filesMeta: document.getElementById("files-meta"),
   filesStats: document.getElementById("files-stats"),
+  filesAccountTools: document.getElementById("file-account-tools"),
   filesAccountContext: document.getElementById("files-account-context"),
   filesBackToBoardBtn: document.getElementById("files-back-to-board-btn"),
   filesPinProfileBtn: document.getElementById("files-pin-profile-btn"),
@@ -183,6 +360,15 @@ const refs = {
   filesPinAvatarBtn: document.getElementById("files-pin-avatar-btn"),
   filesList: document.getElementById("files-list"),
   filePreview: document.getElementById("file-preview"),
+  fileLightbox: document.getElementById("file-lightbox"),
+  fileLightboxTitle: document.getElementById("file-lightbox-title"),
+  fileLightboxMeta: document.getElementById("file-lightbox-meta"),
+  fileLightboxPosition: document.getElementById("file-lightbox-position"),
+  fileLightboxOpenLink: document.getElementById("file-lightbox-open-link"),
+  fileLightboxCloseBtn: document.getElementById("file-lightbox-close-btn"),
+  fileLightboxPrevBtn: document.getElementById("file-lightbox-prev-btn"),
+  fileLightboxNextBtn: document.getElementById("file-lightbox-next-btn"),
+  fileLightboxStage: document.getElementById("file-lightbox-stage"),
 
   sharePlatform: document.getElementById("share-platform"),
   shareInput: document.getElementById("share-input"),
@@ -223,6 +409,17 @@ const refs = {
   scheduleProxy: document.getElementById("schedule-proxy"),
   scheduleIdentityHelp: document.getElementById("schedule-identity-help"),
   scheduleUptimeKumaUrl: document.getElementById("schedule-uptime-kuma-url"),
+  scheduleBarkUrl: document.getElementById("schedule-bark-url"),
+  scheduleOverlapPolicy: document.getElementById("schedule-overlap-policy"),
+  scheduleIdentityFailureAction: document.getElementById(
+    "schedule-identity-failure-action",
+  ),
+  scheduleIdentityFailureThreshold: document.getElementById(
+    "schedule-identity-failure-threshold",
+  ),
+  scheduleNotifyIdentityFailure: document.getElementById(
+    "schedule-notify-identity-failure",
+  ),
   scheduleCreateBtn: document.getElementById("schedule-create-btn"),
   scheduleRefreshBtn: document.getElementById("schedule-refresh-btn"),
   scheduleStatus: document.getElementById("schedule-status"),
@@ -315,6 +512,15 @@ const refs = {
   taskCopyBtn: document.getElementById("task-copy-btn"),
   taskStatus: document.getElementById("task-status"),
   taskSummary: document.getElementById("task-summary"),
+  taskProgressBlock: document.getElementById("task-progress-block"),
+  taskProgress: document.getElementById("task-progress"),
+  taskProgressLabel: document.getElementById("task-progress-label"),
+  taskProgressValue: document.getElementById("task-progress-value"),
+  taskProgressMeta: document.getElementById("task-progress-meta"),
+  taskAccountCheckpoints: document.getElementById("task-account-checkpoints"),
+  taskAccountSummary: document.getElementById("task-account-summary"),
+  taskAccountList: document.getElementById("task-account-list"),
+  taskAccountRefreshBtn: document.getElementById("task-account-refresh-btn"),
   taskResult: document.getElementById("task-result"),
   taskQueueRefreshBtn: document.getElementById("task-queue-refresh-btn"),
   taskQueueMeta: document.getElementById("task-queue-meta"),
@@ -499,6 +705,47 @@ const ACTIVE_TAB_STORAGE_KEY = "webui.active.tab";
 const LOG_DEBUG_STORAGE_KEY = "webui.logs.debug";
 const BOARD_COLUMNS_STORAGE_KEY = "webui.board.columns";
 const BOARD_VIEW_MODE_STORAGE_KEY = "webui.board.view_mode";
+const TOKEN_STORAGE_KEY = "webui.api.token";
+const SIDEBAR_COLLAPSE_STORAGE_KEY = "webui.sidebar.collapsed";
+
+function readStoredBoolean(key, defaultValue = false) {
+  try {
+    const value = localStorage.getItem(key);
+    if (value === null) {
+      return defaultValue;
+    }
+    return value === "true";
+  } catch {
+    return defaultValue;
+  }
+}
+
+function applySidebarCollapsed(collapsed, persist = true) {
+  const appShell = document.querySelector(".app-shell");
+  appShell?.classList.toggle("sidebar-collapsed", collapsed);
+  if (!refs.sidebarToggleBtn) {
+    return;
+  }
+  const label = collapsed ? "展开导航" : "收起导航";
+  refs.sidebarToggleBtn.setAttribute("aria-expanded", String(!collapsed));
+  refs.sidebarToggleBtn.title = label;
+  refs.sidebarToggleBtn.querySelector(".sr-only").textContent = label;
+  const icon = refs.sidebarToggleBtn.querySelector("svg, [data-lucide]");
+  if (icon) {
+    icon.setAttribute("data-lucide", collapsed ? "panel-left-open" : "panel-left-close");
+  }
+  refreshIcons(refs.sidebarToggleBtn);
+  refs.tabButtons.forEach((button) => {
+    button.title = button.querySelector(".nav-label")?.textContent?.trim() || "";
+  });
+  if (persist) {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSE_STORAGE_KEY, String(collapsed));
+    } catch {
+      // The current session can still use the collapsed layout.
+    }
+  }
+}
 
 function setBadge(element, text, kind = "") {
   if (!element) {
@@ -534,7 +781,7 @@ async function withBusyButton(button, busyText, action) {
   if (!button || button.disabled) {
     return;
   }
-  const previousText = button.textContent;
+  const previousMarkup = button.innerHTML;
   button.disabled = true;
   button.classList.add("busy");
   button.setAttribute("aria-busy", "true");
@@ -547,7 +794,8 @@ async function withBusyButton(button, busyText, action) {
     button.classList.remove("busy");
     button.removeAttribute("aria-busy");
     button.disabled = false;
-    button.textContent = previousText;
+    button.innerHTML = previousMarkup;
+    refreshIcons(button);
   }
 }
 
@@ -560,6 +808,44 @@ function headerOptions(json = true) {
     headers.token = state.token;
   }
   return headers;
+}
+
+function readStoredToken() {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+function persistToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function establishWebUiSession() {
+  if (!state.token) {
+    return;
+  }
+  await fetchJson("/token", {
+    method: "GET",
+    headers: headerOptions(false),
+  });
+}
+
+async function clearWebUiSession() {
+  await fetchJson("/ui/api/session", {
+    method: "DELETE",
+    headers: headerOptions(false),
+  });
 }
 
 async function fetchJson(url, options = {}) {
@@ -740,9 +1026,6 @@ function connectLogSocket() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const params = new URLSearchParams();
   params.set("after_id", String(state.logAfterId || 0));
-  if (state.token) {
-    params.set("token", state.token);
-  }
   const wsUrl = `${protocol}//${location.host}/ui/ws/logs?${params.toString()}`;
   state.wsConnecting = true;
   const ws = new WebSocket(wsUrl);
@@ -988,26 +1271,130 @@ function setDuplicateStatus(platform, duplicateUrls = 0, duplicateRows = 0) {
   ref.textContent = `检测到重复 URL: ${duplicateUrls} 组，共 ${duplicateRows} 行（建议先规则化 URL）`;
 }
 
+function accountSearchQuery(platform) {
+  const input = platform === "tiktok" ? refs.accountsTikTokSearch : refs.accountsDouyinSearch;
+  return String(input?.value || "").trim().toLowerCase();
+}
+
+function indexedAccountRows(platform, section = "active") {
+  const key = accountRowsKey(platform);
+  const rows = section === "deleted" ? state.deletedRows[key] : state.accountRows[key];
+  const query = accountSearchQuery(platform);
+  return rows
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => {
+      if (!query) {
+        return true;
+      }
+      const text = section === "deleted"
+        ? `${item.mark} ${item.url} ${item.tab} ${item.deleted_at} ${item.reason}`
+        : `${item.mark} ${item.url} ${item.tab} ${item.earliest} ${item.latest}`;
+      return text.toLowerCase().includes(query);
+    });
+}
+
+function accountPaginationState(platform, section = "active") {
+  const key = accountRowsKey(platform);
+  const sectionKey = sectionName(section);
+  return state.accountPagination[sectionKey][key];
+}
+
+function accountPagerRef(platform, section = "active") {
+  if (section === "deleted") {
+    return platform === "tiktok" ? refs.deletedTikTokPager : refs.deletedDouyinPager;
+  }
+  return platform === "tiktok" ? refs.accountsTikTokPager : refs.accountsDouyinPager;
+}
+
+function pagedAccountRows(platform, section = "active") {
+  const matches = indexedAccountRows(platform, section);
+  const pagination = accountPaginationState(platform, section);
+  const pages = Math.max(1, Math.ceil(matches.length / pagination.pageSize));
+  pagination.page = Math.min(Math.max(1, pagination.page), pages);
+  const start = (pagination.page - 1) * pagination.pageSize;
+  return {
+    items: matches.slice(start, start + pagination.pageSize),
+    total: matches.length,
+    pages,
+    start,
+  };
+}
+
+function renderAccountPager(platform, section = "active") {
+  const pager = accountPagerRef(platform, section);
+  if (!pager) {
+    return;
+  }
+  const pagination = accountPaginationState(platform, section);
+  const { total, pages, start } = pagedAccountRows(platform, section);
+  const rows = section === "deleted"
+    ? state.deletedRows[accountRowsKey(platform)]
+    : state.accountRows[accountRowsKey(platform)];
+  const selected = rows.filter((item) => item.selected).length;
+  const end = Math.min(total, start + pagination.pageSize);
+  pager.innerHTML = `
+    <span class="table-pager-summary">
+      ${total ? `${start + 1}–${end}` : "0"} / ${total} · 已选 ${selected}
+    </span>
+    <label class="table-page-size">
+      <span>每页</span>
+      <select aria-label="每页显示数量">
+        ${[15, 25, 50, 100]
+          .map(
+            (size) =>
+              `<option value="${size}" ${pagination.pageSize === size ? "selected" : ""}>${size}</option>`,
+          )
+          .join("")}
+      </select>
+    </label>
+    <button class="btn ghost pager-prev" type="button" ${pagination.page <= 1 ? "disabled" : ""}>
+      <i data-lucide="chevron-left"></i><span>上一页</span>
+    </button>
+    <span class="table-page-number">第 ${pagination.page} / ${pages} 页</span>
+    <button class="btn ghost pager-next" type="button" ${pagination.page >= pages ? "disabled" : ""}>
+      <span>下一页</span><i data-lucide="chevron-right"></i>
+    </button>
+  `;
+  pager.querySelector("select")?.addEventListener("change", (event) => {
+    pagination.pageSize = Number(event.target.value) || pagination.pageSize;
+    pagination.page = 1;
+    if (section === "deleted") {
+      renderDeletedRows(platform);
+    } else {
+      renderAccountRows(platform);
+    }
+  });
+  pager.querySelector(".pager-prev")?.addEventListener("click", () => {
+    pagination.page = Math.max(1, pagination.page - 1);
+    if (section === "deleted") {
+      renderDeletedRows(platform);
+    } else {
+      renderAccountRows(platform);
+    }
+  });
+  pager.querySelector(".pager-next")?.addEventListener("click", () => {
+    pagination.page = Math.min(pages, pagination.page + 1);
+    if (section === "deleted") {
+      renderDeletedRows(platform);
+    } else {
+      renderAccountRows(platform);
+    }
+  });
+  refreshIcons(pager);
+}
+
 function renderAccountRows(platform) {
   const key = accountRowsKey(platform);
   const body = accountBodyRef(platform);
   if (!body) {
     return;
   }
-  const keyword =
-    (platform === "tiktok" ? refs.accountsTikTokSearch?.value : refs.accountsDouyinSearch?.value) ||
-    "";
-  const query = keyword.trim().toLowerCase();
-  const rows = state.accountRows[key];
   const { duplicates, duplicateUrls } = duplicateUrlIndexes(platform);
   setDuplicateStatus(platform, duplicateUrls, duplicates.size);
   body.innerHTML = "";
   const fragment = document.createDocumentFragment();
-  rows.forEach((item, index) => {
-    const text = `${item.mark} ${item.url} ${item.tab} ${item.earliest} ${item.latest}`.toLowerCase();
-    if (query && !text.includes(query)) {
-      return;
-    }
+  const page = pagedAccountRows(platform, "active");
+  page.items.forEach(({ item, index }) => {
     const tr = document.createElement("tr");
     const duplicate = duplicates.has(index);
     tr.classList.toggle("duplicate-row", duplicate);
@@ -1041,7 +1428,13 @@ function renderAccountRows(platform) {
         <input data-field="mark" type="text" value="${escapeAttr(item.mark)}" placeholder="可选标识" />
       </td>
       <td>
-        <input data-field="url" type="text" value="${escapeAttr(item.url)}" placeholder="账号主页链接" />
+        <input
+          data-field="url"
+          type="text"
+          value="${escapeAttr(item.url)}"
+          title="${escapeAttr(item.url)}"
+          placeholder="账号主页链接"
+        />
       </td>
       <td>
         <input data-field="tab" type="text" value="${escapeAttr(item.tab)}" placeholder="post/favorite/collection" />
@@ -1053,8 +1446,12 @@ function renderAccountRows(platform) {
         <input data-field="latest" type="text" value="${escapeAttr(item.latest)}" placeholder="YYYY/MM/DD" />
       </td>
       <td>
-        <button data-action="open-row" class="btn ghost" type="button">跳转</button>
-        <button data-action="remove-row" class="btn ghost danger" type="button">删除</button>
+        <button data-action="open-row" class="btn ghost icon-btn-text" type="button">
+          <i data-lucide="play"></i><span>打开</span>
+        </button>
+        <button data-action="remove-row" class="btn ghost danger icon-btn-text" type="button">
+          <i data-lucide="trash-2"></i><span>删除</span>
+        </button>
         ${duplicate ? '<span class="badge warn duplicate-tag">重复 URL</span>' : ""}
       </td>
     `;
@@ -1066,6 +1463,8 @@ function renderAccountRows(platform) {
     fragment.appendChild(tr);
   }
   body.appendChild(fragment);
+  renderAccountPager(platform, "active");
+  refreshIcons(body);
 }
 
 function renderDeletedRows(platform) {
@@ -1074,18 +1473,10 @@ function renderDeletedRows(platform) {
   if (!body) {
     return;
   }
-  const keyword =
-    (platform === "tiktok" ? refs.accountsTikTokSearch?.value : refs.accountsDouyinSearch?.value) ||
-    "";
-  const query = keyword.trim().toLowerCase();
-  const rows = state.deletedRows[key];
   body.innerHTML = "";
   const fragment = document.createDocumentFragment();
-  rows.forEach((item, index) => {
-    const text = `${item.mark} ${item.url} ${item.tab} ${item.deleted_at} ${item.reason}`.toLowerCase();
-    if (query && !text.includes(query)) {
-      return;
-    }
+  const page = pagedAccountRows(platform, "deleted");
+  page.items.forEach(({ item, index }) => {
     const tr = document.createElement("tr");
     tr.dataset.platform = key;
     tr.dataset.index = String(index);
@@ -1100,8 +1491,12 @@ function renderDeletedRows(platform) {
       <td>${escapeAttr(item.deleted_at || "-")}</td>
       <td>${escapeAttr(item.reason || "-")}</td>
       <td>
-        <button data-action="open-row" class="btn ghost" type="button">跳转</button>
-        <button data-action="restore-row" class="btn ghost" type="button">撤销</button>
+        <button data-action="open-row" class="btn ghost icon-btn-text" type="button">
+          <i data-lucide="play"></i><span>打开</span>
+        </button>
+        <button data-action="restore-row" class="btn ghost icon-btn-text" type="button">
+          <i data-lucide="refresh-cw"></i><span>撤销</span>
+        </button>
       </td>
     `;
     fragment.appendChild(tr);
@@ -1112,6 +1507,8 @@ function renderDeletedRows(platform) {
     fragment.appendChild(tr);
   }
   body.appendChild(fragment);
+  renderAccountPager(platform, "deleted");
+  refreshIcons(body);
 }
 
 function setAccountRows(platform, rows) {
@@ -1130,6 +1527,7 @@ function setDeletedRows(platform, rows) {
 function addAccountRow(platform) {
   const key = accountRowsKey(platform);
   state.accountRows[key].unshift(defaultAccountRow());
+  accountPaginationState(platform, "active").page = 1;
   renderAccountRows(platform);
 }
 
@@ -1189,6 +1587,7 @@ function restoreDeletedRow(platform, index) {
   if (!state.accountRows[key].length) {
     state.accountRows[key].push(defaultAccountRow());
   }
+  accountPaginationState(platform, "active").page = 1;
   renderAccountRows(platform);
   renderDeletedRows(platform);
 }
@@ -1267,9 +1666,15 @@ function applySelectionRange(platform, section = "active", fromIndex, toIndex, s
 function selectAllRows(platform, section = "active", selected = true) {
   const key = accountRowsKey(platform);
   const rows = section === "deleted" ? state.deletedRows[key] : state.accountRows[key];
-  rows.forEach((item) => {
-    item.selected = selected;
-  });
+  if (selected) {
+    pagedAccountRows(platform, section).items.forEach(({ index }) => {
+      rows[index].selected = true;
+    });
+  } else {
+    rows.forEach((item) => {
+      item.selected = false;
+    });
+  }
   setSelectionAnchor(platform, section, null);
   if (section === "deleted") {
     renderDeletedRows(platform);
@@ -1683,6 +2088,90 @@ async function persistAccountTables(reason = "accounts_batch_edit") {
   return result;
 }
 
+function closeDeletedAccountsDialog({ restoreFocus = true } = {}) {
+  if (refs.deletedAccountsDialog?.open) {
+    refs.deletedAccountsDialog.close();
+  }
+  const focusTarget = state.deletedPurge.restoreFocus;
+  state.deletedPurge = {
+    platform: "",
+    mode: "",
+    restoreFocus: null,
+  };
+  if (restoreFocus && focusTarget instanceof HTMLElement && focusTarget.isConnected) {
+    focusTarget.focus();
+  }
+}
+
+function openDeletedAccountsDialog(platform, mode, trigger) {
+  const key = accountRowsKey(platform);
+  const count =
+    mode === "selected"
+      ? selectedIndexes(platform, "deleted").length
+      : state.deletedRows[key].length;
+  if (!count) {
+    setAccountStatus(
+      platform,
+      mode === "selected" ? "请先勾选需要永久移除的记录" : "回收站已经为空",
+    );
+    return;
+  }
+  const platformLabel = platform === "tiktok" ? "TikTok" : "抖音";
+  state.deletedPurge = {
+    platform,
+    mode,
+    restoreFocus: trigger instanceof HTMLElement ? trigger : null,
+  };
+  refs.deletedAccountsDialogTitle.textContent =
+    mode === "selected" ? `永久移除所选 ${platformLabel} 记录` : `清空 ${platformLabel} 回收站`;
+  refs.deletedAccountsDialogSummary.textContent = `将永久移除 ${count.toLocaleString(
+    "zh-CN",
+  )} 条 Deleted Accounts 记录`;
+  refs.deletedAccountsDialogStatus.textContent =
+    "只清理配置记录；已下载媒体、账户目录和作品记录不会被删除。";
+  refs.deletedAccountsDialogConfirmBtn.disabled = false;
+  refs.deletedAccountsDialog.showModal();
+  refreshIcons(refs.deletedAccountsDialog);
+  refs.deletedAccountsDialogConfirmBtn.focus();
+}
+
+async function confirmDeletedAccountsPurge() {
+  const { platform, mode } = state.deletedPurge;
+  if (!platform || !mode) {
+    return;
+  }
+  const key = accountRowsKey(platform);
+  const previous = state.deletedRows[key].map((item) => ({ ...item }));
+  const indexes =
+    mode === "selected"
+      ? selectedIndexes(platform, "deleted").sort((a, b) => b - a)
+      : state.deletedRows[key].map((_, index) => index).sort((a, b) => b - a);
+  if (!indexes.length) {
+    refs.deletedAccountsDialogStatus.textContent = "没有可移除的记录";
+    return;
+  }
+  refs.deletedAccountsDialogStatus.textContent = "正在备份配置并清理回收站…";
+  refs.deletedAccountsDialogConfirmBtn.disabled = true;
+  try {
+    indexes.forEach((index) => state.deletedRows[key].splice(index, 1));
+    const result = await persistAccountTables(
+      mode === "selected" ? "account_deleted_purge_selected" : "account_deleted_purge_all",
+    );
+    closeDeletedAccountsDialog({ restoreFocus: false });
+    setAccountStatus(
+      platform,
+      `已永久移除 ${indexes.length} 条回收记录；配置备份: ${result.backup_path || "-"}`,
+    );
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    state.deletedRows[key] = previous;
+    renderDeletedRows(platform);
+    refs.deletedAccountsDialogStatus.textContent = `清理失败: ${error.message}`;
+    refs.deletedAccountsDialogConfirmBtn.disabled = false;
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
+}
+
 async function verifyAccounts(platform) {
   const identitySelect = accountVerifyIdentityRef(platform);
   if (!selectedCollectorIdentityIsRunnable(identitySelect)) {
@@ -1722,21 +2211,116 @@ async function verifyAccounts(platform) {
   }
 }
 
-async function loadRawSettings() {
-  refs.settingsRawStatus.textContent = "正在读取 settings.json 原文…";
+const REDACTED_SENTINEL = "[REDACTED]";
+const RAW_ACCOUNT_KEYS = new Set([
+  "accounts_urls",
+  "accounts_urls_tiktok",
+  "deleted_accounts",
+  "deleted_accounts_tiktok",
+]);
+const RAW_AUTH_KEYS = new Set([
+  "cookie",
+  "cookie_tiktok",
+  "proxy",
+  "proxy_tiktok",
+  "browser_info",
+  "browser_info_tiktok",
+]);
+
+function filterRawSettingsScope(settings, scope = "core") {
+  const source = cloneSettingsObject(settings);
+  if (scope === "full") {
+    return source;
+  }
+  if (scope === "auth") {
+    return Object.fromEntries(
+      Object.entries(source).filter(([key]) => RAW_AUTH_KEYS.has(key)),
+    );
+  }
+  if (scope === "automation") {
+    return Object.fromEntries(
+      Object.entries(source).filter(([key]) => {
+        const normalized = key.toLowerCase();
+        return (
+          normalized.includes("schedule") ||
+          normalized.includes("monitor") ||
+          normalized.includes("collect") ||
+          normalized.includes("backfill")
+        );
+      }),
+    );
+  }
+  return Object.fromEntries(
+    Object.entries(source).filter(([key]) => !RAW_ACCOUNT_KEYS.has(key)),
+  );
+}
+
+function updateRawEditorMeta() {
+  const text = String(refs.settingsRawEditor?.value || "");
+  const lines = text ? text.split("\n").length : 0;
+  let validation = "JSON 有效";
+  let stateName = "success";
   try {
-    const payload = await fetchJson("/ui/api/settings/raw", {
+    const parsed = JSON.parse(text || "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("根节点必须是对象");
+    }
+  } catch (error) {
+    validation = `JSON 无效：${error.message}`;
+    stateName = "error";
+  }
+  const scopeLabel = refs.settingsRawScope?.selectedOptions?.[0]?.textContent || "当前范围";
+  refs.settingsRawMeta.textContent = `${scopeLabel} · ${lines} 行 · ${text.length.toLocaleString(
+    "zh-CN",
+  )} 字符 · ${validation}`;
+  refs.settingsRawMeta.dataset.state = stateName;
+}
+
+function renderRawSettingsSource() {
+  const scope = refs.settingsRawScope?.value || "core";
+  const filtered = filterRawSettingsScope(state.rawSettingsSource, scope);
+  refs.settingsRawEditor.value = JSON.stringify(filtered, null, 2);
+  updateRawEditorMeta();
+}
+
+async function loadRawSettings() {
+  let includeSecrets = Boolean(refs.settingsRawIncludeSecrets?.checked);
+  if (
+    includeSecrets &&
+    !window.confirm(
+      "敏感值会以明文显示在浏览器中。请确认当前屏幕和设备环境安全，是否继续？",
+    )
+  ) {
+    includeSecrets = false;
+    refs.settingsRawIncludeSecrets.checked = false;
+  }
+  refs.settingsRawStatus.textContent = includeSecrets
+    ? "正在安全读取完整 settings.json…"
+    : "正在读取 settings.json（敏感值隐藏）…";
+  try {
+    const query = new URLSearchParams({
+      include_secrets: String(includeSecrets),
+    });
+    const payload = await fetchJson(`/ui/api/settings/raw?${query.toString()}`, {
       method: "GET",
       headers: headerOptions(false),
     });
-    refs.settingsRawEditor.value = String(payload?.text || "");
+    state.rawSettingsSecretsIncluded = Boolean(payload?.secrets_included);
     try {
-      const parsed = JSON.parse(refs.settingsRawEditor.value || "{}");
+      const parsed = JSON.parse(String(payload?.text || "{}"));
+      state.rawSettingsSource = cloneSettingsObject(parsed);
       syncQuickAuthEditors(parsed);
-    } catch {
+      renderRawSettingsSource();
+    } catch (error) {
+      state.rawSettingsSource = {};
+      refs.settingsRawEditor.value = String(payload?.text || "");
       syncQuickAuthEditors(state.settingsData);
+      updateRawEditorMeta();
+      throw new Error(`配置解析失败: ${error.message}`);
     }
-    refs.settingsRawStatus.textContent = `已加载: ${payload?.path || ""}`;
+    refs.settingsRawStatus.textContent = `${
+      state.rawSettingsSecretsIncluded ? "已加载完整原文（含敏感值）" : "已加载安全原文（敏感值隐藏）"
+    } · ${payload?.updated_at || ""}`;
     setApiStatus("就绪", "ok");
   } catch (error) {
     refs.settingsRawStatus.textContent = `读取失败: ${error.message}`;
@@ -1763,14 +2347,30 @@ function cloneSettingsObject(value) {
 
 function syncQuickAuthEditors(settings = state.settingsData) {
   const next = settings && typeof settings === "object" ? settings : {};
-  refs.settingsAuthCookieDouyin.value = stringifySettingValue(next.cookie);
-  refs.settingsAuthCookieTikTok.value = stringifySettingValue(next.cookie_tiktok);
-  refs.settingsAuthTikTokDeviceId.value = String(
-    next?.browser_info_tiktok?.device_id || "",
-  );
-  refs.settingsAuthTikTokUserAgent.value = String(
-    next?.browser_info_tiktok?.["User-Agent"] || "",
-  );
+  const syncSecretField = (element, value) => {
+    const normalized = stringifySettingValue(value);
+    const hidden = normalized === REDACTED_SENTINEL || normalized.includes(REDACTED_SENTINEL);
+    element.value = hidden ? "" : normalized;
+    element.dataset.secretConfigured = String(hidden || Boolean(normalized));
+    element.placeholder = hidden ? "已配置（敏感值隐藏；留空将保留）" : element.dataset.defaultPlaceholder || "";
+  };
+  for (const element of [
+    refs.settingsAuthCookieDouyin,
+    refs.settingsAuthCookieTikTok,
+    refs.settingsAuthTikTokDeviceId,
+    refs.settingsAuthTikTokUserAgent,
+  ]) {
+    if (!element.dataset.defaultPlaceholder) {
+      element.dataset.defaultPlaceholder = element.placeholder || "";
+    }
+  }
+  syncSecretField(refs.settingsAuthCookieDouyin, next.cookie);
+  syncSecretField(refs.settingsAuthCookieTikTok, next.cookie_tiktok);
+  syncSecretField(refs.settingsAuthTikTokDeviceId, next?.browser_info_tiktok?.device_id);
+  syncSecretField(refs.settingsAuthTikTokUserAgent, next?.browser_info_tiktok?.["User-Agent"]);
+  refs.settingsAuthStatus.textContent = state.rawSettingsSecretsIncluded
+    ? "已载入当前登录信息；敏感值正在明文显示"
+    : "已配置的敏感值保持隐藏；留空保存不会覆盖";
 }
 
 function resolveSettingsEditorBase() {
@@ -1786,15 +2386,29 @@ function resolveSettingsEditorBase() {
 
 function applyQuickAuthEditorsToSettings(base) {
   const next = cloneSettingsObject(base);
-  next.cookie = refs.settingsAuthCookieDouyin.value.trim();
-  next.cookie_tiktok = refs.settingsAuthCookieTikTok.value.trim();
+  const cookieDouyin = refs.settingsAuthCookieDouyin.value.trim();
+  const cookieTikTok = refs.settingsAuthCookieTikTok.value.trim();
+  if (cookieDouyin) {
+    next.cookie = cookieDouyin;
+  }
+  if (cookieTikTok) {
+    next.cookie_tiktok = cookieTikTok;
+  }
   const browserInfoTikTok =
     next.browser_info_tiktok && typeof next.browser_info_tiktok === "object"
       ? cloneSettingsObject(next.browser_info_tiktok)
       : {};
-  browserInfoTikTok.device_id = refs.settingsAuthTikTokDeviceId.value.trim();
-  browserInfoTikTok["User-Agent"] = refs.settingsAuthTikTokUserAgent.value.trim();
-  next.browser_info_tiktok = browserInfoTikTok;
+  const deviceId = refs.settingsAuthTikTokDeviceId.value.trim();
+  const userAgent = refs.settingsAuthTikTokUserAgent.value.trim();
+  if (deviceId) {
+    browserInfoTikTok.device_id = deviceId;
+  }
+  if (userAgent) {
+    browserInfoTikTok["User-Agent"] = userAgent;
+  }
+  if (Object.keys(browserInfoTikTok).length) {
+    next.browser_info_tiktok = browserInfoTikTok;
+  }
   return next;
 }
 
@@ -1803,6 +2417,7 @@ function applyQuickAuthEditorsToRaw() {
   try {
     const next = applyQuickAuthEditorsToSettings(resolveSettingsEditorBase());
     refs.settingsRawEditor.value = JSON.stringify(next, null, 2);
+    updateRawEditorMeta();
     refs.settingsAuthStatus.textContent = "已写入原文编辑器，可继续检查后保存";
     refs.settingsRawStatus.textContent = "快捷登录信息已同步到原文编辑器";
   } catch (error) {
@@ -1815,6 +2430,7 @@ async function saveQuickAuthSettings() {
   try {
     const next = applyQuickAuthEditorsToSettings(resolveSettingsEditorBase());
     refs.settingsRawEditor.value = JSON.stringify(next, null, 2);
+    updateRawEditorMeta();
     const payload = await fetchJson("/ui/api/settings/raw", {
       method: "PUT",
       headers: headerOptions(true),
@@ -1840,6 +2456,7 @@ function formatRawSettings() {
   try {
     const parsed = JSON.parse(refs.settingsRawEditor.value || "{}");
     refs.settingsRawEditor.value = JSON.stringify(parsed, null, 2);
+    updateRawEditorMeta();
     refs.settingsRawStatus.textContent = "JSON 格式化完成";
   } catch (error) {
     refs.settingsRawStatus.textContent = `格式化失败: ${error.message}`;
@@ -1861,6 +2478,11 @@ async function saveRawSettings() {
     } else {
       await loadSettings();
     }
+    state.rawSettingsSource = cloneSettingsObject({
+      ...state.rawSettingsSource,
+      ...JSON.parse(text),
+    });
+    updateRawEditorMeta();
     setApiStatus("就绪", "ok");
   } catch (error) {
     refs.settingsRawStatus.textContent = `保存失败: ${error.message}`;
@@ -1868,66 +2490,400 @@ async function saveRawSettings() {
   }
 }
 
+function searchRawSettings() {
+  const query = String(refs.settingsRawSearch?.value || "");
+  if (!query) {
+    refs.settingsRawSearch?.focus();
+    return;
+  }
+  const text = refs.settingsRawEditor.value || "";
+  const startAt = Number(refs.settingsRawEditor.dataset.searchIndex || 0);
+  let index = text.toLowerCase().indexOf(query.toLowerCase(), startAt);
+  if (index < 0 && startAt > 0) {
+    index = text.toLowerCase().indexOf(query.toLowerCase());
+  }
+  if (index < 0) {
+    refs.settingsRawStatus.textContent = `未找到：${query}`;
+    return;
+  }
+  refs.settingsRawEditor.focus();
+  refs.settingsRawEditor.setSelectionRange(index, index + query.length);
+  refs.settingsRawEditor.dataset.searchIndex = String(index + query.length);
+  const line = text.slice(0, index).split("\n").length;
+  const lineHeight = Number.parseFloat(getComputedStyle(refs.settingsRawEditor).lineHeight) || 20;
+  refs.settingsRawEditor.scrollTop = Math.max(0, (line - 3) * lineHeight);
+  refs.settingsRawStatus.textContent = `已定位到第 ${line} 行`;
+}
+
+function toggleRawEditorWrap() {
+  const wrapped = refs.settingsRawEditor.wrap === "soft";
+  refs.settingsRawEditor.wrap = wrapped ? "off" : "soft";
+  refs.settingsRawWrapBtn.setAttribute("aria-pressed", String(!wrapped));
+  refs.settingsRawWrapBtn.textContent = wrapped ? "自动换行" : "取消换行";
+}
+
 function normalizeEntries(payload) {
   if (!payload) {
-    return { entries: [], currentPath: "", total: 0 };
+    return { entries: [], currentPath: "", parentPath: "", total: 0 };
   }
   if (Array.isArray(payload)) {
     return {
       entries: payload,
       currentPath: state.currentPath,
+      parentPath: parentPath(state.currentPath),
       total: payload.length,
     };
   }
   return {
     entries: payload.entries || payload.items || payload.data || [],
     currentPath: payload.current_path ?? payload.path ?? state.currentPath,
-    total: payload.total ?? (payload.entries || payload.items || payload.data || []).length,
+    parentPath: payload.parent ?? parentPath(payload.current_path ?? payload.path ?? state.currentPath),
+    total:
+      payload.total ??
+      payload.count ??
+      (payload.entries || payload.items || payload.data || []).length,
+    page: Number(payload.page || 1),
+    pageSize: Number(payload.page_size || state.filePageSize),
+    pages: Number(payload.pages || 1),
   };
 }
 
-function iconForEntry(entry) {
-  if (entry.is_dir || entry.kind === "dir") {
-    return "DIR";
-  }
-  if (entry.kind === "image") {
-    return "IMG";
-  }
-  if (entry.kind === "video") {
-    return "VID";
-  }
-  if (entry.kind === "audio") {
-    return "AUD";
-  }
-  if (entry.kind === "text") {
-    return "TXT";
-  }
-  return "BIN";
+function isDirectoryEntry(entry) {
+  return Boolean(entry?.is_dir || entry?.kind === "dir");
 }
 
-function renderFilePreview(entry) {
-  refs.filePreview.innerHTML = "";
-  const title = document.createElement("div");
-  title.className = "status-line";
-  title.textContent = `${entry.name} (${entry.kind || "file"})`;
-  refs.filePreview.appendChild(title);
+function iconForEntry(entry) {
+  if (isDirectoryEntry(entry)) {
+    return "folder";
+  }
+  if (entry.kind === "image") {
+    return "file-image";
+  }
+  if (entry.kind === "video") {
+    return "file-video";
+  }
+  if (entry.kind === "audio") {
+    return "file-audio";
+  }
+  if (entry.kind === "text") {
+    return "file-text";
+  }
+  return "file";
+}
 
-  if (entry.is_dir || entry.kind === "dir") {
-    const tip = document.createElement("div");
-    tip.className = "empty-tip";
-    tip.textContent = "目录不支持预览";
-    refs.filePreview.appendChild(tip);
+function kindLabel(entry) {
+  const labels = {
+    dir: "文件夹",
+    image: "图片",
+    video: "视频",
+    audio: "音频",
+    text: "文本",
+    file: "文件",
+  };
+  const kind = isDirectoryEntry(entry) ? "dir" : entry?.kind || "file";
+  return labels[kind] || "文件";
+}
+
+function formatFileSize(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size < 0) {
+    return "—";
+  }
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  const units = ["KB", "MB", "GB", "TB"];
+  let normalized = size / 1024;
+  let unit = units[0];
+  for (const nextUnit of units.slice(1)) {
+    if (normalized < 1024) {
+      break;
+    }
+    normalized /= 1024;
+    unit = nextUnit;
+  }
+  return `${normalized >= 10 ? normalized.toFixed(1) : normalized.toFixed(2)} ${unit}`;
+}
+
+function formatFileDate(value) {
+  if (!value) {
+    return "—";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
+function fileAccessUrl(path) {
+  return `/ui/api/file?scope=${encodeURIComponent(state.currentScope)}&path=${encodeURIComponent(
+    path || "",
+  )}`;
+}
+
+function fileLightboxEntries() {
+  return filteredFileEntries().filter(
+    (entry) =>
+      !isDirectoryEntry(entry) &&
+      (entry.kind === "image" || entry.kind === "video"),
+  );
+}
+
+function stopFileLightboxMedia() {
+  const video = refs.fileLightboxStage?.querySelector("video");
+  if (video instanceof HTMLVideoElement) {
+    video.pause();
+  }
+}
+
+function renderFileLightbox() {
+  const entries = fileLightboxEntries();
+  const entry = entries[state.fileLightboxIndex];
+  if (!entry || !refs.fileLightboxStage) {
+    closeFileLightbox();
     return;
   }
 
-  const fileUrl = `/ui/api/file?scope=${encodeURIComponent(state.currentScope)}&path=${encodeURIComponent(
-    entry.path || "",
-  )}`;
+  stopFileLightboxMedia();
+  refs.fileLightboxStage.innerHTML = "";
+  refs.fileLightboxTitle.textContent = entry.name || entry.path || "媒体预览";
+  refs.fileLightboxMeta.textContent = [
+    kindLabel(entry),
+    formatFileSize(entry.size),
+    formatFileDate(entry.modified_at),
+  ].join(" · ");
+  refs.fileLightboxPosition.textContent = `${state.fileLightboxIndex + 1} / ${entries.length}`;
+  refs.fileLightboxOpenLink.href = fileAccessUrl(entry.path);
+  refs.fileLightboxOpenLink.removeAttribute("aria-disabled");
+  refs.fileLightboxPrevBtn.disabled = state.fileLightboxIndex <= 0;
+  refs.fileLightboxNextBtn.disabled = state.fileLightboxIndex >= entries.length - 1;
+
+  const fileUrl = fileAccessUrl(entry.path);
+  if (entry.kind === "image") {
+    const image = document.createElement("img");
+    image.src = fileUrl;
+    image.alt = entry.name || "放大图片";
+    image.decoding = "async";
+    refs.fileLightboxStage.appendChild(image);
+  } else {
+    const video = document.createElement("video");
+    video.src = fileUrl;
+    video.controls = true;
+    video.preload = "metadata";
+    video.playsInline = true;
+    video.setAttribute("aria-label", entry.name || "放大视频");
+    refs.fileLightboxStage.appendChild(video);
+  }
+}
+
+function openFileLightbox(entry, restoreFocus = document.activeElement) {
+  if (!entry || !["image", "video"].includes(entry.kind)) {
+    return;
+  }
+  const entries = fileLightboxEntries();
+  const index = entries.findIndex((item) => item.path === entry.path);
+  if (index < 0) {
+    return;
+  }
+  state.fileLightboxIndex = index;
+  state.fileLightboxRestoreFocus =
+    restoreFocus instanceof HTMLElement ? restoreFocus : null;
+  renderFileLightbox();
+  if (!refs.fileLightbox.open) {
+    refs.fileLightbox.showModal();
+  }
+  refs.fileLightboxCloseBtn.focus();
+}
+
+function closeFileLightbox({ restoreFocus = true } = {}) {
+  stopFileLightboxMedia();
+  if (refs.fileLightbox?.open) {
+    refs.fileLightbox.close();
+  }
+  const focusTarget = state.fileLightboxRestoreFocus;
+  state.fileLightboxIndex = -1;
+  state.fileLightboxRestoreFocus = null;
+  if (restoreFocus && focusTarget?.isConnected) {
+    focusTarget.focus();
+  }
+}
+
+function moveFileLightbox(direction) {
+  const entries = fileLightboxEntries();
+  const nextIndex = Math.max(
+    0,
+    Math.min(entries.length - 1, state.fileLightboxIndex + direction),
+  );
+  if (nextIndex === state.fileLightboxIndex) {
+    return;
+  }
+  state.fileLightboxIndex = nextIndex;
+  renderFileLightbox();
+}
+
+function updateFileMasonryLayout() {
+  state.fileMasonryFrame = 0;
+  if (!refs.filesList || !refs.filesList.classList.contains("file-masonry")) {
+    return;
+  }
+  const listStyle = window.getComputedStyle(refs.filesList);
+  if (listStyle.display !== "grid") {
+    return;
+  }
+  const rowHeight = Number.parseFloat(listStyle.gridAutoRows) || 8;
+  const rowGap = Number.parseFloat(listStyle.rowGap) || 10;
+  const cards = Array.from(refs.filesList.querySelectorAll(".file-card"));
+  for (const card of cards) {
+    card.style.gridRowEnd = "auto";
+  }
+  const heights = cards.map((card) => card.getBoundingClientRect().height);
+  cards.forEach((card, index) => {
+    const span = Math.max(
+      1,
+      Math.ceil((heights[index] + rowGap) / (rowHeight + rowGap)),
+    );
+    card.style.gridRowEnd = `span ${span}`;
+  });
+}
+
+function scheduleFileMasonryLayout() {
+  if (state.fileMasonryFrame) {
+    window.cancelAnimationFrame(state.fileMasonryFrame);
+  }
+  state.fileMasonryFrame = window.requestAnimationFrame(updateFileMasonryLayout);
+}
+
+function observeFileMasonryCards() {
+  state.fileMasonryObserver?.disconnect();
+  state.fileMasonryObserver = null;
+  const cards = refs.filesList?.querySelectorAll(".file-card") || [];
+  if ("ResizeObserver" in window) {
+    state.fileMasonryObserver = new ResizeObserver(() => {
+      scheduleFileMasonryLayout();
+    });
+    cards.forEach((card) => state.fileMasonryObserver.observe(card));
+  }
+  scheduleFileMasonryLayout();
+}
+
+function resetFilePreview(title = "选择一个文件", description = "图片、视频、音频和文本会在这里预览") {
+  state.filePreviewRequestId += 1;
+  refs.filePreview.innerHTML = "";
+  const empty = document.createElement("div");
+  empty.className = "file-preview-empty";
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const copy = document.createElement("span");
+  copy.textContent = description;
+  empty.appendChild(heading);
+  empty.appendChild(copy);
+  refs.filePreview.appendChild(empty);
+}
+
+function renderCurrentDirectoryOverview() {
+  const folderLabel = state.currentPath ? state.currentPath.split("/").filter(Boolean).at(-1) : (
+    state.currentScope === "download" ? "下载目录" : "项目目录"
+  );
+  const filteredCount = filteredFileEntries().length;
+  resetFilePreview(
+    folderLabel || "根目录",
+    state.fileSearch.trim()
+      ? `搜索到 ${state.fileTotal} 个项目，当前显示 ${filteredCount} 个`
+      : `当前目录共有 ${state.fileTotal} 个项目；点击文件夹直接进入`,
+  );
+}
+
+function appendPreviewHeader(entry) {
+  const header = document.createElement("div");
+  header.className = "file-preview-header";
+
+  const copy = document.createElement("div");
+  copy.className = "file-preview-title";
+  const title = document.createElement("h3");
+  title.textContent = entry.name || entry.path || "(未命名)";
+  const meta = document.createElement("div");
+  meta.className = "file-preview-meta";
+  for (const text of [
+    kindLabel(entry),
+    isDirectoryEntry(entry) ? null : formatFileSize(entry.size),
+    formatFileDate(entry.modified_at),
+  ].filter(Boolean)) {
+    const item = document.createElement("span");
+    item.textContent = text;
+    meta.appendChild(item);
+  }
+  copy.appendChild(title);
+  copy.appendChild(meta);
+
+  const actions = document.createElement("div");
+  actions.className = "file-preview-actions";
+  header.appendChild(copy);
+  header.appendChild(actions);
+  refs.filePreview.appendChild(header);
+  return actions;
+}
+
+function renderFilePreview(entry) {
+  const requestId = ++state.filePreviewRequestId;
+  refs.filePreview.innerHTML = "";
+  const actions = appendPreviewHeader(entry);
+
+  if (isDirectoryEntry(entry)) {
+    const openButton = document.createElement("button");
+    openButton.className = "btn primary";
+    openButton.type = "button";
+    openButton.textContent = "打开文件夹";
+    openButton.addEventListener("click", () => {
+      navigateToFilePath(entry.path || "", { focusAfterLoad: true });
+    });
+    actions.appendChild(openButton);
+
+    const folderSummary = document.createElement("div");
+    folderSummary.className = "file-preview-empty file-preview-folder";
+    const heading = document.createElement("strong");
+    heading.textContent = "文件夹已选择";
+    const copy = document.createElement("span");
+    copy.textContent = "双击左侧文件夹、按 Enter，或点击“打开文件夹”进入。";
+    folderSummary.appendChild(heading);
+    folderSummary.appendChild(copy);
+    refs.filePreview.appendChild(folderSummary);
+    return;
+  }
+
+  const fileUrl = fileAccessUrl(entry.path);
+  const openLink = document.createElement("a");
+  openLink.className = "btn ghost";
+  openLink.href = fileUrl;
+  openLink.textContent = "新标签打开";
+  openLink.target = "_blank";
+  openLink.rel = "noreferrer";
+  actions.appendChild(openLink);
+
+  if (entry.kind === "image" || entry.kind === "video") {
+    const expandButton = document.createElement("button");
+    expandButton.className = "btn primary";
+    expandButton.type = "button";
+    expandButton.innerHTML =
+      '<i data-lucide="maximize-2" aria-hidden="true"></i><span>放大预览</span>';
+    expandButton.addEventListener("click", () => {
+      openFileLightbox(entry, expandButton);
+    });
+    actions.appendChild(expandButton);
+    refreshIcons(expandButton);
+  }
 
   if (entry.kind === "image") {
     const image = document.createElement("img");
     image.src = fileUrl;
     image.alt = entry.name;
+    image.loading = "lazy";
     refs.filePreview.appendChild(image);
     return;
   }
@@ -1936,6 +2892,8 @@ function renderFilePreview(entry) {
     const video = document.createElement("video");
     video.src = fileUrl;
     video.controls = true;
+    video.preload = "metadata";
+    video.playsInline = true;
     refs.filePreview.appendChild(video);
     return;
   }
@@ -1944,6 +2902,7 @@ function renderFilePreview(entry) {
     const audio = document.createElement("audio");
     audio.src = fileUrl;
     audio.controls = true;
+    audio.preload = "metadata";
     refs.filePreview.appendChild(audio);
     return;
   }
@@ -1952,13 +2911,24 @@ function renderFilePreview(entry) {
     fetch(fileUrl, {
       headers: headerOptions(false),
     })
-      .then((response) => response.text())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.text();
+      })
       .then((text) => {
+        if (requestId !== state.filePreviewRequestId) {
+          return;
+        }
         const pre = document.createElement("pre");
         pre.textContent = text.slice(0, 12000);
         refs.filePreview.appendChild(pre);
       })
       .catch((error) => {
+        if (requestId !== state.filePreviewRequestId) {
+          return;
+        }
         const tip = document.createElement("div");
         tip.className = "empty-tip";
         tip.textContent = `文本预览失败: ${error.message}`;
@@ -1967,34 +2937,45 @@ function renderFilePreview(entry) {
     return;
   }
 
-  const link = document.createElement("a");
-  link.href = fileUrl;
-  link.textContent = "打开文件";
-  link.target = "_blank";
-  link.rel = "noreferrer";
-  refs.filePreview.appendChild(link);
+  const tip = document.createElement("div");
+  tip.className = "file-preview-empty";
+  const heading = document.createElement("strong");
+  heading.textContent = "此格式没有内嵌预览";
+  const copy = document.createElement("span");
+  copy.textContent = "使用右上角“新标签打开”查看或下载文件。";
+  tip.appendChild(heading);
+  tip.appendChild(copy);
+  refs.filePreview.appendChild(tip);
 }
 
 function filteredFileEntries() {
-  const query = String(state.fileSearch || "")
-    .trim()
-    .toLowerCase();
-  const entries = state.fileEntries || [];
-  if (!query) {
-    return entries;
-  }
-  return entries.filter((entry) => {
-    const text = `${entry.name || ""} ${entry.path || ""}`.toLowerCase();
-    return text.includes(query);
-  });
+  return state.fileEntries || [];
 }
 
 function renderFiles() {
   const entries = filteredFileEntries();
+  state.fileMasonryObserver?.disconnect();
+  state.fileMasonryObserver = null;
   refs.filesList.innerHTML = "";
+  const selectedIsVisible = entries.some((entry) => entry.path === state.selectedFilePath);
+  if (!selectedIsVisible) {
+    state.selectedFilePath = "";
+    renderCurrentDirectoryOverview();
+  }
   if (!entries.length) {
     const tip = state.fileSearch.trim() ? "无匹配文件" : "目录为空";
-    refs.filesList.innerHTML = `<div class="file-row" role="status"><span class="file-name">${tip}</span></div>`;
+    const empty = document.createElement("div");
+    empty.className = "file-list-empty";
+    empty.setAttribute("role", "status");
+    const heading = document.createElement("strong");
+    heading.textContent = tip;
+    const copy = document.createElement("span");
+    copy.textContent = state.fileSearch.trim()
+      ? "尝试缩短关键词，或清除筛选。"
+      : "这个目录目前没有可显示的文件。";
+    empty.appendChild(heading);
+    empty.appendChild(copy);
+    refs.filesList.appendChild(empty);
     if (state.focusFilesAfterLoad) {
       state.focusFilesAfterLoad = false;
       refs.filesList.focus();
@@ -2004,90 +2985,203 @@ function renderFiles() {
 
   const fragment = document.createDocumentFragment();
   for (const [entryIndex, entry] of entries.entries()) {
-    const row = document.createElement("div");
-    row.className = "file-row";
-    row.dataset.path = entry.path || "";
-    row.setAttribute("role", "option");
-    row.setAttribute("aria-selected", "false");
-    row.tabIndex = entryIndex === 0 ? 0 : -1;
+    const card = document.createElement("article");
+    card.className = `file-card file-card-${isDirectoryEntry(entry) ? "folder" : entry.kind || "file"}`;
+    card.dataset.path = entry.path || "";
+    card.setAttribute("role", "listitem");
+    card.setAttribute("aria-selected", "false");
+    card.setAttribute(
+      "aria-label",
+      `${kindLabel(entry)} ${entry.name || entry.path || "(未命名)"}`,
+    );
+    card.tabIndex = entryIndex === 0 ? 0 : -1;
+    card.title = isDirectoryEntry(entry)
+      ? "打开文件夹"
+      : ["image", "video"].includes(entry.kind)
+        ? "放大预览"
+        : "展开预览";
+    if (entry.kind === "image" || entry.kind === "video") {
+      card.setAttribute("aria-haspopup", "dialog");
+    }
 
-    const icon = document.createElement("span");
-    icon.className = "file-icon";
-    icon.textContent = iconForEntry(entry);
+    const media = document.createElement("div");
+    media.className = "file-card-media";
+    if (entry.kind === "image") {
+      const image = document.createElement("img");
+      image.src = fileAccessUrl(entry.path);
+      image.alt = "";
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.addEventListener("load", scheduleFileMasonryLayout, { once: true });
+      media.appendChild(image);
+    } else if (entry.kind === "video") {
+      const video = document.createElement("video");
+      video.src = fileAccessUrl(entry.path);
+      video.muted = true;
+      video.preload = "metadata";
+      video.playsInline = true;
+      video.setAttribute("aria-hidden", "true");
+      video.addEventListener("loadedmetadata", scheduleFileMasonryLayout, {
+        once: true,
+      });
+      media.appendChild(video);
+      const play = document.createElement("span");
+      play.className = "file-card-play";
+      play.innerHTML = '<i data-lucide="play"></i>';
+      media.appendChild(play);
+    } else {
+      const icon = document.createElement("span");
+      icon.className = "file-card-icon";
+      icon.innerHTML = `<i data-lucide="${iconForEntry(entry)}"></i>`;
+      media.appendChild(icon);
+    }
 
-    const name = document.createElement("span");
-    name.className = "file-name";
-    name.textContent = entry.name || entry.path || "(unknown)";
+    const details = document.createElement("div");
+    details.className = "file-card-details";
+    const name = document.createElement("strong");
+    name.className = "file-card-name";
+    name.textContent = entry.name || entry.path || "(未命名)";
+    const meta = document.createElement("span");
+    meta.className = "file-card-meta";
+    meta.textContent = [
+      kindLabel(entry),
+      isDirectoryEntry(entry) ? "点击进入" : formatFileSize(entry.size),
+      formatFileDate(entry.modified_at),
+    ].join(" · ");
+    details.appendChild(name);
+    details.appendChild(meta);
+    card.appendChild(media);
+    card.appendChild(details);
 
-    const kind = document.createElement("span");
-    kind.className = "file-kind";
-    kind.textContent = entry.kind || (entry.is_dir ? "dir" : "file");
-
-    row.appendChild(icon);
-    row.appendChild(name);
-    row.appendChild(kind);
-
-    const activateRow = (focusAfterLoad = false) => {
-      for (const candidate of refs.filesList.querySelectorAll('.file-row[role="option"]')) {
+    const selectCard = () => {
+      for (const candidate of refs.filesList.querySelectorAll(".file-card")) {
         candidate.classList.remove("active");
         candidate.setAttribute("aria-selected", "false");
-        candidate.tabIndex = candidate === row ? 0 : -1;
+        candidate.tabIndex = candidate === card ? 0 : -1;
       }
-      row.classList.add("active");
-      row.setAttribute("aria-selected", "true");
+      card.classList.add("active");
+      card.setAttribute("aria-selected", "true");
       state.selectedFilePath = entry.path || "";
       updateFilesAccountContext();
+      renderFilePreview(entry);
+    };
 
-      if (entry.is_dir || entry.kind === "dir") {
-        state.currentPath = entry.path || "";
-        refs.filesPath.value = state.currentPath;
-        state.selectedFilePath = "";
-        state.focusFilesAfterLoad = focusAfterLoad;
-        updateFilesAccountContext();
-        loadFiles();
-      } else {
-        renderFilePreview(entry);
+    const activateCard = (focusAfterLoad = false) => {
+      if (isDirectoryEntry(entry)) {
+        navigateToFilePath(entry.path || "", { focusAfterLoad });
+        return;
+      }
+      selectCard();
+      if (entry.kind === "image" || entry.kind === "video") {
+        openFileLightbox(entry, card);
       }
     };
 
-    row.addEventListener("click", () => activateRow(false));
-    row.addEventListener("keydown", (event) => {
-      if (["Enter", " "].includes(event.key)) {
+    card.addEventListener("click", () => activateCard(false));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
         event.preventDefault();
-        activateRow(true);
+        activateCard(true);
+        return;
+      }
+      if (event.key === " ") {
+        event.preventDefault();
+        activateCard(false);
         return;
       }
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
         return;
       }
       event.preventDefault();
-      const rows = Array.from(refs.filesList.querySelectorAll('.file-row[role="option"]'));
-      const index = rows.indexOf(row);
+      const cards = Array.from(refs.filesList.querySelectorAll(".file-card"));
+      const index = cards.indexOf(card);
       let nextIndex = index;
       if (event.key === "ArrowDown") {
-        nextIndex = Math.min(rows.length - 1, index + 1);
+        nextIndex = Math.min(cards.length - 1, index + 1);
       } else if (event.key === "ArrowUp") {
         nextIndex = Math.max(0, index - 1);
       } else if (event.key === "Home") {
         nextIndex = 0;
       } else if (event.key === "End") {
-        nextIndex = rows.length - 1;
+        nextIndex = cards.length - 1;
       }
-      const nextRow = rows[nextIndex];
-      if (nextRow) {
-        row.tabIndex = -1;
-        nextRow.tabIndex = 0;
-        nextRow.focus();
+      const nextCard = cards[nextIndex];
+      if (nextCard) {
+        card.tabIndex = -1;
+        nextCard.tabIndex = 0;
+        nextCard.focus();
       }
     });
 
-    fragment.appendChild(row);
+    fragment.appendChild(card);
   }
   refs.filesList.appendChild(fragment);
+  refreshIcons(refs.filesList);
+  observeFileMasonryCards();
   if (state.focusFilesAfterLoad) {
     state.focusFilesAfterLoad = false;
-    refs.filesList.querySelector('.file-row[role="option"]')?.focus();
+    refs.filesList.querySelector(".file-card")?.focus();
   }
+}
+
+function renderFileBreadcrumb() {
+  if (!refs.filesBreadcrumb) {
+    return;
+  }
+  refs.filesBreadcrumb.innerHTML = "";
+  const rootLabel = state.currentScope === "download" ? "下载目录" : "项目目录";
+  const segments = state.currentPath.split("/").filter(Boolean);
+  const crumbs = [{ label: rootLabel, path: "" }];
+  let accumulatedPath = "";
+  for (const segment of segments) {
+    accumulatedPath = accumulatedPath ? `${accumulatedPath}/${segment}` : segment;
+    crumbs.push({ label: segment, path: accumulatedPath });
+  }
+
+  const fragment = document.createDocumentFragment();
+  crumbs.forEach((crumb, index) => {
+    if (index > 0) {
+      const separator = document.createElement("span");
+      separator.className = "file-breadcrumb-separator";
+      separator.textContent = "/";
+      separator.setAttribute("aria-hidden", "true");
+      fragment.appendChild(separator);
+    }
+    const isCurrent = index === crumbs.length - 1;
+    if (isCurrent) {
+      const current = document.createElement("span");
+      current.className = "file-breadcrumb-current";
+      current.textContent = crumb.label;
+      current.setAttribute("aria-current", "page");
+      fragment.appendChild(current);
+      return;
+    }
+    const button = document.createElement("button");
+    button.className = "file-breadcrumb-button";
+    button.type = "button";
+    button.textContent = crumb.label;
+    button.addEventListener("click", () => navigateToFilePath(crumb.path));
+    fragment.appendChild(button);
+  });
+  refs.filesBreadcrumb.appendChild(fragment);
+  refs.filesHomeBtn.disabled = !state.currentPath;
+  refs.filesUpBtn.disabled = !state.currentPath;
+}
+
+function navigateToFilePath(path, { focusAfterLoad = false, keepSearch = false } = {}) {
+  state.currentPath = String(path || "").replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+  state.currentParentPath = parentPath(state.currentPath);
+  state.selectedFilePath = "";
+  state.filePage = 1;
+  state.focusFilesAfterLoad = focusAfterLoad;
+  refs.filesPath.value = state.currentPath;
+  if (!keepSearch) {
+    state.fileSearch = "";
+    refs.filesSearch.value = "";
+  }
+  updateFilesAccountContext();
+  renderFileBreadcrumb();
+  return loadFiles();
 }
 
 function updateFilesAccountContext() {
@@ -2096,6 +3190,9 @@ function updateFilesAccountContext() {
   const selected = state.fileEntries.find((item) => item.path === state.selectedFilePath);
   const fileLabel = selected?.name || selected?.path || "";
   const selectedHint = fileLabel ? ` · 已选文件: ${fileLabel}` : " · 未选择文件";
+  if (refs.filesAccountTools) {
+    refs.filesAccountTools.hidden = !hasAccount;
+  }
   if (refs.filesAccountContext) {
     refs.filesAccountContext.textContent = hasAccount
       ? `账户上下文：${context.mark || "(未设置 mark)"} · ${context.url}${selectedHint}`
@@ -2137,17 +3234,9 @@ function openBoardFolderInFiles(card) {
     mark: card.dataset.mark || "",
   };
   state.currentScope = "download";
-  state.currentPath = folderPath;
-  state.selectedFilePath = "";
-  if (refs.filesScope) {
-    refs.filesScope.value = "download";
-  }
-  if (refs.filesPath) {
-    refs.filesPath.value = folderPath;
-  }
+  refs.filesScope.value = "download";
   switchTab("files");
-  loadFiles();
-  updateFilesAccountContext();
+  navigateToFilePath(folderPath);
 }
 
 function collectBoardCards() {
@@ -2164,219 +3253,51 @@ function setBoardAvatarBatchBusy(busy) {
   }
 }
 
-async function requestBoardAvatarGenerate(platform, url, path) {
-  return fetchJson("/ui/api/accounts/board/avatar/generate", {
-    method: "POST",
-    headers: headerOptions(true),
-    body: JSON.stringify({
-      platform,
-      url,
-      scope: "download",
-      path,
-    }),
-  });
-}
-
-async function generateBoardCardAvatar(card, options = {}) {
-  const { silent = false, skipIfAvatarExists = false } = options;
-  const url = card?.dataset?.url || "";
-  const path = card?.dataset?.mediaPath || "";
-  const platform = card?.dataset?.platform || state.accountBoard.platform;
-  if (skipIfAvatarExists && card?.dataset?.avatarPath) {
-    return {
-      status: "skipped_existing_avatar",
-    };
-  }
-  if (!url || !path) {
-    if (!silent) {
-      setBoardStatus("当前卡片没有可用于识别的人脸媒体");
-    }
-    return {
-      status: "skipped_no_media",
-    };
-  }
-  if (!silent) {
-    setBoardStatus("正在生成人脸头像…");
-  }
-  try {
-    const payload = await requestBoardAvatarGenerate(platform, url, path);
-    card.dataset.avatarPath = payload.avatar_path || "";
-    card.dataset.avatarScope = payload.avatar_scope || "project";
-    card.dataset.previewMode = "avatar";
-    renderBoardCardPreview(card);
-    const faces = payload?.details?.faces_detected || 0;
-    if (!silent) {
-      setBoardStatus(`头像生成成功（识别 ${faces} 张人脸）`);
-      setApiStatus("就绪", "ok");
-    }
-    return {
-      status: "ok",
-      faces,
-      payload,
-    };
-  } catch (error) {
-    if (!silent) {
-      setBoardStatus(`头像生成失败: ${error.message}`);
-      setApiStatus(`异常: ${error.message}`, "error");
-    }
-    return {
-      status: "error",
-      error,
-    };
-  }
-}
-
 async function generateBoardAvatarCurrentPage() {
-  if (state.boardAvatarBatchRunning) {
-    setBoardStatus("已有批量 AI 头像任务在运行");
-    return;
-  }
-  const cards = collectBoardCards();
-  if (!cards.length) {
+  const urls = collectBoardCards()
+    .map((card) => card.dataset.url || "")
+    .filter(Boolean);
+  if (!urls.length) {
     setBoardStatus("当前页没有可处理的账号卡片");
     return;
   }
-  setBoardAvatarBatchBusy(true);
-  const stats = {
-    success: 0,
-    skippedExisting: 0,
-    skippedNoMedia: 0,
-    failed: 0,
-  };
-  try {
-    for (let index = 0; index < cards.length; index += 1) {
-      const card = cards[index];
-      setBoardStatus(`AI 头像批量生成（当前页）${index + 1}/${cards.length}…`);
-      const result = await generateBoardCardAvatar(card, {
-        silent: true,
-        skipIfAvatarExists: true,
-      });
-      if (result.status === "ok") {
-        stats.success += 1;
-      } else if (result.status === "skipped_existing_avatar") {
-        stats.skippedExisting += 1;
-      } else if (result.status === "skipped_no_media") {
-        stats.skippedNoMedia += 1;
-      } else {
-        stats.failed += 1;
-      }
-    }
-    setBoardStatus(
-      `当前页 AI 头像完成：成功 ${stats.success}，跳过已有头像 ${stats.skippedExisting}，无媒体 ${stats.skippedNoMedia}，失败 ${stats.failed}`,
-    );
-    setApiStatus("就绪", stats.failed ? "warn" : "ok");
-  } finally {
-    setBoardAvatarBatchBusy(false);
-  }
-}
-
-async function fetchBoardPage(platform, page, pageSize = 80) {
-  const query = new URLSearchParams({
-    platform,
-    page: String(page),
-    page_size: String(pageSize),
-  });
-  return fetchJson(`/ui/api/accounts/board?${query.toString()}`, {
-    method: "GET",
-    headers: headerOptions(false),
-  });
+  await enqueueBoardAvatarBatch(urls, "当前页");
 }
 
 async function generateBoardAvatarAllUnpinned() {
+  await enqueueBoardAvatarBatch([], "全部账户");
+}
+
+async function enqueueBoardAvatarBatch(urls = [], scopeLabel = "全部账户") {
   if (state.boardAvatarBatchRunning) {
-    setBoardStatus("已有批量 AI 头像任务在运行");
+    setBoardStatus("头像任务正在加入队列，请稍候");
     return;
   }
   setBoardAvatarBatchBusy(true);
   const platform = state.accountBoard.platform || "douyin";
-  const currentCards = collectBoardCards();
-  const cardByUrl = new Map(
-    currentCards.map((card) => [card.dataset.url || "", card]).filter((item) => item[0]),
-  );
-  const stats = {
-    total: 0,
-    success: 0,
-    skippedPinned: 0,
-    skippedExisting: 0,
-    skippedNoMedia: 0,
-    failed: 0,
-  };
   try {
-    setBoardStatus("正在读取全部账号（用于批量 AI 头像）…");
-    const firstPage = await fetchBoardPage(platform, 1, 80);
-    const pages = Number(firstPage?.pages || 1);
-    const allItems = Array.isArray(firstPage?.items) ? [...firstPage.items] : [];
-    for (let page = 2; page <= pages; page += 1) {
-      const payload = await fetchBoardPage(platform, page, 80);
-      if (Array.isArray(payload?.items)) {
-        allItems.push(...payload.items);
-      }
-    }
-    const candidates = allItems.filter((item) => item && item.url);
-    stats.total = candidates.length;
-    for (let index = 0; index < candidates.length; index += 1) {
-      const item = candidates[index];
-      const url = String(item.url || "");
-      if (!url) {
-        continue;
-      }
-      setBoardStatus(`AI 头像批量生成（全部未 Pin）${index + 1}/${candidates.length}…`);
-      if (item.pinned) {
-        stats.skippedPinned += 1;
-        continue;
-      }
-      if (item.avatar_path) {
-        stats.skippedExisting += 1;
-        continue;
-      }
-      let mediaPath = String(item.media_path || "");
-      let mediaKind = String(item.media_kind || "");
-      if (!mediaPath) {
-        try {
-          const randomMedia = await fetchJson("/ui/api/accounts/board/random", {
-            method: "POST",
-            headers: headerOptions(true),
-            body: JSON.stringify({
-              platform,
-              url,
-              current_path: "",
-              prefer_kind: state.accountBoard.refreshKind || "auto",
-            }),
-          });
-          mediaPath = String(randomMedia.media_path || "");
-          mediaKind = String(randomMedia.media_kind || "");
-        } catch {}
-      }
-      if (!mediaPath) {
-        stats.skippedNoMedia += 1;
-        continue;
-      }
-      const payload = await requestBoardAvatarGenerate(platform, url, mediaPath).catch((error) => {
-        return {
-          __error: error,
-        };
-      });
-      if (payload?.__error) {
-        stats.failed += 1;
-        continue;
-      }
-      stats.success += 1;
-      const card = cardByUrl.get(url);
-      if (card) {
-        card.dataset.mediaPath = mediaPath;
-        card.dataset.mediaKind = mediaKind;
-        card.dataset.avatarPath = payload.avatar_path || "";
-        card.dataset.avatarScope = payload.avatar_scope || "project";
-        card.dataset.previewMode = "avatar";
-        renderBoardCardPreview(card);
-      }
+    setBoardStatus(`正在创建${scopeLabel}头像任务…`);
+    const payload = await fetchJson("/ui/api/accounts/board/avatar/batch", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        platform,
+        urls,
+        skip_existing: true,
+        max_candidates: 12,
+      }),
+    });
+    const taskId = payload?.task?.task_id || "";
+    if (taskId) {
+      state.selectedTaskId = taskId;
     }
     setBoardStatus(
-      `全部未 Pin AI 头像完成：总账号 ${stats.total}，成功 ${stats.success}，跳过已 Pin ${stats.skippedPinned}，跳过已有头像 ${stats.skippedExisting}，无媒体 ${stats.skippedNoMedia}，失败 ${stats.failed}`,
+      `${scopeLabel}头像任务已入队${taskId ? `（${taskId}）` : ""}：优先图片，无图片时抽取视频帧；可在任务中心暂停或继续`,
     );
-    setApiStatus("就绪", stats.failed ? "warn" : "ok");
+    setApiStatus("就绪", "ok");
+    await loadTaskList();
   } catch (error) {
-    setBoardStatus(`批量 AI 头像失败: ${error.message}`);
+    setBoardStatus(`创建头像任务失败: ${error.message}`);
     setApiStatus(`异常: ${error.message}`, "error");
   } finally {
     setBoardAvatarBatchBusy(false);
@@ -2496,11 +3417,15 @@ async function loadFileStats() {
 
 async function loadFiles() {
   refs.filesMeta.textContent = "正在加载目录…";
-  refs.filePreview.innerHTML = '<div class="empty-tip">选择文件后显示预览</div>';
+  resetFilePreview("正在加载目录", "请稍候…");
+  renderFileBreadcrumb();
   try {
     const query = new URLSearchParams({
       scope: state.currentScope,
       path: state.currentPath || "",
+      page: String(state.filePage),
+      page_size: String(state.filePageSize),
+      search: state.fileSearch.trim(),
     });
     const payload = await fetchJson(`/ui/api/files?${query.toString()}`, {
       method: "GET",
@@ -2509,18 +3434,41 @@ async function loadFiles() {
     const normalized = normalizeEntries(payload);
     state.fileEntries = normalized.entries || [];
     state.currentPath = normalized.currentPath || state.currentPath || "";
+    state.currentParentPath = normalized.parentPath || parentPath(state.currentPath);
+    state.filePage = normalized.page || 1;
+    state.filePageSize = normalized.pageSize || state.filePageSize;
+    state.filePages = normalized.pages || 1;
+    state.fileTotal = normalized.total || 0;
+    state.selectedFilePath = "";
     refs.filesPath.value = state.currentPath;
+    renderFileBreadcrumb();
     renderFiles();
     updateFilesAccountContext();
-    const filteredCount = filteredFileEntries().length;
-    refs.filesMeta.textContent = `scope=${state.currentScope} · path=/${state.currentPath || ""} · ${filteredCount}/${normalized.total} 项`;
-    loadFileStats();
+    const start = state.fileTotal ? (state.filePage - 1) * state.filePageSize + 1 : 0;
+    const end = state.fileTotal
+      ? Math.min(state.fileTotal, start + state.fileEntries.length - 1)
+      : 0;
+    refs.filesMeta.textContent = state.fileSearch.trim()
+      ? `“${state.fileSearch.trim()}” · ${start}–${end} / ${state.fileTotal} 项`
+      : `${start}–${end} / ${state.fileTotal} 个项目`;
+    refs.filesPageMeta.textContent = `第 ${state.filePage} / ${state.filePages} 页`;
+    refs.filesPrevBtn.disabled = state.filePage <= 1;
+    refs.filesNextBtn.disabled = state.filePage >= state.filePages;
+    refs.filesPageSize.value = String(state.filePageSize);
+    if (refs.filesStats.textContent.includes("统计信息待加载")) {
+      refs.filesStats.textContent = "目录统计按需加载，避免扫描大型下载目录";
+    }
     setApiStatus("就绪", "ok");
   } catch (error) {
     state.fileEntries = [];
     state.selectedFilePath = "";
     refs.filesList.innerHTML = "";
     refs.filesMeta.textContent = `加载失败: ${error.message}`;
+    refs.filesPageMeta.textContent = "第 1 / 1 页";
+    refs.filesPrevBtn.disabled = true;
+    refs.filesNextBtn.disabled = true;
+    resetFilePreview("无法加载此目录", "检查路径或访问 Token 后重试。");
+    renderFileBreadcrumb();
     if (refs.filesStats) {
       refs.filesStats.textContent = "统计信息待加载…";
     }
@@ -2543,21 +3491,25 @@ function boardAssetUrl(path, scope = "download") {
 }
 
 function boardColumnsCap() {
-  const width = window.innerWidth || 1280;
   const compactMode = state.accountBoard.viewMode === "avatar";
-  if (width <= 700) {
-    return compactMode ? 2 : 1;
+  const viewportWidth = window.innerWidth || 1280;
+  const boardWidth =
+    refs.boardGrid?.clientWidth ||
+    document.getElementById("panel-profiles")?.clientWidth ||
+    viewportWidth;
+  const gap = compactMode ? 8 : 10;
+  const minimumCardWidth = compactMode ? 156 : 248;
+  const widthCap = Math.max(
+    1,
+    Math.floor((boardWidth + gap) / (minimumCardWidth + gap)),
+  );
+  if (viewportWidth <= 460) {
+    return compactMode ? Math.min(2, widthCap) : 1;
   }
-  if (width <= 980) {
-    return compactMode ? 4 : 2;
+  if (viewportWidth <= 700) {
+    return compactMode ? Math.min(3, widthCap) : Math.min(2, widthCap);
   }
-  if (width <= 1200) {
-    return compactMode ? 6 : 3;
-  }
-  if (compactMode) {
-    return Math.max(6, Math.min(12, Math.floor(width / 170)));
-  }
-  return Math.max(4, Math.min(8, Math.floor(width / 260)));
+  return Math.min(compactMode ? 10 : 6, widthCap);
 }
 
 function applyBoardColumns(persist = true) {
@@ -2577,7 +3529,7 @@ function applyBoardColumns(persist = true) {
     refs.boardGrid.classList.toggle("profile-board-compact", state.accountBoard.viewMode === "avatar");
     refs.boardGrid.classList.toggle(
       "profile-board-ultra",
-      state.accountBoard.viewMode === "avatar" && next >= 9,
+      state.accountBoard.viewMode === "avatar" && next >= 8,
     );
   }
   if (persist) {
@@ -2588,11 +3540,34 @@ function applyBoardColumns(persist = true) {
 }
 
 function updateBoardMeta() {
-  refs.boardMeta.textContent = `第 ${state.accountBoard.page} / ${state.accountBoard.pages} 页 · 共 ${state.accountBoard.total} 账号`;
+  const filtered = state.accountBoard.total;
+  const all = state.accountBoard.unfilteredTotal;
+  const countText =
+    filtered === all ? `共 ${filtered} 账号` : `筛选 ${filtered} / 全部 ${all} 账号`;
+  refs.boardMeta.textContent = `第 ${state.accountBoard.page} / ${state.accountBoard.pages} 页 · ${countText}`;
 }
 
 function setBoardStatus(text) {
   refs.boardStatus.textContent = text;
+}
+
+function formatBoardDate(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "暂无记录";
+  }
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text.replace("T", " ").slice(0, 19);
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 function selectedBoardPreview(card) {
@@ -2620,9 +3595,6 @@ function selectedBoardPreview(card) {
   const isPinnedProfile = card.dataset.pinned === "1";
   const hasAvatar = Boolean(avatarPreview.path);
   const forcedMode = String(card.dataset.previewMode || "").toLowerCase();
-  if (isPinnedProfile && hasMedia) {
-    return mediaPreview;
-  }
   if (forcedMode === "media" && hasMedia) {
     return mediaPreview;
   }
@@ -2631,6 +3603,9 @@ function selectedBoardPreview(card) {
   }
   if (state.accountBoard.viewMode === "avatar" && hasAvatar) {
     return avatarPreview;
+  }
+  if (isPinnedProfile && hasMedia) {
+    return mediaPreview;
   }
   if (hasMedia) {
     return mediaPreview;
@@ -2655,35 +3630,54 @@ function renderBoardCardPreview(card) {
   const preview = selectedBoardPreview(card);
 
   if (pinBadge) {
-    pinBadge.textContent = card.dataset.pinned === "1" ? "已 Pin" : "未 Pin";
+    pinBadge.textContent = "已固定";
+    pinBadge.hidden = card.dataset.pinned !== "1";
     pinBadge.classList.toggle("ok", card.dataset.pinned === "1");
   }
   if (avatarBadge) {
-    avatarBadge.textContent = card.dataset.avatarPath ? "有头像" : "无头像";
+    avatarBadge.textContent = card.dataset.avatarPath ? "头像" : "待头像";
     avatarBadge.classList.toggle("ok", Boolean(card.dataset.avatarPath));
+    avatarBadge.classList.toggle("warn", !card.dataset.avatarPath);
   }
   if (displayBadge) {
     const isPinnedProfile = card.dataset.pinned === "1";
-    if (isPinnedProfile && card.dataset.mediaPath) {
-      displayBadge.textContent = "展示: Pin";
+    const compactMode = state.accountBoard.viewMode === "avatar";
+    displayBadge.hidden = false;
+    if (compactMode && !preview.path) {
+      displayBadge.textContent = "无预览";
+      displayBadge.classList.add("warn");
+      displayBadge.classList.remove("ok");
+    } else if (compactMode && isPinnedProfile) {
+      displayBadge.textContent = "媒体固定";
       displayBadge.classList.add("ok");
       displayBadge.classList.remove("warn");
+    } else if (compactMode) {
+      displayBadge.hidden = true;
+      displayBadge.classList.remove("ok", "warn");
     } else if (preview.path && preview.scope === "project") {
-      displayBadge.textContent = "展示: AI";
+      displayBadge.textContent = "展示头像";
+      displayBadge.classList.add("ok");
+      displayBadge.classList.remove("warn");
+    } else if (isPinnedProfile && card.dataset.mediaPath) {
+      displayBadge.textContent = "固定媒体";
       displayBadge.classList.add("ok");
       displayBadge.classList.remove("warn");
     } else if (preview.path) {
-      displayBadge.textContent = "展示: 媒体";
+      displayBadge.textContent = "媒体";
       displayBadge.classList.remove("ok", "warn");
     } else {
-      displayBadge.textContent = "展示: 无";
+      displayBadge.textContent = "无预览";
       displayBadge.classList.add("warn");
       displayBadge.classList.remove("ok");
     }
   }
   if (pinBtn) {
-    pinBtn.textContent = card.dataset.pinned === "1" ? "已 Pin" : "Pin";
-    pinBtn.disabled = !card.dataset.mediaPath;
+    const label = pinBtn.querySelector("span");
+    if (label) {
+      label.textContent =
+        card.dataset.pinned === "1" ? "媒体已固定" : "固定当前媒体";
+    }
+    pinBtn.disabled = !card.dataset.mediaPath || card.dataset.pinned === "1";
   }
   if (refreshBtn) {
     refreshBtn.disabled = !card.dataset.folderPath;
@@ -2758,6 +3752,9 @@ function renderAccountBoard(items) {
     card.dataset.pinned = item.pinned ? "1" : "0";
     card.dataset.avatarPath = item.avatar_path || "";
     card.dataset.avatarScope = item.avatar_scope || "";
+    card.dataset.latestWorkAt = item.latest_work_at || "";
+    card.dataset.lastCheckedAt = item.last_checked_at || "";
+    card.dataset.lastStatus = item.last_status || "never";
     card.dataset.previewMode = "";
 
     const mediaWrap = document.createElement("div");
@@ -2772,28 +3769,30 @@ function renderAccountBoard(items) {
     const name = document.createElement("div");
     name.className = "profile-name";
     name.textContent = item.mark || "未设置 mark";
+    name.title = item.mark || item.url || "未设置 mark";
 
     const badges = document.createElement("div");
-    badges.className = "card-actions";
+    badges.className = "profile-state-row";
     const enableBadge = document.createElement("span");
     enableBadge.className = `badge ${item.enable ? "ok" : "warn"}`;
     enableBadge.textContent = item.enable ? "启用" : "停用";
-    const pinBadge = document.createElement("span");
-    pinBadge.className = `badge profile-pin-badge ${item.pinned ? "ok" : ""}`;
-    pinBadge.textContent = item.pinned ? "已 Pin" : "未 Pin";
     const avatarBadge = document.createElement("span");
-    avatarBadge.className = `badge profile-avatar-badge ${item.avatar_path ? "ok" : ""}`;
-    avatarBadge.textContent = item.avatar_path ? "有头像" : "无头像";
+    avatarBadge.className = `badge profile-avatar-badge ${item.avatar_path ? "ok" : "warn"}`;
+    avatarBadge.textContent = item.avatar_path ? "头像" : "待头像";
     const displayBadge = document.createElement("span");
     displayBadge.className = "badge profile-display-badge";
-    displayBadge.textContent = item.pinned ? "展示: Pin" : item.avatar_path ? "展示: AI" : "展示: 媒体";
+    displayBadge.textContent = item.pinned
+      ? "固定媒体"
+      : item.avatar_path
+        ? "展示头像"
+        : item.media_path
+          ? "媒体"
+          : "无预览";
     badges.appendChild(enableBadge);
-    badges.appendChild(pinBadge);
     badges.appendChild(avatarBadge);
     badges.appendChild(displayBadge);
 
     titleRow.appendChild(name);
-    titleRow.appendChild(badges);
 
     const url = document.createElement("div");
     url.className = "profile-url";
@@ -2805,20 +3804,83 @@ function renderAccountBoard(items) {
       ? `目录: ${item.folder_path}`
       : "目录: (未匹配)";
 
+    const activity = document.createElement("div");
+    activity.className = "profile-activity";
+    activity.dataset.state = item.last_status || "never";
+    if (item.last_error) {
+      activity.title = item.last_error;
+    }
+    const latestLine = document.createElement("span");
+    latestLine.className = "profile-latest-line";
+    const latestLabel = document.createElement("span");
+    latestLabel.className = "profile-activity-label";
+    latestLabel.textContent = "最新";
+    const latestValue = document.createElement("strong");
+    latestValue.className = "profile-latest-full";
+    latestValue.textContent = formatBoardDate(item.latest_work_at);
+    const latestShortValue = document.createElement("strong");
+    latestShortValue.className = "profile-latest-short";
+    latestShortValue.textContent = item.latest_work_at
+      ? formatBoardDate(item.latest_work_at).slice(0, 10)
+      : "暂无记录";
+    latestLine.appendChild(latestLabel);
+    latestLine.appendChild(latestValue);
+    latestLine.appendChild(latestShortValue);
+    if (item.latest_work_source === "filename") {
+      const source = document.createElement("span");
+      source.className = "profile-latest-source";
+      source.textContent = "文件索引";
+      latestLine.appendChild(source);
+    }
+    const checkedLine = document.createElement("span");
+    checkedLine.className = "profile-check-line";
+    const statusLabel =
+      item.last_status === "success"
+        ? `最近爬取成功 · 处理 ${Number(item.last_item_count || 0)} 项`
+        : item.last_status === "failed"
+          ? "最近爬取失败"
+          : "尚无任务记录";
+    checkedLine.textContent = item.last_checked_at
+      ? `${statusLabel} · ${formatBoardDate(item.last_checked_at)}`
+      : statusLabel;
+    activity.appendChild(latestLine);
+    activity.appendChild(checkedLine);
+
     const actions = document.createElement("div");
     actions.className = "profile-actions";
     actions.innerHTML = `
-      <button class="btn ghost" type="button" data-action="board-open-account">打开主页</button>
-      <button class="btn ghost" type="button" data-action="board-open-files">文件浏览</button>
-      <button class="btn ghost" type="button" data-action="board-refresh-media">刷新媒体</button>
-      <button class="btn ghost" type="button" data-action="board-refresh-video">刷视频</button>
-      <button class="btn ghost" type="button" data-action="board-generate-avatar">AI 头像</button>
-      <button class="btn ghost" type="button" data-action="board-pin-media">Pin</button>
+      <button class="btn ghost profile-action-primary" type="button" data-action="board-open-files">
+        <i data-lucide="folder-open" aria-hidden="true"></i><span>文件</span>
+      </button>
+      <button class="btn ghost profile-action-primary" type="button" data-action="board-refresh-media">
+        <i data-lucide="refresh-cw" aria-hidden="true"></i><span>更新</span>
+      </button>
+      <details class="profile-actions-menu">
+        <summary class="btn ghost profile-more-btn" role="button" aria-haspopup="menu" aria-label="更多账户操作" title="更多账户操作">
+          <i data-lucide="ellipsis" aria-hidden="true"></i>
+        </summary>
+        <div class="profile-actions-popover" role="menu">
+          <button class="profile-menu-item" type="button" role="menuitem" data-action="board-open-account">
+            <i data-lucide="external-link" aria-hidden="true"></i><span>打开主页</span>
+          </button>
+          <button class="profile-menu-item" type="button" role="menuitem" data-action="board-refresh-video">
+            <i data-lucide="video" aria-hidden="true"></i><span>仅刷新视频</span>
+          </button>
+          <button class="profile-menu-item" type="button" role="menuitem" data-action="board-generate-avatar">
+            <i data-lucide="image-plus" aria-hidden="true"></i><span>处理头像</span>
+          </button>
+          <button class="profile-menu-item" type="button" role="menuitem" data-action="board-pin-media">
+            <i data-lucide="pin" aria-hidden="true"></i><span>固定当前媒体</span>
+          </button>
+        </div>
+      </details>
     `;
 
     body.appendChild(titleRow);
+    body.appendChild(badges);
     body.appendChild(url);
     body.appendChild(folder);
+    body.appendChild(activity);
     body.appendChild(actions);
 
     card.appendChild(mediaWrap);
@@ -2827,6 +3889,7 @@ function renderAccountBoard(items) {
     fragment.appendChild(card);
   }
   refs.boardGrid.appendChild(fragment);
+  refreshIcons(refs.boardGrid);
 }
 
 async function loadAccountBoard(resetPage = false) {
@@ -2838,12 +3901,18 @@ async function loadAccountBoard(resetPage = false) {
   }
   state.accountBoard.platform = refs.boardPlatform.value || "douyin";
   state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
+  state.accountBoard.search = refs.boardSearch?.value.trim() || "";
+  state.accountBoard.status = refs.boardStatusFilter?.value || "all";
+  state.accountBoard.sort = refs.boardSort?.value || "configured";
   setBoardStatus("正在加载账户媒体看板…");
   try {
     const query = new URLSearchParams({
       platform: state.accountBoard.platform,
       page: String(state.accountBoard.page),
       page_size: String(state.accountBoard.pageSize),
+      search: state.accountBoard.search,
+      status: state.accountBoard.status,
+      sort: state.accountBoard.sort,
     });
     const payload = await fetchJson(`/ui/api/accounts/board?${query.toString()}`, {
       method: "GET",
@@ -2853,6 +3922,9 @@ async function loadAccountBoard(resetPage = false) {
     state.accountBoard.pageSize = Number(payload.page_size || state.accountBoard.pageSize);
     state.accountBoard.pages = Number(payload.pages || 1);
     state.accountBoard.total = Number(payload.total || 0);
+    state.accountBoard.unfilteredTotal = Number(
+      payload.unfiltered_total ?? state.accountBoard.total,
+    );
     refs.boardPrevBtn.disabled = state.accountBoard.page <= 1;
     refs.boardNextBtn.disabled = state.accountBoard.page >= state.accountBoard.pages;
     updateBoardMeta();
@@ -4391,6 +5463,9 @@ function syncScheduleIdentityOverrides() {
     refs.scheduleIdentityHelp,
     "该定时任务",
   );
+  refs.scheduleIdentityHelp.textContent = `${
+    refs.scheduleIdentityHelp.textContent || ""
+  } 身份异常策略只针对已配置或已路由身份；普通无 Cookie 采集不会触发暂停。`;
 }
 
 function syncWorkflowDetailIdentityOverrides() {
@@ -4632,6 +5707,14 @@ function schedulePayloadFromForm() {
     cookie: identityId ? "" : refs.scheduleCookie.value.trim(),
     proxy: identityId ? "" : refs.scheduleProxy.value.trim(),
     uptime_kuma_url: refs.scheduleUptimeKumaUrl?.value.trim(),
+    bark_url: refs.scheduleBarkUrl?.value.trim(),
+    overlap_policy: refs.scheduleOverlapPolicy?.value || "wait",
+    identity_failure_action: refs.scheduleIdentityFailureAction?.value || "continue",
+    identity_failure_threshold: Math.max(
+      1,
+      Math.min(Number(refs.scheduleIdentityFailureThreshold?.value || 3), 20),
+    ),
+    notify_on_identity_failure: Boolean(refs.scheduleNotifyIdentityFailure?.checked),
     enabled: true,
   };
 }
@@ -4665,6 +5748,16 @@ function renderScheduleList(items) {
     const scheduleId = String(item.schedule_id || "");
     const hour = Number.isFinite(Number(item.hour)) ? Number(item.hour) : 0;
     const minute = Number.isFinite(Number(item.minute)) ? Number(item.minute) : 0;
+    const overlapLabels = {
+      wait: "等待上次完成",
+      skip: "重叠时跳过",
+      allow: "允许并行",
+    };
+    const overlapLabel = overlapLabels[item.overlap_policy] || overlapLabels.wait;
+    const identityFailureLabel =
+      item.identity_failure_action === "pause"
+        ? `身份连续失败 ${Number(item.identity_failure_threshold || 3)} 次时暂停`
+        : "身份异常时继续";
     const row = document.createElement("div");
     row.className = "task-row";
     row.innerHTML = `
@@ -4678,7 +5771,11 @@ function renderScheduleList(items) {
     )}</span>
         <span class="task-time">每日 ${String(hour).padStart(2, "0")}:${String(
       minute,
-    ).padStart(2, "0")} · 身份 ${escapeHtml(collectorIdentityReferenceLabel(item.identity_id))} · 下次 ${escapeHtml(
+    ).padStart(2, "0")} · ${escapeHtml(overlapLabel)} · ${escapeHtml(
+      identityFailureLabel,
+    )} · 身份 ${escapeHtml(
+      collectorIdentityReferenceLabel(item.identity_id),
+    )} · 最近任务 ${escapeHtml(item.last_task_id || "-")} · 下次 ${escapeHtml(
       item.next_run_at || "-",
     )}</span>
       </div>
@@ -4764,7 +5861,15 @@ async function runScheduleNow(scheduleId) {
       method: "POST",
       headers: headerOptions(false),
     });
-    refs.scheduleStatus.textContent = `已触发执行: ${scheduleId}`;
+    if (result.overlap_action === "enqueue") {
+      refs.scheduleStatus.textContent = `已触发执行: ${result.task?.task_id || scheduleId}`;
+    } else if (result.overlap_action === "skip") {
+      refs.scheduleStatus.textContent = `已有任务 ${result.task?.task_id || "-"}，本次已跳过`;
+    } else {
+      refs.scheduleStatus.textContent = `已有任务 ${
+        result.task?.task_id || "-"
+      }，未创建重复任务`;
+    }
     if (result?.task) {
       renderTaskResult(result.task);
       await loadTaskList();
@@ -4989,6 +6094,8 @@ function formatWorkflowAccountSummary(task) {
 const TASK_STATUS_LABELS = {
   pending: "排队中",
   running: "执行中",
+  pausing: "暂停中",
+  paused: "已暂停",
   canceling: "取消中",
   canceled: "已取消",
   success: "成功",
@@ -4998,6 +6105,129 @@ const TASK_STATUS_LABELS = {
 function taskStatusLabel(status) {
   const normalized = String(status || "");
   return TASK_STATUS_LABELS[normalized] || normalized || "未知";
+}
+
+function normalizeTaskProgress(task) {
+  const progress = task?.progress && typeof task.progress === "object" ? task.progress : {};
+  const total = Math.max(0, Number(progress.total || 0));
+  const current = Math.max(0, Math.min(total || Number.MAX_SAFE_INTEGER, Number(progress.current || 0)));
+  const percent = total
+    ? Math.max(0, Math.min(100, Number(progress.percent ?? Math.round((current * 100) / total))))
+    : 0;
+  return {
+    current,
+    total,
+    percent,
+    success: Math.max(0, Number(progress.success || 0)),
+    failed: Math.max(0, Number(progress.failed || 0)),
+    skipped: Math.max(0, Number(progress.skipped || 0)),
+    label: String(progress.label || ""),
+  };
+}
+
+function renderTaskProgress(task) {
+  const progress = normalizeTaskProgress(task);
+  const visible = progress.total > 0;
+  refs.taskProgressBlock.hidden = !visible;
+  if (!visible) {
+    return;
+  }
+  refs.taskProgress.value = progress.percent;
+  refs.taskProgress.textContent = `${progress.percent}%`;
+  refs.taskProgressLabel.textContent = progress.label || taskStatusLabel(task.status);
+  refs.taskProgressValue.textContent = `${progress.current} / ${progress.total}`;
+  refs.taskProgressMeta.textContent = `成功 ${progress.success} · 失败 ${progress.failed} · 跳过 ${progress.skipped} · ${progress.percent}%`;
+}
+
+const TASK_ACCOUNT_STATUS_LABELS = {
+  pending: "等待",
+  running: "执行中",
+  success: "成功",
+  failed: "失败",
+  skipped: "跳过",
+};
+
+function renderTaskAccountSummary(task) {
+  const isAccountBatch = String(task?.endpoint || "").endsWith("/account_batch");
+  refs.taskAccountCheckpoints.hidden = !isAccountBatch;
+  if (!isAccountBatch) {
+    refs.taskAccountList.innerHTML = "";
+    return;
+  }
+  const summary =
+    task?.account_summary && typeof task.account_summary === "object"
+      ? task.account_summary
+      : {};
+  const total = Number(summary.total || 0);
+  refs.taskAccountSummary.textContent = total
+    ? `共 ${total} · 成功 ${Number(summary.success || 0)} · 失败 ${Number(
+        summary.failed || 0,
+      )} · 等待 ${Number(summary.pending || 0)}`
+    : "任务开始后生成账号快照";
+}
+
+function renderTaskAccounts(payload) {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  refs.taskAccountList.innerHTML = "";
+  if (!items.length) {
+    refs.taskAccountList.innerHTML =
+      '<div class="empty-state">当前任务还没有账号检查点。</div>';
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const account of items) {
+    const row = document.createElement("div");
+    const status = String(account.status || "pending");
+    const item = account.item && typeof account.item === "object" ? account.item : {};
+    row.className = "task-account-row";
+    row.innerHTML = `
+      <span class="task-status ${escapeHtml(status)}">${escapeHtml(
+        TASK_ACCOUNT_STATUS_LABELS[status] || status,
+      )}</span>
+      <span class="task-account-position">#${Number(account.position || 0)}</span>
+      <span class="task-account-name">${escapeHtml(item.mark || item.url || "未命名账号")}</span>
+      <span class="task-account-reason">${escapeHtml(
+        account.reason || account.identity_id || "",
+      )}</span>
+    `;
+    fragment.appendChild(row);
+  }
+  refs.taskAccountList.appendChild(fragment);
+}
+
+async function loadTaskAccounts(taskId = state.selectedTaskId) {
+  if (!taskId || state.taskAccountsLoading) {
+    return;
+  }
+  state.taskAccountsLoading = true;
+  refs.taskAccountList.setAttribute("aria-busy", "true");
+  refs.taskAccountList.innerHTML = '<div class="loading-state">正在加载账号检查点…</div>';
+  try {
+    const payload = await fetchJson(
+      `/ui/api/tasks/${encodeURIComponent(taskId)}/accounts?limit=100`,
+      {
+        method: "GET",
+        headers: headerOptions(false),
+      },
+    );
+    if (state.selectedTaskId !== taskId) {
+      return;
+    }
+    renderTaskAccounts(payload);
+    const summary = payload?.summary || {};
+    refs.taskAccountSummary.textContent = `共 ${Number(
+      summary.total || 0,
+    )} · 成功 ${Number(summary.success || 0)} · 失败 ${Number(
+      summary.failed || 0,
+    )} · 等待 ${Number(summary.pending || 0)}`;
+  } catch (error) {
+    refs.taskAccountList.innerHTML = `<div class="error-state">检查点加载失败：${escapeHtml(
+      error.message,
+    )}</div>`;
+  } finally {
+    state.taskAccountsLoading = false;
+    refs.taskAccountList.setAttribute("aria-busy", "false");
+  }
 }
 
 function syncSelectedTaskRow() {
@@ -5022,6 +6252,8 @@ function renderTaskResult(task) {
   }`;
   refs.taskStatus.textContent =
     task.message || task.error || `任务状态：${taskStatusLabel(status)}`;
+  renderTaskProgress(task);
+  renderTaskAccountSummary(task);
   if (["failed", "canceled"].includes(status)) {
     refs.taskStatus.dataset.state = "error";
   } else if (status === "success") {
@@ -5066,7 +6298,14 @@ async function taskControl(taskId, action) {
     await loadTaskList();
     setApiStatus("就绪", "ok");
   } catch (error) {
-    const actionLabel = action === "cancel" ? "取消" : "重试";
+    const actionLabel =
+      {
+        pause: "暂停",
+        resume: "继续",
+        cancel: "取消",
+        retry: "重试",
+        "retry-failed": "仅重试失败账号",
+      }[action] || "操作";
     refs.taskStatus.textContent = `${actionLabel}失败：${error.message}`;
     refs.taskStatus.dataset.state = "error";
     setApiStatus(`异常: ${error.message}`, "error");
@@ -5117,6 +6356,18 @@ function renderTaskList(items) {
       <span class="task-endpoint">${escapeHtml(task.endpoint || "-")}</span>
       <span class="task-time">${escapeHtml(task.updated_at || task.created_at || "")}</span>
     `;
+    const progress = normalizeTaskProgress(task);
+    if (progress.total > 0) {
+      const progressRow = document.createElement("span");
+      progressRow.className = "task-row-progress";
+      progressRow.innerHTML = `
+        <span class="task-row-progress-track" aria-hidden="true">
+          <span style="width: ${progress.percent}%"></span>
+        </span>
+        <span>${progress.current}/${progress.total}</span>
+      `;
+      main.appendChild(progressRow);
+    }
     main.addEventListener("click", () => {
       renderTaskResult(task);
     });
@@ -5134,7 +6385,32 @@ function renderTaskList(items) {
     });
     actions.appendChild(viewBtn);
 
-    if (["pending", "running"].includes(taskStatus)) {
+    if (taskStatus === "running" && task.pause_supported) {
+      const pauseBtn = document.createElement("button");
+      pauseBtn.type = "button";
+      pauseBtn.className = "btn ghost";
+      pauseBtn.dataset.taskAction = "pause";
+      pauseBtn.textContent = "暂停";
+      pauseBtn.title = "当前账号完成后安全暂停";
+      pauseBtn.addEventListener("click", () => {
+        withBusyButton(pauseBtn, "暂停中", () => taskControl(task.task_id, "pause"));
+      });
+      actions.appendChild(pauseBtn);
+    }
+
+    if (["pausing", "paused"].includes(taskStatus)) {
+      const resumeBtn = document.createElement("button");
+      resumeBtn.type = "button";
+      resumeBtn.className = "btn ghost";
+      resumeBtn.dataset.taskAction = "resume";
+      resumeBtn.textContent = "继续";
+      resumeBtn.addEventListener("click", () => {
+        withBusyButton(resumeBtn, "继续中", () => taskControl(task.task_id, "resume"));
+      });
+      actions.appendChild(resumeBtn);
+    }
+
+    if (["pending", "running", "pausing", "paused"].includes(taskStatus)) {
       const cancelBtn = document.createElement("button");
       cancelBtn.type = "button";
       cancelBtn.className = "btn ghost";
@@ -5157,11 +6433,28 @@ function renderTaskList(items) {
       retryBtn.type = "button";
       retryBtn.className = "btn ghost";
       retryBtn.dataset.taskAction = "retry";
-      retryBtn.textContent = "重试";
+      retryBtn.textContent = "全部重试";
       retryBtn.addEventListener("click", () => {
         withBusyButton(retryBtn, "重试中", () => taskControl(task.task_id, "retry"));
       });
       actions.appendChild(retryBtn);
+    }
+    const failedCheckpoints = Number(task?.account_summary?.failed || 0);
+    if (
+      failedCheckpoints > 0 &&
+      ["success", "failed", "canceled"].includes(taskStatus)
+    ) {
+      const retryFailedBtn = document.createElement("button");
+      retryFailedBtn.type = "button";
+      retryFailedBtn.className = "btn ghost";
+      retryFailedBtn.dataset.taskAction = "retry-failed";
+      retryFailedBtn.textContent = `重试失败项 (${failedCheckpoints})`;
+      retryFailedBtn.addEventListener("click", () => {
+        withBusyButton(retryFailedBtn, "创建中", () =>
+          taskControl(task.task_id, "retry-failed"),
+        );
+      });
+      actions.appendChild(retryFailedBtn);
     }
 
     row.appendChild(status);
@@ -5220,8 +6513,10 @@ async function loadTaskList() {
     const counts = items.reduce(
       (summary, task) => {
         const status = String(task.status || "");
-        if (["pending", "running", "canceling"].includes(status)) {
+        if (["pending", "running", "pausing", "canceling"].includes(status)) {
           summary.active += 1;
+        } else if (status === "paused") {
+          summary.paused += 1;
         } else if (status === "success") {
           summary.success += 1;
         } else if (["failed", "canceled"].includes(status)) {
@@ -5229,11 +6524,11 @@ async function loadTaskList() {
         }
         return summary;
       },
-      { active: 0, success: 0, failed: 0 },
+      { active: 0, paused: 0, success: 0, failed: 0 },
     );
     refs.taskQueueMeta.textContent = `任务: ${payload?.count ?? items.length} · 进行中 ${
       counts.active
-    } · 成功 ${counts.success} · 失败/取消 ${counts.failed}`;
+    } · 已暂停 ${counts.paused} · 成功 ${counts.success} · 失败/取消 ${counts.failed}`;
     if (state.selectedTaskId) {
       const selected = items.find((item) => item.task_id === state.selectedTaskId);
       if (selected) {
@@ -5265,6 +6560,12 @@ async function copyTaskResult() {
 }
 
 function bindEvents() {
+  refs.sidebarToggleBtn?.addEventListener("click", () => {
+    const collapsed = !document.querySelector(".app-shell")?.classList.contains("sidebar-collapsed");
+    applySidebarCollapsed(collapsed);
+    window.requestAnimationFrame(() => applyBoardColumns(false));
+  });
+
   refs.tabButtons.forEach((button, index) => {
     button.addEventListener("click", () => {
       switchTab(button.dataset.tabTarget || "workbench");
@@ -5292,8 +6593,27 @@ function bindEvents() {
 
   refs.applyTokenBtn.addEventListener("click", () => {
     withBusyButton(refs.applyTokenBtn, "应用中", async () => {
-      state.token = refs.tokenInput.value.trim();
-      setApiStatus("令牌已应用", "ok");
+      const nextToken = refs.tokenInput.value.trim();
+      state.token = nextToken;
+      try {
+        if (nextToken) {
+          await establishWebUiSession();
+        } else {
+          await clearWebUiSession();
+        }
+      } catch (error) {
+        setApiStatus(`令牌验证失败: ${error.message}`, "error");
+        return;
+      }
+      const persisted = persistToken(nextToken);
+      setApiStatus(
+        nextToken
+          ? persisted
+            ? "令牌已验证并保存"
+            : "令牌已验证（浏览器未允许保存）"
+          : "令牌与浏览器会话已清除",
+        "ok",
+      );
       await Promise.allSettled([
         loadSettings(),
         loadRawSettings(),
@@ -5348,9 +6668,32 @@ function bindEvents() {
     withBusyButton(refs.settingsRawSaveBtn, "保存中", saveRawSettings);
   });
 
+  refs.settingsRawScope.addEventListener("change", () => {
+    renderRawSettingsSource();
+    refs.settingsRawStatus.textContent = "已切换编辑范围；未显示的字段保存时保持不变";
+  });
+
+  refs.settingsRawIncludeSecrets.addEventListener("change", () => {
+    withBusyButton(refs.settingsRawLoadBtn, "加载中", loadRawSettings);
+  });
+
+  refs.settingsRawSearchBtn.addEventListener("click", searchRawSettings);
+  refs.settingsRawSearch.addEventListener("input", () => {
+    refs.settingsRawEditor.dataset.searchIndex = "0";
+  });
+  refs.settingsRawSearch.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      searchRawSettings();
+    }
+  });
+  refs.settingsRawEditor.addEventListener("input", updateRawEditorMeta);
+  refs.settingsRawWrapBtn.addEventListener("click", toggleRawEditorWrap);
+
   refs.settingsAuthLoadBtn.addEventListener("click", () => {
-    syncQuickAuthEditors(state.settingsData);
-    refs.settingsAuthStatus.textContent = "已从当前配置载入登录信息";
+    syncQuickAuthEditors(
+      Object.keys(state.rawSettingsSource).length ? state.rawSettingsSource : state.settingsData,
+    );
   });
 
   refs.settingsAuthApplyBtn.addEventListener("click", () => {
@@ -5411,6 +6754,9 @@ function bindEvents() {
         checkedFields.has(field) ? target.checked : target.value,
         section,
       );
+      if (field === "selected") {
+        renderAccountPager(platform, section);
+      }
     });
 
     body.addEventListener("change", (event) => {
@@ -5456,11 +6802,12 @@ function bindEvents() {
         setSelectionAnchor(platform, section, index);
         return;
       }
-      const action = target.dataset.action;
+      const actionTarget = target.closest("[data-action]");
+      const action = actionTarget?.dataset.action;
       if (!action) {
         return;
       }
-      const row = target.closest("tr");
+      const row = actionTarget.closest("tr");
       if (!row) {
         return;
       }
@@ -5495,6 +6842,8 @@ function bindEvents() {
 
   const bindSearch = (input, platform) => {
     input.addEventListener("input", () => {
+      accountPaginationState(platform, "active").page = 1;
+      accountPaginationState(platform, "deleted").page = 1;
       renderAccountRows(platform);
       renderDeletedRows(platform);
     });
@@ -5664,8 +7013,69 @@ function bindEvents() {
     });
   });
 
+  refs.deletedDouyinPurgeSelectedBtn.addEventListener("click", (event) => {
+    openDeletedAccountsDialog("douyin", "selected", event.currentTarget);
+  });
+  refs.deletedDouyinPurgeAllBtn.addEventListener("click", (event) => {
+    openDeletedAccountsDialog("douyin", "all", event.currentTarget);
+  });
+  refs.deletedTikTokPurgeSelectedBtn.addEventListener("click", (event) => {
+    openDeletedAccountsDialog("tiktok", "selected", event.currentTarget);
+  });
+  refs.deletedTikTokPurgeAllBtn.addEventListener("click", (event) => {
+    openDeletedAccountsDialog("tiktok", "all", event.currentTarget);
+  });
+  refs.deletedAccountsDialogCloseBtn.addEventListener("click", () => {
+    closeDeletedAccountsDialog();
+  });
+  refs.deletedAccountsDialogCancelBtn.addEventListener("click", () => {
+    closeDeletedAccountsDialog();
+  });
+  refs.deletedAccountsDialogConfirmBtn.addEventListener("click", () => {
+    confirmDeletedAccountsPurge();
+  });
+  refs.deletedAccountsDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeDeletedAccountsDialog();
+  });
+  refs.deletedAccountsDialog.addEventListener("click", (event) => {
+    if (event.target === refs.deletedAccountsDialog) {
+      closeDeletedAccountsDialog();
+    }
+  });
+
   refs.boardPlatform.addEventListener("change", () => {
     state.accountBoard.platform = refs.boardPlatform.value || "douyin";
+    state.accountBoard.page = 1;
+    loadAccountBoard(true);
+  });
+
+  refs.boardSearch.addEventListener("input", () => {
+    state.accountBoard.search = refs.boardSearch.value.trim();
+    state.accountBoard.page = 1;
+    window.clearTimeout(state.accountBoard.searchTimer);
+    state.accountBoard.searchTimer = window.setTimeout(() => {
+      loadAccountBoard(true);
+    }, 260);
+  });
+
+  refs.boardSearchClearBtn.addEventListener("click", () => {
+    window.clearTimeout(state.accountBoard.searchTimer);
+    refs.boardSearch.value = "";
+    state.accountBoard.search = "";
+    state.accountBoard.page = 1;
+    loadAccountBoard(true);
+    refs.boardSearch.focus();
+  });
+
+  refs.boardStatusFilter.addEventListener("change", () => {
+    state.accountBoard.status = refs.boardStatusFilter.value || "all";
+    state.accountBoard.page = 1;
+    loadAccountBoard(true);
+  });
+
+  refs.boardSort.addEventListener("change", () => {
+    state.accountBoard.sort = refs.boardSort.value || "configured";
     state.accountBoard.page = 1;
     loadAccountBoard(true);
   });
@@ -5736,6 +7146,7 @@ function bindEvents() {
       return;
     }
     const action = actionButton.dataset.action || "";
+    actionButton.closest(".profile-actions-menu")?.removeAttribute("open");
     if (action === "board-open-account") {
       openUrls([card.dataset.url || ""]);
       return;
@@ -5753,11 +7164,32 @@ function bindEvents() {
       return;
     }
     if (action === "board-generate-avatar") {
-      generateBoardCardAvatar(card);
+      enqueueBoardAvatarBatch([card.dataset.url || ""], "单个账户");
       return;
     }
     if (action === "board-pin-media") {
       pinBoardCard(card);
+    }
+  });
+
+  refs.boardGrid.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    const menu = event.target.closest(".profile-actions-menu[open]");
+    if (!(menu instanceof HTMLDetailsElement)) {
+      return;
+    }
+    event.preventDefault();
+    menu.removeAttribute("open");
+    menu.querySelector("summary")?.focus();
+  });
+
+  document.addEventListener("click", (event) => {
+    for (const menu of refs.boardGrid.querySelectorAll(".profile-actions-menu[open]")) {
+      if (!menu.contains(event.target)) {
+        menu.removeAttribute("open");
+      }
     }
   });
 
@@ -5779,31 +7211,71 @@ function bindEvents() {
 
   refs.filesScope.addEventListener("change", () => {
     state.currentScope = refs.filesScope.value;
-    state.currentPath = "";
-    refs.filesPath.value = "";
-    loadFiles();
+    navigateToFilePath("");
   });
 
   refs.filesSearch.addEventListener("input", () => {
     state.fileSearch = refs.filesSearch.value || "";
-    renderFiles();
-    updateFilesAccountContext();
-    refs.filesMeta.textContent = `scope=${state.currentScope} · path=/${state.currentPath || ""} · ${
-      filteredFileEntries().length
-    }/${state.fileEntries.length} 项`;
+    state.filePage = 1;
+    window.clearTimeout(state.fileSearchTimer);
+    state.fileSearchTimer = window.setTimeout(() => {
+      loadFiles();
+    }, 260);
+  });
+
+  refs.filesSearchClearBtn.addEventListener("click", () => {
+    window.clearTimeout(state.fileSearchTimer);
+    state.fileSearch = "";
+    state.filePage = 1;
+    refs.filesSearch.value = "";
+    loadFiles();
+    refs.filesSearch.focus();
+  });
+
+  refs.filesPageSize.addEventListener("change", () => {
+    state.filePageSize = Number(refs.filesPageSize.value) || 24;
+    state.filePage = 1;
+    loadFiles();
+  });
+
+  refs.filesPrevBtn.addEventListener("click", () => {
+    if (state.filePage <= 1) {
+      return;
+    }
+    state.filePage -= 1;
+    loadFiles();
+  });
+
+  refs.filesNextBtn.addEventListener("click", () => {
+    if (state.filePage >= state.filePages) {
+      return;
+    }
+    state.filePage += 1;
+    loadFiles();
   });
 
   refs.filesOpenBtn.addEventListener("click", () => {
     withBusyButton(refs.filesOpenBtn, "打开中", async () => {
-      state.currentPath = refs.filesPath.value.trim();
-      await loadFiles();
+      await navigateToFilePath(refs.filesPath.value.trim());
     });
   });
 
+  refs.filesPath.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    refs.filesOpenBtn.click();
+  });
+
+  refs.filesHomeBtn.addEventListener("click", () => {
+    navigateToFilePath("");
+  });
+
   refs.filesUpBtn.addEventListener("click", () => {
-    state.currentPath = parentPath(state.currentPath);
-    refs.filesPath.value = state.currentPath;
-    loadFiles();
+    navigateToFilePath(state.currentParentPath || parentPath(state.currentPath), {
+      focusAfterLoad: true,
+    });
   });
 
   refs.filesRefreshBtn.addEventListener("click", () => {
@@ -5812,6 +7284,39 @@ function bindEvents() {
 
   refs.filesStatsRefreshBtn.addEventListener("click", () => {
     withBusyButton(refs.filesStatsRefreshBtn, "统计中", loadFileStats);
+  });
+
+  refs.fileLightboxCloseBtn.addEventListener("click", () => {
+    closeFileLightbox();
+  });
+
+  refs.fileLightboxPrevBtn.addEventListener("click", () => {
+    moveFileLightbox(-1);
+  });
+
+  refs.fileLightboxNextBtn.addEventListener("click", () => {
+    moveFileLightbox(1);
+  });
+
+  refs.fileLightbox.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeFileLightbox();
+  });
+
+  refs.fileLightbox.addEventListener("click", (event) => {
+    if (event.target === refs.fileLightbox) {
+      closeFileLightbox();
+    }
+  });
+
+  refs.fileLightbox.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      moveFileLightbox(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      moveFileLightbox(1);
+    }
   });
 
   refs.shareResolveBtn.addEventListener("click", () => {
@@ -6060,6 +7565,16 @@ function bindEvents() {
     withBusyButton(refs.taskQueueRefreshBtn, "刷新中", loadTaskList);
   });
 
+  refs.taskAccountCheckpoints.addEventListener("toggle", () => {
+    if (refs.taskAccountCheckpoints.open) {
+      loadTaskAccounts();
+    }
+  });
+
+  refs.taskAccountRefreshBtn.addEventListener("click", () => {
+    withBusyButton(refs.taskAccountRefreshBtn, "刷新中", () => loadTaskAccounts());
+  });
+
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && state.activeTab === "workbench") {
       loadTaskList();
@@ -6068,6 +7583,7 @@ function bindEvents() {
 
   window.addEventListener("resize", () => {
     applyBoardColumns(false);
+    scheduleFileMasonryLayout();
     syncTabOrientation();
   });
 }
@@ -6094,7 +7610,11 @@ function startTaskPolling() {
   }, 2000);
 }
 
-function bootstrap() {
+async function bootstrap() {
+  state.token = readStoredToken();
+  refs.tokenInput.value = state.token;
+  refreshIcons(document);
+  applySidebarCollapsed(readStoredBoolean(SIDEBAR_COLLAPSE_STORAGE_KEY), false);
   bindEvents();
   syncWorkflowAccountIdentityOverrides();
   syncScheduleIdentityOverrides();
@@ -6106,6 +7626,9 @@ function bootstrap() {
   state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
   state.accountBoard.refreshKind = refs.boardRefreshKind.value || "auto";
   state.accountBoard.viewMode = refs.boardViewMode?.value || "avatar";
+  state.accountBoard.search = refs.boardSearch?.value.trim() || "";
+  state.accountBoard.status = refs.boardStatusFilter?.value || "all";
+  state.accountBoard.sort = refs.boardSort?.value || "configured";
   try {
     state.accountBoard.columns = Number(localStorage.getItem(BOARD_COLUMNS_STORAGE_KEY) || "4");
   } catch {
@@ -6124,6 +7647,7 @@ function bootstrap() {
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
   state.fileSearch = refs.filesSearch?.value || "";
+  state.filePageSize = Number(refs.filesPageSize?.value || "24");
   updateFilesAccountContext();
   try {
     state.showDebugLogs = localStorage.getItem(LOG_DEBUG_STORAGE_KEY) === "1";
@@ -6151,6 +7675,14 @@ function bootstrap() {
   syncCollectorIdentitySelectors();
   syncWorkflowDetailInputState();
   loadTaskTemplate();
+  if (state.token) {
+    try {
+      await establishWebUiSession();
+      setApiStatus("已恢复保存的令牌", "ok");
+    } catch (error) {
+      setApiStatus(`保存的令牌无效: ${error.message}`, "error");
+    }
+  }
   connectLogSocket();
   startLogFallbackPolling();
   startTaskPolling();
@@ -6166,6 +7698,6 @@ function bootstrap() {
   loadCollectorAssignments(refs.collectorAssignmentPlatform.value);
 }
 
-bootstrap();
+void bootstrap();
 
 export {};

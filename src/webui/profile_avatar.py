@@ -38,32 +38,82 @@ def _load_rgb_array(path: Path):
 
 
 def _extract_video_frame(path: Path) -> Path:
+    frames = _extract_video_frames(path, frame_count=1)
+    return frames[0]
+
+
+def _video_duration(path: Path) -> float:
+    ffprobe = which("ffprobe")
+    if not ffprobe:
+        return 0.0
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    try:
+        result = run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return max(0.0, float(result.stdout.strip() or 0))
+    except (CalledProcessError, TypeError, ValueError):
+        return 0.0
+
+
+def _extract_video_frames(path: Path, frame_count: int = 4) -> list[Path]:
     ffmpeg = which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("处理视频头像需要 ffmpeg，请先安装 ffmpeg。")
-    with NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-        frame_path = Path(tmp.name)
-    command = [
-        ffmpeg,
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        str(path),
-        "-frames:v",
-        "1",
-        str(frame_path),
-    ]
-    try:
-        run(command, check=True, stdout=DEVNULL, stderr=DEVNULL)
-    except CalledProcessError as error:
-        frame_path.unlink(missing_ok=True)
-        raise RuntimeError("视频首帧提取失败，无法生成人脸头像。") from error
-    if not frame_path.exists() or frame_path.stat().st_size <= 0:
-        frame_path.unlink(missing_ok=True)
-        raise RuntimeError("视频首帧为空，无法生成人脸头像。")
-    return frame_path
+    count = max(1, min(int(frame_count or 1), 8))
+    duration = _video_duration(path)
+    if duration > 0.5 and count > 1:
+        ratios = (0.12, 0.35, 0.58, 0.82)
+        timestamps = [duration * ratio for ratio in ratios[:count]]
+    else:
+        timestamps = [0.0]
+
+    frames = []
+    for timestamp in timestamps:
+        with NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            frame_path = Path(tmp.name)
+        command = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+        ]
+        if timestamp > 0:
+            command.extend(["-ss", f"{timestamp:.3f}"])
+        command.extend(
+            [
+                "-i",
+                str(path),
+                "-frames:v",
+                "1",
+                str(frame_path),
+            ]
+        )
+        try:
+            run(command, check=True, stdout=DEVNULL, stderr=DEVNULL)
+        except CalledProcessError:
+            frame_path.unlink(missing_ok=True)
+            continue
+        if not frame_path.exists() or frame_path.stat().st_size <= 0:
+            frame_path.unlink(missing_ok=True)
+            continue
+        frames.append(frame_path)
+    if not frames:
+        raise RuntimeError("视频抽帧失败，无法生成人脸头像。")
+    return frames
 
 
 def _resolve_mediapipe_face_model_path() -> Path | None:
@@ -385,6 +435,23 @@ def _save_face_crop(
         avatar.save(output_path, format="JPEG", quality=92, optimize=True)
 
 
+def _face_candidate_quality(face_box: dict[str, Any], rgb_array) -> float:
+    height, width = rgb_array.shape[:2]
+    if width <= 0 or height <= 0:
+        return 0.0
+    frame_area = width * height
+    area_ratio = min(1.0, float(face_box.get("area", 0)) / frame_area * 8)
+    confidence = max(0.0, min(1.0, float(face_box.get("score", 0.0) or 0.0)))
+    center_x = (float(face_box.get("x1", 0)) + float(face_box.get("x2", 0))) / 2
+    center_y = (float(face_box.get("y1", 0)) + float(face_box.get("y2", 0))) / 2
+    distance = (
+        ((center_x - width / 2) / max(width / 2, 1)) ** 2
+        + ((center_y - height / 2) / max(height / 2, 1)) ** 2
+    ) ** 0.5
+    centered = max(0.0, 1.0 - min(1.0, distance))
+    return confidence * 0.42 + area_ratio * 0.4 + centered * 0.18
+
+
 def generate_face_avatar(
     media_path: Path,
     output_path: Path,
@@ -396,32 +463,51 @@ def generate_face_avatar(
     if not source.exists() or not source.is_file():
         raise RuntimeError("源媒体文件不存在。")
     suffix = source.suffix.lower()
-    temporary_frame = None
-    detect_source = source
+    temporary_frames: list[Path] = []
+    detect_sources = [source]
     source_kind = "image"
     if suffix in VIDEO_SUFFIXES:
         source_kind = "video"
-        temporary_frame = _extract_video_frame(source)
-        detect_source = temporary_frame
+        temporary_frames = _extract_video_frames(source)
+        detect_sources = temporary_frames
     try:
-        rgb_array = _load_rgb_array(detect_source)
-        faces = _detect_faces(rgb_array, min_confidence=min_confidence)
-        if not faces:
+        best_candidate = None
+        faces_detected = 0
+        for frame_index, detect_source in enumerate(detect_sources):
+            rgb_array = _load_rgb_array(detect_source)
+            faces = _detect_faces(rgb_array, min_confidence=min_confidence)
+            faces_detected += len(faces)
+            for face in faces:
+                quality = _face_candidate_quality(face, rgb_array)
+                if best_candidate is None or quality > best_candidate["quality"]:
+                    best_candidate = {
+                        "source": detect_source,
+                        "face": face,
+                        "quality": quality,
+                        "frame_index": frame_index,
+                    }
+        if not best_candidate:
             raise RuntimeError("未识别到人脸，请尝试换一张图片/视频。")
         _save_face_crop(
-            detect_source,
+            best_candidate["source"],
             output_path=output_path,
-            face_box=faces[0],
+            face_box=best_candidate["face"],
             padding_ratio=padding_ratio,
             output_size=max(128, int(output_size)),
         )
         return {
-            "faces_detected": len(faces),
-            "score": round(float(faces[0].get("score", 0.0)), 4),
+            "faces_detected": faces_detected,
+            "score": round(
+                float(best_candidate["face"].get("score", 0.0)),
+                4,
+            ),
+            "quality": round(float(best_candidate["quality"]), 4),
+            "frames_checked": len(detect_sources),
+            "selected_frame": int(best_candidate["frame_index"]) + 1,
             "source_kind": source_kind,
             "source_name": source.name,
             "output_name": output_path.name,
         }
     finally:
-        if temporary_frame:
+        for temporary_frame in temporary_frames:
             temporary_frame.unlink(missing_ok=True)

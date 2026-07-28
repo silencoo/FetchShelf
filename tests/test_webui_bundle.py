@@ -71,10 +71,17 @@ def test_webui_bundle_keeps_core_interaction_hooks():
         'id="settings-form"',
         'id="log-stream"',
         'id="files-list"',
+        'id="files-breadcrumb"',
+        'id="files-home-btn"',
+        'id="files-search-clear-btn"',
         'id="board-grid"',
         'id="monitor-list"',
         'id="schedule-list"',
         'id="task-queue-list"',
+        'id="task-account-checkpoints"',
+        'id="schedule-overlap-policy"',
+        'id="schedule-identity-failure-action"',
+        'id="schedule-identity-failure-threshold"',
         'id="workflow-detail-form"',
         'id="workbench-task-center"',
         'id="workbench-automation"',
@@ -161,6 +168,113 @@ def test_webui_source_keeps_compact_brand_shell():
 
     assert 'commandTitle: document.getElementById("command-title")' in script
     assert "document.title = `${activeLabel} · DouK Downloader`" in script
+    assert "自托管 · NAS Ready" not in index
+    assert 'class="topbar command-header"' not in index
+    assert '<span class="nav-label">设置</span>' in index
+    assert 'class="sidebar-runtime-status"' in index
+
+    settings_panel = index[index.index('id="panel-control-settings"') :]
+    assert settings_panel.index('id="theme-control-root"') < settings_panel.index(
+        'id="settings-form"',
+    )
+    assert settings_panel.index('id="token-input"') < settings_panel.index(
+        'id="settings-form"',
+    )
+
+
+def test_webui_source_persists_token_and_supports_authenticated_media():
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+    server = PROJECT_ROOT.joinpath(
+        "src",
+        "application",
+        "main_server.py",
+    ).read_text(encoding="utf-8")
+
+    assert 'const TOKEN_STORAGE_KEY = "webui.api.token"' in script
+    assert "localStorage.setItem(TOKEN_STORAGE_KEY, token)" in script
+    assert "localStorage.removeItem(TOKEN_STORAGE_KEY)" in script
+    assert "state.token = readStoredToken()" in script
+    assert "await establishWebUiSession()" in script
+    assert 'fetchJson("/ui/api/session"' in script
+
+    assert 'WEBUI_SESSION_COOKIE = "douk_webui_session"' in server
+    assert "request.cookies.get(WEBUI_SESSION_COOKIE)" in server
+    assert "response.set_cookie(" in server
+    assert "response.delete_cookie(" in server
+
+
+def test_webui_source_keeps_file_browser_navigation_contract():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+
+    for hook in (
+        'id="files-breadcrumb"',
+        'id="files-home-btn"',
+        'id="files-up-btn"',
+        'id="files-search-clear-btn"',
+        'id="file-account-tools"',
+        'id="file-lightbox"',
+        'id="file-lightbox-stage"',
+        'id="file-lightbox-prev-btn"',
+        'id="file-lightbox-next-btn"',
+    ):
+        assert index.count(hook) == 1
+
+    assert "function renderFileBreadcrumb()" in script
+    assert "function navigateToFilePath(" in script
+    assert 'card.addEventListener("click"' in script
+    assert "state.filePageSize" in script
+    assert "file-masonry" in index
+    assert 'if (event.key === "Enter")' in script
+    assert "function formatFileSize(" in script
+    assert "function formatFileDate(" in script
+    assert "fileAccessUrl(entry.path)" in script
+    assert "function updateFileMasonryLayout()" in script
+    assert "function observeFileMasonryCards()" in script
+    assert "function openFileLightbox(" in script
+    assert "function moveFileLightbox(" in script
+    assert 'video.addEventListener("loadedmetadata"' in script
+    assert 'image.addEventListener("load"' in script
+
+
+def test_account_board_cards_remain_usable_at_high_density():
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+    styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
+
+    assert "refs.boardGrid?.clientWidth" in script
+    assert "const minimumCardWidth = compactMode ? 156 : 248" in script
+    assert 'name.title = item.mark || item.url || "未设置 mark"' in script
+    assert 'class="profile-actions-menu"' in script
+    assert 'aria-label="更多账户操作"' in script
+    assert 'data-action="board-open-files"' in script
+    assert 'data-action="board-refresh-media"' in script
+    assert 'data-action="board-generate-avatar"' in script
+    assert 'event.key !== "Escape"' in script
+
+    assert "grid-template-columns: repeat(var(--board-columns), minmax(0, 1fr));" in styles
+    assert "-webkit-line-clamp: 2;" in styles
+    assert ".profile-state-row" in styles
+    assert ".profile-actions-popover" in styles
+    assert ".profile-latest-short" in styles
+
+
+def test_webui_websocket_uses_http_only_session_cookie_not_token_query():
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+    server = PROJECT_ROOT.joinpath("src", "application", "main_server.py").read_text(
+        encoding="utf-8",
+    )
+
+    assert 'params.set("token"' not in script
+    assert "websocket.cookies.get(WEBUI_SESSION_COOKIE)" in server
+    assert 'websocket.query_params.get("token")' not in server
 
 
 def test_webui_source_contains_every_legacy_dom_reference_once():
@@ -217,6 +331,40 @@ def test_webui_source_prioritizes_the_download_workflow():
     assert 'state.activeTab === "workbench"' in script
     assert "!document.hidden" in script
     assert 'main.className = "task-main task-main-button"' in script
-    assert '["failed", "canceled"].includes(taskStatus)' in script
+    assert 'pausing: "暂停中"' in script
+    assert 'paused: "已暂停"' in script
+    assert "task.pause_supported" in script
+    assert 'taskControl(task.task_id, "pause")' in script
+    assert 'taskControl(task.task_id, "resume")' in script
+    assert 'taskControl(task.task_id, "retry-failed")' in script
+    assert "function loadTaskAccounts(" in script
+    assert 'id="schedule-notify-identity-failure"' in index
+    assert "等待完成后执行（推荐）" in index
+    assert "未配置 Cookie 的普通账号不会因此暂停" in index
+    assert "容器重启后记录会清空" not in index
+    assert '["pending", "running", "pausing", "paused"].includes(taskStatus)' in script
     assert "const focusedTaskId =" in script
     assert "focusTarget?.focus({ preventScroll: true })" in script
+
+
+def test_webui_source_keeps_compact_account_tables_and_collapsible_raw_editor():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+    styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
+
+    assert 'id="settings-raw-disclosure"' in index
+    assert '<summary class="raw-settings-summary">' in index
+    assert 'id="settings-raw-fullscreen-btn"' not in index
+    assert "toggleRawEditorFullscreen" not in script
+    assert 'title="${escapeAttr(item.url)}"' in script
+
+    assert ".raw-settings-disclosure" in styles
+    assert ".account-table {\n  width: 100%;\n  min-width: 940px;" in styles
+    assert (
+        ".account-table:not(.deleted-table) :is(th, td):nth-child(5) {\n"
+        "  width: 210px;"
+    ) in styles
+    assert "#settings-raw-editor {" in styles
+    assert "resize: none !important;" in styles
