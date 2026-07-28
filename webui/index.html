@@ -937,12 +937,6 @@
                 <i data-lucide="chevron-right" aria-hidden="true"></i>
               </button>
             </div>
-            <div id="file-preview" class="file-preview file-preview-drawer">
-              <div class="file-preview-empty">
-                <strong>选择一个文件</strong>
-                <span>图片、视频、音频和文本会在这里展开预览</span>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -991,8 +985,12 @@
             </label>
             <label class="field compact">
               <span>排序</span>
-              <select id="board-sort">
-                <option value="configured">配置顺序</option>
+              <select
+                id="board-sort"
+                title="配置文件顺序即当前平台在 settings.json 中的账户排列顺序"
+              >
+                <option value="configured">配置文件顺序</option>
+                <option value="folder_updated_desc">文件夹最近更新</option>
                 <option value="latest_desc">最新作品优先</option>
                 <option value="latest_asc">最久作品优先</option>
                 <option value="checked_desc">最近检查优先</option>

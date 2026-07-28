@@ -1811,6 +1811,19 @@ class APIServer(TikTok):
         except OSError:
             return []
 
+    @staticmethod
+    def _account_board_folder_updated_at(folder: Path | None) -> str:
+        if not folder:
+            return ""
+        try:
+            return (
+                datetime.fromtimestamp(folder.stat().st_mtime)
+                .astimezone()
+                .isoformat(timespec="seconds")
+            )
+        except (OSError, OverflowError, ValueError):
+            return ""
+
     def _account_match_tokens(self, value: str) -> list[str]:
         raw = self._normalize_string(value).lower()
         if not raw:
@@ -1824,11 +1837,64 @@ class APIServer(TikTok):
             tokens.add(normalized)
         return sorted(tokens, key=len, reverse=True)
 
+    def _account_board_dir_match_index(
+        self,
+        candidates: list[Path],
+    ) -> list[tuple[Path, str, str, str]]:
+        index = []
+        for folder in candidates:
+            name = folder.name.lower()
+            index.append(
+                (
+                    folder,
+                    name,
+                    self.parameter.CLEANER.filter_name(name, "").lower(),
+                    self._normalize_match_token(name),
+                )
+            )
+        return index
+
+    def _account_board_dir_mark_index(
+        self,
+        candidates: list[Path],
+    ) -> dict[str, list[Path]]:
+        index: dict[str, list[Path]] = {}
+        for folder in candidates:
+            name = folder.name
+            if "_" not in name:
+                continue
+            account_name = name.split("_", 1)[1]
+            variants = {account_name}
+            if "_" in account_name:
+                variants.add(account_name.rsplit("_", 1)[0])
+            for variant in variants:
+                for token in self._account_match_tokens(variant):
+                    folders = index.setdefault(token, [])
+                    if folder not in folders:
+                        folders.append(folder)
+        return index
+
+    def _account_board_mark_candidates(
+        self,
+        mark: str,
+        mark_index: dict[str, list[Path]],
+    ) -> list[Path]:
+        candidates = []
+        seen = set()
+        for token in self._account_match_tokens(mark):
+            for folder in mark_index.get(token, []):
+                if folder in seen:
+                    continue
+                seen.add(folder)
+                candidates.append(folder)
+        return candidates
+
     def _match_account_board_dir(
         self,
         mark: str,
         url: str,
         candidates: list[Path],
+        candidate_index: list[tuple[Path, str, str, str]] | None = None,
     ) -> Path | None:
         if not candidates:
             return None
@@ -1838,22 +1904,25 @@ class APIServer(TikTok):
             url_tokens.extend(self._account_match_tokens(token))
         best_dir = None
         best_score = 0
-        for folder in candidates:
-            name = folder.name.lower()
-            cleaned_name = self.parameter.CLEANER.filter_name(name, "").lower()
-            normalized_name = self._normalize_match_token(name)
+        indexed_candidates = (
+            candidate_index
+            if candidate_index is not None
+            else self._account_board_dir_match_index(candidates)
+        )
+        for folder, name, cleaned_name, normalized_name in indexed_candidates:
             score = 0
             for mark_token in mark_tokens:
                 if not mark_token:
                     continue
+                normalized_mark_token = self._normalize_match_token(mark_token)
                 if (
                     f"_{mark_token}_" in name
                     or f"_{mark_token}_" in cleaned_name
                     or mark_token in name
                     or mark_token in cleaned_name
                     or (
-                        self._normalize_match_token(mark_token)
-                        and self._normalize_match_token(mark_token) in normalized_name
+                        normalized_mark_token
+                        and normalized_mark_token in normalized_name
                     )
                 ):
                     score += 120
@@ -1861,12 +1930,13 @@ class APIServer(TikTok):
             for token in url_tokens:
                 if not token:
                     continue
+                normalized_url_token = self._normalize_match_token(token)
                 if (
                     token in name
                     or token in cleaned_name
                     or (
-                        self._normalize_match_token(token)
-                        and self._normalize_match_token(token) in normalized_name
+                        normalized_url_token
+                        and normalized_url_token in normalized_name
                     )
                 ):
                     score += 26
@@ -2055,6 +2125,7 @@ class APIServer(TikTok):
         normalized_sort = self._normalize_string(sort_by).lower()
         if normalized_sort not in {
             "configured",
+            "folder_updated_desc",
             "latest_desc",
             "latest_asc",
             "checked_desc",
@@ -2073,6 +2144,42 @@ class APIServer(TikTok):
             if self._normalize_string(item.get("url"))
         }
         avatars = self._load_account_board_avatars()
+        root = self._scope_root("download").expanduser().resolve()
+        candidates = self._account_board_dirs(root)
+        candidate_index = self._account_board_dir_match_index(candidates)
+        candidate_mark_index = self._account_board_dir_mark_index(candidates)
+        folder_by_account: dict[tuple[str, str], Path | None] = {}
+
+        def account_folder(row: dict) -> Path | None:
+            key = (
+                self._normalize_string(row.get("url")),
+                self._normalize_string(row.get("mark")),
+            )
+            if key not in folder_by_account:
+                mark_candidates = (
+                    self._account_board_mark_candidates(
+                        row.get("mark", ""),
+                        candidate_mark_index,
+                    )
+                    if candidates
+                    else []
+                )
+                if len(mark_candidates) == 1:
+                    folder_by_account[key] = mark_candidates[0]
+                else:
+                    match_candidates = mark_candidates or candidates
+                    match_index = (
+                        self._account_board_dir_match_index(match_candidates)
+                        if mark_candidates
+                        else candidate_index
+                    )
+                    folder_by_account[key] = self._match_account_board_dir(
+                        mark=row.get("mark", ""),
+                        url=row.get("url", ""),
+                        candidates=match_candidates,
+                        candidate_index=match_index,
+                    )
+            return folder_by_account[key]
 
         if normalized_search:
             rows = [
@@ -2142,6 +2249,13 @@ class APIServer(TikTok):
                 key=lambda row: activity_date(row, "last_checked_at"),
                 reverse=True,
             )
+        elif normalized_sort == "folder_updated_desc":
+            rows.sort(
+                key=lambda row: self._account_board_folder_updated_at(
+                    account_folder(row)
+                ),
+                reverse=True,
+            )
 
         total = len(rows)
         size = self._normalize_board_page_size(page_size)
@@ -2151,17 +2265,12 @@ class APIServer(TikTok):
         end = start + size
         page_rows = rows[start:end]
 
-        root = self._scope_root("download").expanduser().resolve()
-        candidates = self._account_board_dirs(root)
         pins = self._load_account_board_pins()
         media_cache: dict[str, tuple[list[str], list[str]]] = {}
         items = []
         for offset, row in enumerate(page_rows, start=start + 1):
-            folder = self._match_account_board_dir(
-                mark=row.get("mark", ""),
-                url=row.get("url", ""),
-                candidates=candidates,
-            )
+            folder = account_folder(row)
+            folder_updated_at = self._account_board_folder_updated_at(folder)
             pin_key = self._account_pin_key(normalized_platform, row.get("url", ""))
             media = self._pick_account_board_media(
                 root=root,
@@ -2209,6 +2318,7 @@ class APIServer(TikTok):
                     "enable": bool(row.get("enable", True)),
                     "folder_path": relative_path(root, folder) if folder else "",
                     "folder_name": folder.name if folder else "",
+                    "folder_updated_at": folder_updated_at,
                     "media_path": media.get("path", ""),
                     "media_kind": media.get("kind", ""),
                     "pinned": bool(media.get("pinned", False)),

@@ -224,6 +224,9 @@ def test_webui_source_keeps_file_browser_navigation_contract():
     ):
         assert index.count(hook) == 1
 
+    assert 'id="file-preview"' not in index
+    assert 'value="folder_updated_desc"' in index
+    assert "配置文件顺序" in index
     assert "function renderFileBreadcrumb()" in script
     assert "function navigateToFilePath(" in script
     assert 'card.addEventListener("click"' in script
@@ -237,6 +240,7 @@ def test_webui_source_keeps_file_browser_navigation_contract():
     assert "function observeFileMasonryCards()" in script
     assert "function openFileLightbox(" in script
     assert "function moveFileLightbox(" in script
+    assert "renderFilePreview" not in script
     assert 'video.addEventListener("loadedmetadata"' in script
     assert 'image.addEventListener("load"' in script
 

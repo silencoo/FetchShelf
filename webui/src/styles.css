@@ -3147,8 +3147,7 @@ select.batch-field-select + .app-select-mount {
 .log-stream,
 .json-output,
 .task-queue-list,
-.files-list,
-.file-preview {
+.files-list {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--bg-code);
@@ -3440,126 +3439,6 @@ select.batch-field-select + .app-select-mount {
   line-height: 1.5;
 }
 
-.file-preview {
-  display: flex;
-  min-height: 360px;
-  max-height: min(74vh, 680px);
-  flex-direction: column;
-  overflow: auto;
-  gap: 10px;
-  padding: 12px;
-}
-
-.file-preview-header {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--line-soft);
-  padding-bottom: 10px;
-}
-
-.file-preview-title {
-  min-width: 0;
-}
-
-.file-preview-title h3 {
-  overflow: hidden;
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 14px;
-  font-weight: 720;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-preview-meta {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 5px 10px;
-  margin-top: 5px;
-  color: var(--text-faint);
-  font-size: 9px;
-}
-
-.file-preview-meta span:not(:last-child)::after {
-  margin-left: 10px;
-  color: var(--line-strong);
-  content: "·";
-}
-
-.file-preview-actions {
-  display: flex;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.file-preview-actions .btn {
-  min-height: 31px;
-  padding-block: 5px;
-  font-size: 10px;
-}
-
-.file-preview-empty {
-  display: flex;
-  min-height: 260px;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--text-faint);
-  padding: 22px;
-  text-align: center;
-}
-
-.file-preview-empty strong {
-  color: var(--text-strong);
-  font-size: 14px;
-}
-
-.file-preview-empty span {
-  max-width: 42ch;
-  font-size: 10px;
-  line-height: 1.55;
-}
-
-.file-preview-folder {
-  min-height: 220px;
-}
-
-.file-preview :where(img, video) {
-  width: 100%;
-  max-height: min(67vh, 600px);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--media-frame);
-  object-fit: contain;
-}
-
-.file-preview audio {
-  width: 100%;
-  margin-top: 8px;
-}
-
-.file-preview pre {
-  margin: 0;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle-faint);
-  padding: 12px;
-  color: var(--text-preview);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
 .file-account-tools {
   display: flex;
   flex-direction: column;
@@ -3766,21 +3645,14 @@ select.batch-field-select + .app-select-mount {
   padding-block: 5px;
 }
 
-.file-preview-drawer {
-  min-height: 170px;
-  max-height: none;
-  background: var(--bg-code);
-}
-
-.file-preview-drawer .file-preview-empty {
-  min-height: 140px;
-}
-
 .file-lightbox {
+  position: fixed;
+  inset: 0;
   width: min(96vw, 1500px);
   max-width: 96vw;
   height: min(94dvh, 1050px);
   max-height: 94dvh;
+  margin: auto;
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
@@ -5134,15 +5006,6 @@ select.batch-field-select + .app-select-mount {
     display: none;
   }
 
-  .file-preview-header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .file-preview-actions {
-    justify-content: flex-start;
-  }
-
   .form-grid,
   .quick-settings-grid,
   .monitor-grid {
@@ -5319,7 +5182,6 @@ select.batch-field-select + .app-select-mount {
   .account-table-wrap,
   .log-stream,
   .files-list,
-  .file-preview,
   .task-queue-list {
     border-width: 2px;
   }
@@ -5344,7 +5206,6 @@ select.batch-field-select + .app-select-mount {
   .account-table-wrap,
   .log-stream,
   .files-list,
-  .file-preview,
   .task-queue-list {
     border-color: CanvasText;
     background: Canvas;

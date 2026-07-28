@@ -1,4 +1,5 @@
 from asyncio import Queue
+from os import utime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -482,6 +483,72 @@ def test_account_board_search_and_latest_sort_use_activity_index(
     ]
     assert sorted_page["items"][0]["latest_work_id"] == "beta-work"
     journal.close()
+
+
+def test_account_board_can_sort_by_matched_folder_update_time(
+    tmp_path: Path,
+):
+    older_dir = tmp_path / "UID100_Alpha_发布作品"
+    newer_dir = tmp_path / "UID200_Beta_发布作品"
+    older_dir.mkdir()
+    newer_dir.mkdir()
+    utime(older_dir, (1_700_000_000, 1_700_000_000))
+    utime(newer_dir, (1_800_000_000, 1_800_000_000))
+
+    server = APIServer.__new__(APIServer)
+    server.task_journal = None
+    server._active_account_rows = lambda platform: [
+        {
+            "url": "https://www.douyin.com/user/alpha",
+            "mark": "Alpha",
+            "tab": "post",
+            "enable": True,
+        },
+        {
+            "url": "https://www.douyin.com/user/beta",
+            "mark": "Beta",
+            "tab": "post",
+            "enable": True,
+        },
+        {
+            "url": "https://www.douyin.com/user/missing",
+            "mark": "Missing",
+            "tab": "post",
+            "enable": True,
+        },
+    ]
+    server._load_account_board_avatars = lambda: {}
+    server._scope_root = lambda scope: tmp_path
+    server._account_board_dirs = lambda root: [older_dir, newer_dir]
+    server.parameter = SimpleNamespace(
+        CLEANER=SimpleNamespace(filter_name=lambda value, _: value),
+    )
+    server._load_account_board_pins = lambda: {}
+    server._match_account_board_dir = lambda mark, **kwargs: {
+        "Alpha": older_dir,
+        "Beta": newer_dir,
+    }.get(mark)
+    server._pick_account_board_media = lambda **kwargs: {
+        "path": "",
+        "kind": "",
+        "pinned": False,
+    }
+
+    page = server._build_account_board_page(
+        "douyin",
+        1,
+        24,
+        sort_by="folder_updated_desc",
+    )
+
+    assert page["sort"] == "folder_updated_desc"
+    assert [item["mark"] for item in page["items"]] == [
+        "Beta",
+        "Alpha",
+        "Missing",
+    ]
+    assert page["items"][0]["folder_updated_at"] > page["items"][1]["folder_updated_at"]
+    assert page["items"][2]["folder_updated_at"] == ""
 
 
 @pytest.mark.asyncio

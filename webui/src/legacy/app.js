@@ -114,7 +114,6 @@ const state = {
   currentPath: "",
   currentParentPath: "",
   selectedFilePath: "",
-  filePreviewRequestId: 0,
   fileMasonryObserver: null,
   fileMasonryFrame: 0,
   fileLightboxIndex: -1,
@@ -359,7 +358,6 @@ const refs = {
   filesGenerateAvatarBtn: document.getElementById("files-generate-avatar-btn"),
   filesPinAvatarBtn: document.getElementById("files-pin-avatar-btn"),
   filesList: document.getElementById("files-list"),
-  filePreview: document.getElementById("file-preview"),
   fileLightbox: document.getElementById("file-lightbox"),
   fileLightboxTitle: document.getElementById("file-lightbox-title"),
   fileLightboxMeta: document.getElementById("file-lightbox-meta"),
@@ -2773,181 +2771,6 @@ function observeFileMasonryCards() {
   scheduleFileMasonryLayout();
 }
 
-function resetFilePreview(title = "选择一个文件", description = "图片、视频、音频和文本会在这里预览") {
-  state.filePreviewRequestId += 1;
-  refs.filePreview.innerHTML = "";
-  const empty = document.createElement("div");
-  empty.className = "file-preview-empty";
-  const heading = document.createElement("strong");
-  heading.textContent = title;
-  const copy = document.createElement("span");
-  copy.textContent = description;
-  empty.appendChild(heading);
-  empty.appendChild(copy);
-  refs.filePreview.appendChild(empty);
-}
-
-function renderCurrentDirectoryOverview() {
-  const folderLabel = state.currentPath ? state.currentPath.split("/").filter(Boolean).at(-1) : (
-    state.currentScope === "download" ? "下载目录" : "项目目录"
-  );
-  const filteredCount = filteredFileEntries().length;
-  resetFilePreview(
-    folderLabel || "根目录",
-    state.fileSearch.trim()
-      ? `搜索到 ${state.fileTotal} 个项目，当前显示 ${filteredCount} 个`
-      : `当前目录共有 ${state.fileTotal} 个项目；点击文件夹直接进入`,
-  );
-}
-
-function appendPreviewHeader(entry) {
-  const header = document.createElement("div");
-  header.className = "file-preview-header";
-
-  const copy = document.createElement("div");
-  copy.className = "file-preview-title";
-  const title = document.createElement("h3");
-  title.textContent = entry.name || entry.path || "(未命名)";
-  const meta = document.createElement("div");
-  meta.className = "file-preview-meta";
-  for (const text of [
-    kindLabel(entry),
-    isDirectoryEntry(entry) ? null : formatFileSize(entry.size),
-    formatFileDate(entry.modified_at),
-  ].filter(Boolean)) {
-    const item = document.createElement("span");
-    item.textContent = text;
-    meta.appendChild(item);
-  }
-  copy.appendChild(title);
-  copy.appendChild(meta);
-
-  const actions = document.createElement("div");
-  actions.className = "file-preview-actions";
-  header.appendChild(copy);
-  header.appendChild(actions);
-  refs.filePreview.appendChild(header);
-  return actions;
-}
-
-function renderFilePreview(entry) {
-  const requestId = ++state.filePreviewRequestId;
-  refs.filePreview.innerHTML = "";
-  const actions = appendPreviewHeader(entry);
-
-  if (isDirectoryEntry(entry)) {
-    const openButton = document.createElement("button");
-    openButton.className = "btn primary";
-    openButton.type = "button";
-    openButton.textContent = "打开文件夹";
-    openButton.addEventListener("click", () => {
-      navigateToFilePath(entry.path || "", { focusAfterLoad: true });
-    });
-    actions.appendChild(openButton);
-
-    const folderSummary = document.createElement("div");
-    folderSummary.className = "file-preview-empty file-preview-folder";
-    const heading = document.createElement("strong");
-    heading.textContent = "文件夹已选择";
-    const copy = document.createElement("span");
-    copy.textContent = "双击左侧文件夹、按 Enter，或点击“打开文件夹”进入。";
-    folderSummary.appendChild(heading);
-    folderSummary.appendChild(copy);
-    refs.filePreview.appendChild(folderSummary);
-    return;
-  }
-
-  const fileUrl = fileAccessUrl(entry.path);
-  const openLink = document.createElement("a");
-  openLink.className = "btn ghost";
-  openLink.href = fileUrl;
-  openLink.textContent = "新标签打开";
-  openLink.target = "_blank";
-  openLink.rel = "noreferrer";
-  actions.appendChild(openLink);
-
-  if (entry.kind === "image" || entry.kind === "video") {
-    const expandButton = document.createElement("button");
-    expandButton.className = "btn primary";
-    expandButton.type = "button";
-    expandButton.innerHTML =
-      '<i data-lucide="maximize-2" aria-hidden="true"></i><span>放大预览</span>';
-    expandButton.addEventListener("click", () => {
-      openFileLightbox(entry, expandButton);
-    });
-    actions.appendChild(expandButton);
-    refreshIcons(expandButton);
-  }
-
-  if (entry.kind === "image") {
-    const image = document.createElement("img");
-    image.src = fileUrl;
-    image.alt = entry.name;
-    image.loading = "lazy";
-    refs.filePreview.appendChild(image);
-    return;
-  }
-
-  if (entry.kind === "video") {
-    const video = document.createElement("video");
-    video.src = fileUrl;
-    video.controls = true;
-    video.preload = "metadata";
-    video.playsInline = true;
-    refs.filePreview.appendChild(video);
-    return;
-  }
-
-  if (entry.kind === "audio") {
-    const audio = document.createElement("audio");
-    audio.src = fileUrl;
-    audio.controls = true;
-    audio.preload = "metadata";
-    refs.filePreview.appendChild(audio);
-    return;
-  }
-
-  if (entry.kind === "text") {
-    fetch(fileUrl, {
-      headers: headerOptions(false),
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        return response.text();
-      })
-      .then((text) => {
-        if (requestId !== state.filePreviewRequestId) {
-          return;
-        }
-        const pre = document.createElement("pre");
-        pre.textContent = text.slice(0, 12000);
-        refs.filePreview.appendChild(pre);
-      })
-      .catch((error) => {
-        if (requestId !== state.filePreviewRequestId) {
-          return;
-        }
-        const tip = document.createElement("div");
-        tip.className = "empty-tip";
-        tip.textContent = `文本预览失败: ${error.message}`;
-        refs.filePreview.appendChild(tip);
-      });
-    return;
-  }
-
-  const tip = document.createElement("div");
-  tip.className = "file-preview-empty";
-  const heading = document.createElement("strong");
-  heading.textContent = "此格式没有内嵌预览";
-  const copy = document.createElement("span");
-  copy.textContent = "使用右上角“新标签打开”查看或下载文件。";
-  tip.appendChild(heading);
-  tip.appendChild(copy);
-  refs.filePreview.appendChild(tip);
-}
-
 function filteredFileEntries() {
   return state.fileEntries || [];
 }
@@ -2960,7 +2783,6 @@ function renderFiles() {
   const selectedIsVisible = entries.some((entry) => entry.path === state.selectedFilePath);
   if (!selectedIsVisible) {
     state.selectedFilePath = "";
-    renderCurrentDirectoryOverview();
   }
   if (!entries.length) {
     const tip = state.fileSearch.trim() ? "无匹配文件" : "目录为空";
@@ -2999,7 +2821,7 @@ function renderFiles() {
       ? "打开文件夹"
       : ["image", "video"].includes(entry.kind)
         ? "放大预览"
-        : "展开预览";
+        : "新标签打开";
     if (entry.kind === "image" || entry.kind === "video") {
       card.setAttribute("aria-haspopup", "dialog");
     }
@@ -3063,7 +2885,6 @@ function renderFiles() {
       card.setAttribute("aria-selected", "true");
       state.selectedFilePath = entry.path || "";
       updateFilesAccountContext();
-      renderFilePreview(entry);
     };
 
     const activateCard = (focusAfterLoad = false) => {
@@ -3074,7 +2895,9 @@ function renderFiles() {
       selectCard();
       if (entry.kind === "image" || entry.kind === "video") {
         openFileLightbox(entry, card);
+        return;
       }
+      window.open(fileAccessUrl(entry.path), "_blank", "noopener,noreferrer");
     };
 
     card.addEventListener("click", () => activateCard(false));
@@ -3417,7 +3240,6 @@ async function loadFileStats() {
 
 async function loadFiles() {
   refs.filesMeta.textContent = "正在加载目录…";
-  resetFilePreview("正在加载目录", "请稍候…");
   renderFileBreadcrumb();
   try {
     const query = new URLSearchParams({
@@ -3467,7 +3289,6 @@ async function loadFiles() {
     refs.filesPageMeta.textContent = "第 1 / 1 页";
     refs.filesPrevBtn.disabled = true;
     refs.filesNextBtn.disabled = true;
-    resetFilePreview("无法加载此目录", "检查路径或访问 Token 后重试。");
     renderFileBreadcrumb();
     if (refs.filesStats) {
       refs.filesStats.textContent = "统计信息待加载…";
