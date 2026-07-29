@@ -10,7 +10,7 @@ __all__ = ["Database"]
 
 
 class Database:
-    __FILE = "DouK-Downloader.db"
+    __FILE = "FetchShelf.db"
 
     def __init__(
         self,

@@ -1087,7 +1087,7 @@ function switchTab(tab) {
   const activeLabel = activeButton?.querySelector(".nav-label")?.textContent?.trim();
   if (activeLabel && refs.commandTitle) {
     refs.commandTitle.textContent = activeLabel;
-    document.title = `${activeLabel} · DouK Downloader`;
+    document.title = `${activeLabel} · FetchShelf`;
   }
   try {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, nextTab);

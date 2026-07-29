@@ -1,3 +1,3 @@
-from .TikTokDownloader import TikTokDownloader
+from .FetchShelf import FetchShelf
 
-__all__ = ["TikTokDownloader"]
+__all__ = ["FetchShelf"]

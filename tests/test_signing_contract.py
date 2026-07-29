@@ -159,7 +159,7 @@ def test_api_request_params_are_isolated_per_identity():
 
 def test_dynamic_loader_uses_documented_encipher_filename(tmp_path, monkeypatch):
     console = _Console()
-    monkeypatch.delenv("DOUK_ENCIPHER_PATH", raising=False)
+    monkeypatch.delenv("FETCHSHELF_ENCIPHER_PATH", raising=False)
     (tmp_path / "encipher.py").write_text(
         "class XBogus:\n"
         "    def get_x_bogus(self, **kwargs):\n"
@@ -189,7 +189,7 @@ def test_dynamic_loader_supports_nas_settings_mount(tmp_path, monkeypatch):
         "        return 'nas-external'\n",
         encoding="utf-8",
     )
-    monkeypatch.delenv("DOUK_ENCIPHER_PATH", raising=False)
+    monkeypatch.delenv("FETCHSHELF_ENCIPHER_PATH", raising=False)
     monkeypatch.setattr(dynamic_import, "get_base_dir", lambda: tmp_path)
 
     objects = dynamic_import.load_objects_from_external_py(

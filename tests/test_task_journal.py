@@ -182,7 +182,7 @@ def test_retry_failed_endpoint_creates_linked_failed_only_task(
     tmp_path: Path,
     monkeypatch,
 ):
-    monkeypatch.setenv("DOUK_API_TOKEN", "journal-test-token")
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "journal-test-token")
     journal = TaskJournal(tmp_path / "ui_task_runtime.sqlite3")
     original = _task(status="failed")
     original["payload"] = {

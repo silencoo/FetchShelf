@@ -129,7 +129,7 @@ if TYPE_CHECKING:
 
 __all__ = ["APIServer"]
 
-WEBUI_SESSION_COOKIE = "douk_webui_session"
+WEBUI_SESSION_COOKIE = "fetchshelf_webui_session"
 WEBUI_SESSION_MAX_AGE = 60 * 60 * 24 * 30
 WORK_FILENAME_DATE_PATTERN = compile(
     r"(?<!\d)(20\d{2})[-_.](\d{2})[-_.](\d{2})"
@@ -311,7 +311,7 @@ class APIServer(TikTok):
                 status_code=423,
                 detail=(
                     "Collector credential vault is locked. Configure "
-                    "DOUK_IDENTITY_KEY_FILE or DOUK_IDENTITY_KEY."
+                    "FETCHSHELF_IDENTITY_KEY_FILE or FETCHSHELF_IDENTITY_KEY."
                 ),
             )
         if isinstance(error, ValidationError):
@@ -5131,7 +5131,7 @@ class APIServer(TikTok):
     ):
         self.server = FastAPI(
             debug=VERSION_BETA,
-            title="DouK-Downloader",
+            title="FetchShelf",
             version=__VERSION__,
         )
         self.server.mount(

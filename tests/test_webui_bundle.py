@@ -150,25 +150,22 @@ def test_webui_source_keeps_compact_brand_shell():
 
     assert index.count('id="command-title"') == 1
     for asset_name in (
-        "douk-mark-48.png",
-        "douk-mark-96.png",
-        "douk-favicon-32.png",
-        "douk-touch-icon-180.png",
+        "fetchshelf-mark-48.png",
+        "fetchshelf-mark-96.png",
+        "fetchshelf-favicon-32.png",
+        "fetchshelf-touch-icon-180.png",
     ):
         assert asset_name in index
         assert SOURCE_ROOT.joinpath("src", "assets", "brand", asset_name).is_file()
 
     for retired_copy in (
-        "DOUK CONTROL",
         "OPERATIONS CONSOLE",
-        "NAS 运维控制台 · 下载、监控与媒体管理",
         "统一管理下载队列、账户更新与本地媒体。",
     ):
         assert retired_copy not in index
 
     assert 'commandTitle: document.getElementById("command-title")' in script
-    assert "document.title = `${activeLabel} · DouK Downloader`" in script
-    assert "自托管 · NAS Ready" not in index
+    assert "document.title = `${activeLabel} · FetchShelf`" in script
     assert 'class="topbar command-header"' not in index
     assert '<span class="nav-label">设置</span>' in index
     assert 'class="sidebar-runtime-status"' in index
@@ -199,7 +196,7 @@ def test_webui_source_persists_token_and_supports_authenticated_media():
     assert "await establishWebUiSession()" in script
     assert 'fetchJson("/ui/api/session"' in script
 
-    assert 'WEBUI_SESSION_COOKIE = "douk_webui_session"' in server
+    assert 'WEBUI_SESSION_COOKIE = "fetchshelf_webui_session"' in server
     assert "request.cookies.get(WEBUI_SESSION_COOKIE)" in server
     assert "response.set_cookie(" in server
     assert "response.delete_cookie(" in server

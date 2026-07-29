@@ -1,11 +1,11 @@
 services:
-  douyin-download:
+  fetchshelf:
     build:
       context: .
       dockerfile: Dockerfile
-    image: tiktok-downloader-local
+    image: fetchshelf-local
 
-    container_name: douyin-download
+    container_name: fetchshelf
 
     working_dir: /app
     command: ["python", "main_webui.py"]
@@ -15,9 +15,9 @@ services:
 
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      DOUK_ENCIPHER_PATH: /app/settings/encipher.py
-      DOUK_API_TOKEN: ${DOUK_API_TOKEN:-}
-      DOUK_IDENTITY_KEY: ${DOUK_IDENTITY_KEY:-}
+      FETCHSHELF_ENCIPHER_PATH: /app/settings/encipher.py
+      FETCHSHELF_API_TOKEN: ${FETCHSHELF_API_TOKEN:-}
+      FETCHSHELF_IDENTITY_KEY: ${FETCHSHELF_IDENTITY_KEY:-}
       NVIDIA_VISIBLE_DEVICES: void
 
     ports:

@@ -13,7 +13,7 @@ from src.collector import (
 
 
 def _collector_test_client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DOUK_API_TOKEN", "collector-test-token")
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "collector-test-token")
     server = APIServer.__new__(APIServer)
     server.server = FastAPI()
     server.collector_store = CollectorStore(

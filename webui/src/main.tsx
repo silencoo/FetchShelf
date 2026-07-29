@@ -19,8 +19,8 @@ interface Metrics {
 
 declare global {
   interface Window {
-    __doukMagicRoots?: Map<string, Root>;
-    __doukSelectRoots?: Map<HTMLSelectElement, { mount: HTMLElement; root: Root }>;
+    __fetchShelfMagicRoots?: Map<string, Root>;
+    __fetchShelfSelectRoots?: Map<HTMLSelectElement, { mount: HTMLElement; root: Root }>;
   }
 }
 
@@ -256,7 +256,7 @@ function OperationsMetrics() {
 }
 
 function mountMagicUi() {
-  const roots = (window.__doukMagicRoots ??= new Map<string, Root>());
+  const roots = (window.__fetchShelfMagicRoots ??= new Map<string, Root>());
   const renderRoot = (id: string, content: ReactNode) => {
     const container = document.getElementById(id);
     if (!container) {
@@ -308,7 +308,7 @@ function getSelectLabel(nativeSelect: HTMLSelectElement) {
 }
 
 function mountEnhancedSelects() {
-  const roots = (window.__doukSelectRoots ??= new Map());
+  const roots = (window.__fetchShelfSelectRoots ??= new Map());
 
   const enhance = (nativeSelect: HTMLSelectElement) => {
     if (

@@ -28,5 +28,5 @@ from .timer import run_time
 from .truncate import beautify_string
 from .truncate import trim_string
 from .truncate import truncate_string
-from .rename_compatible import RenameCompatible
+from .brand_migration import BrandMigration
 from .progress import FakeProgress

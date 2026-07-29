@@ -24,7 +24,7 @@ interface AppSelectProps {
   nativeSelect: HTMLSelectElement;
 }
 
-const SELECT_VALUE_PREFIX = "douk-select:";
+const SELECT_VALUE_PREFIX = "fetchshelf-select:";
 const selectSyncSubscribers = new Set<() => void>();
 let selectSyncTimer: number | undefined;
 

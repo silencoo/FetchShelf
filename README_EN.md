@@ -1,387 +1,171 @@
-<div align="center">
-<img src="./static/images/DouK-Downloader.png" alt="DouK-Downloader" height="256" width="256"><br>
-<h1>DouK-Downloader</h1>
-<p><a href="README.md">简体中文</a> | English</p>
-<a href="https://trendshift.io/repositories/6222" target="_blank"><img src="https://trendshift.io/api/badge/repositories/6222" alt="" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-<br>
-<img alt="GitHub" src="https://img.shields.io/github/license/JoeanAmier/TikTokDownloader?style=flat-square">
-<img alt="GitHub forks" src="https://img.shields.io/github/forks/JoeanAmier/TikTokDownloader?style=flat-square&color=55efc4">
-<img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/JoeanAmier/TikTokDownloader?style=flat-square&color=fda7df">
-<img alt="GitHub code size in bytes" src="https://img.shields.io/github/languages/code-size/JoeanAmier/TikTokDownloader?style=flat-square&color=a29bfe">
-<br>
-<img alt="Static Badge" src="https://img.shields.io/badge/Python-3.12-b8e994?style=flat-square&logo=python&labelColor=3dc1d3">
-<img alt="GitHub release (with filter)" src="https://img.shields.io/github/v/release/JoeanAmier/TikTokDownloader?style=flat-square&color=48dbfb">
-<img src="https://img.shields.io/badge/Sourcery-enabled-884898?style=flat-square&color=1890ff" alt="">
-<img alt="Static Badge" src="https://img.shields.io/badge/Docker-badc58?style=flat-square&logo=docker">
-<img alt="GitHub all releases" src="https://img.shields.io/github/downloads/JoeanAmier/TikTokDownloader/total?style=flat-square&color=ffdd59">
-</div>
-<br>
-<p>🔥 <b>TikTok Posts/Liked/Mix/Live/Video/Image/Music; DouYin Posts/Liked/Favorites/Collections/Video/Image/LivePhoto/Live/Music/Mix/Comments/Account/Search/Hot Board Data Acquisition Tools:</b> Fully open-source, free data collection and file download tool based on HTTPX module implementation; batch download of DouYin account posts works, liked works, favorites works and collections works; batch download of TikTok account posts works and liked works; download of DouYin linked or TikTok linked works; obtain DouYin live stream push addresses; download DouYin live stream video; obtain TikTok live stream push addresses; download TikTok live stream video; collect DouYin works comments data; batch download of DouYin Mix works; batch download of TikTok Mix works; collect detailed data of DouYin accounts; collect DouYin user/works/live search results; collect DouYin Hot Board data.</p>
-<p>⭐ Previous project names: <code>TikTokDownloader</code></p>
-<p>📣 This project will undergo code structure refactoring in the future, with the goal of making the code more robust and providing better maintainability and extensibility. If you have any thoughts on project design, implementation methods, or optimization ideas, you are welcome to make suggestions or participate in discussions!</p>
-<p>⭐ Due to the author's limited energy, I was unable to update the English document in a timely manner, and the content may have become outdated, partial translation is machine translation, the translation result may be incorrect, Suggest referring to Chinese documentation. If you want to contribute to translation, we warmly welcome you.</p>
-<hr>
+# FetchShelf
 
-# 📝 Project Features
+Docker-first Douyin / TikTok collection, download, and media management.
 
-<details>
-<summary>Function List (Click to Expand)</summary>
-<ul>
-<li>✅ Download DouYin video/image</li>
-<li>✅ Download DouYin live photo</li>
-<li>✅ Download the highest quality video file</li>
-<li>✅ Download TikTok video source files</li>
-<li>✅ Download TikTok video/image</li>
-<li>✅ Download of DouYin account posts/liked/favorites works</li>
-<li>✅ Download of TikTok account posts/liked works</li>
-<li>✅ Collect detailed data from DouYin/TikTok</li>
-<li>✅ Batch download of linked works</li>
-<li>✅ Batch download of works from multiple accounts</li>
-<li>✅ Automatically skip already downloaded files</li>
-<li>✅ Persistently save collected data</li>
-<li>✅ Support CSV/XLSX/SQLite format for saving data</li>
-<li>✅ Download dynamic/static cover images</li>
-<li>✅ Obtain DouYin live stream push addresses</li>
-<li>✅ Obtain TikTok live stream push addresses</li>
-<li>✅ Use ffmpeg to download live video</li>
-<li>✅ Web UI interaction interface</li>
-<li>✅ Collect comments data from DouYin works</li>
-<li>✅ Batch download of DouYin Mix works</li>
-<li>✅ Batch download of TikTok Mix works</li>
-<li>✅ Record statistics such as likes and favorites</li>
-<li>✅ Filter works based on publication time</li>
-<li>✅ Support incremental downloading of account works</li>
-<li>✅ Support data Collections using proxies</li>
-<li>✅ Support remote access via LAN</li>
-<li>✅ Collect detailed data from DouYin accounts</li>
-<li>✅ Update statistics of works</li>
-<li>✅ Support custom account/mix mark</li>
-<li>✅ Automatically update account nickname/mark</li>
-<li>✅ Deploy to private servers</li>
-<li>✅ Deploy to public servers</li>
-<li>✅ Collect DouYin search data</li>
-<li>✅ Collect DouYin hot board data</li>
-<li>✅ Record IDs of already downloaded works</li>
-<li>☑️ <del>Scan QR code to log in and obtain Cookies</del></li>
-<li>✅ Obtain Cookies from browsers</li>
-<li>✅ Support Web API calls</li>
-<li>✅ Support multithreaded downloading of works</li>
-<li>✅ File integrity processing mechanism</li>
-<li>✅ Custom rules for filtering works</li>
-<li>✅ Archive and save works files by folder</li>
-<li>✅ Customize file size limit</li>
-<li>✅ Support resume downloading of files from breakpoints</li>
-<li>✅ Monitor clipboard links to download works</li>
-</ul>
-</details>
+> [!IMPORTANT]
+> Docker Compose and the WebUI are the primary deployment and maintenance targets.
+> Desktop executables and the interactive terminal remain historical entry points
+> and are not guaranteed to stay in feature parity.
 
-# 📋 Project Instructions
+## What it provides
 
-## Quick Start
+- Douyin and TikTok account collection
+- Multi-account batch and daily scheduled tasks
+- Task progress, history, pause, resume, and stop controls
+- Searchable and sortable account dashboard
+- Paginated masonry media browser with image and video lightbox previews
+- Settings, Cookie, collector identity, proxy, and routing management
+- FastAPI documentation and endpoints
 
-<p>⭐ Mac OS and Windows 10 and above users can go to <a href="https://github.com/JoeanAmier/TikTokDownloader/releases/latest">Releases</a> or <a href="https://github.com/JoeanAmier/TikTokDownloader/actions">Actions</a> to download the compiled program, ready to use!</p>
-<p>⭐ This project includes GitHub Actions for automatic building executable files. Users can use GitHub Actions to build the latest source code into executable files at any time!</p>
-<p>⭐ For the automatic building executable files tutorial, please refer to the <code>Build of Executable File Guide</code> section of this document. If you need a more detailed step-by-step tutorial with illustrations, please <a href="https://mp.weixin.qq.com/s/TorfoZKkf4-x8IBNLImNuw">check out this article</a>!</p>
-<p><strong>Note: Due to the macOS platform's executable file <code>main</code> not being code-signed, it will be restricted by system security measures on first run. Please execute the command <code>xattr -cr project_folder_path</code> in the terminal to remove the security flag, after which it can run normally.</strong></p>
-<hr>
-<ol>
-<li><b>Run the executable file</b> or <b>configure the environment to run</b> (choose one of the two)
-<ol><b>Run the executable file</b>
-<li>Download the executable file compressed file built by <a href="https://github.com/JoeanAmier/TikTokDownloader/releases/latest">Releases</a> or Actions.</li>
-<li>After extracting, open the program folder and double-click to run <code>main</code>.</li>
-</ol>
-<ol><b>Configure the environment to run</b>
+## Support status
 
-[//]: # (<li>Install Python interpreter version not lower than <code>3.12</code></li>)
-<li>Install the <a href="https://www.python.org/">Python</a> interpreter version <code>3.12</code></li>
-<li>Download the latest source code or the source code released in <a href="https://github.com/JoeanAmier/TikTokDownloader/releases/latest">Releases</a> to your local machine</li>
-<ol><b>Install project dependencies using pip</b>
-<li>Run the command <code>python -m venv venv</code> to create a virtual environment (optional)</li>
-<li>Run the command <code>.\venv\Scripts\activate.ps1</code> or <code>venv\Scripts\activate</code> to activate the virtual environment (optional)</li>
-<li>Run the command <code>pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt</code> to install the required modules for the program</li>
-<li>Run the command <code>python .\main.py</code> or <code>python main.py</code> to start DouK-Downloader</li>
-</ol>
-<ol><b>Install project dependencies using uv (recommended)</b>
-<li>Run the command <code>uv sync --no-dev</code> to synchronize environment dependencies</li>
-<li>Run the command <code>uv run main.py</code> to start DouK-Downloader</li>
-</ol>
-</ol>
-</li>
-<li>Read the disclaimer of DouK-Downloader and enter content according to the prompt.</li>
-<li>Write Cookie Information into Configuration File 
-<ol><b>Read Cookie from Clipboard(Recommended)</b>
-<li>Refer to the <a href="https://github.com/JoeanAmier/TikTokDownloader/blob/master/docs/Cookie%E8%8E%B7%E5%8F%96%E6%95%99%E7%A8%8B.md">Cookie Extraction Tutorial</a>, copy the required Cookie to the clipboard</li>
-<li>Select the <code>Read Cookie from Clipboard</code> option, the program will automatically read the Cookie from the clipboard and write it into the configuration file</li>
-</ol>
-<ol><b>Read Cookie from Browser</b>
-<li>Select the <code>Read Cookie from Browser</code> option, then follow the prompts to input the browser type or its corresponding number</li>
-</ol>
-<ol><b><del>Obtain Cookie via QR Code Login</del> (No longer valid)</b>
-<li><del>Select the <code>Obtain Cookie via QR Code Login</code> option, the program will display a login QR code image and open it with the default application</del></li>
-<li><del>Use the TikTok app to scan the QR code and log in</del></li>
-<li><del>Follow the prompts, the program will automatically write the Cookie into the configuration file</del></li>
-</ol>
-</li>
-<li>Return to the program interface, sequentially select <code>Terminal interactive mode</code> -> <code>Batch download link works (general)</code> -> <code>Manually enter the link of the works to be collected</code>.</li>
-<li>Input the DouYin works link to download the file. For stable TikTok usage, it is recommended to configure <code>accounts_urls_tiktok</code>, a logged-in <code>cookie_tiktok</code>, and the <code>tiktok_api_*</code> options described in the “TikTok account config and login state” section below.</li>
-<li>For more detailed instructions, please see <b><a href="https://github.com/JoeanAmier/TikTokDownloader/wiki/Documentation">Project Documentation</a></b>.</li>
-</ol>
-<p>⭐ It is recommended to use <a href="https://learn.microsoft.com/zh-cn/windows/terminal/install">Windows Terminal</a> (the default terminal that comes with Windows 11).</p>
+| Interface | Status |
+| --- | --- |
+| Docker Compose | Primary |
+| Local Docker build | Primary |
+| WebUI | Primary |
+| Web API | Maintained |
+| Source terminal mode | Advanced / historical |
+| Windows and macOS executables | Not a primary release target |
 
-### Docker Container
+## Quick start
 
-<p><b>For NAS deployment, use this repository's Docker Compose setup:</b></p>
+Requirements:
 
-```shell
+- Git
+- Docker Engine or Docker Desktop
+- Docker Compose v2
+
+Clone the current repository:
+
+```bash
+git clone https://github.com/silencoo/FetchShelf.git
+cd FetchShelf
 cp .env.example .env
-# Write the outputs to DOUK_API_TOKEN and DOUK_IDENTITY_KEY in .env.
+```
+
+Generate two different random values:
+
+```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 python -c "import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
+
+Add them to `.env`:
+
+```dotenv
+TZ=Asia/Shanghai
+WEBUI_PORT=5555
+SETTINGS_DIR=./settings
+DOWNLOADS_DIR=./downloads
+FETCHSHELF_API_TOKEN=replace-with-the-first-value
+FETCHSHELF_IDENTITY_KEY=replace-with-the-second-value
+```
+
+Build and start:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+Open `http://HOST_IP:5555/ui` and enter `FETCHSHELF_API_TOKEN`. In
+Settings, set the download root to `/app/downloads`.
+
+## Persistent data
+
+| Host setting | Container path | Contents |
+| --- | --- | --- |
+| `SETTINGS_DIR` | `/app/settings` | Settings, databases, task state, cache, and account avatars |
+| `DOWNLOADS_DIR` | `/app/downloads` | Downloaded images, videos, and exported data |
+| `.env` | Environment variables | WebUI token, identity key, and mount paths |
+
+Back up the two directories, `.env`, and especially
+`FETCHSHELF_IDENTITY_KEY`. Changing or losing the identity key makes existing
+encrypted Cookies, proxies, and device information unreadable. A Docker Secret
+can be supplied through `FETCHSHELF_IDENTITY_KEY_FILE`; a key file takes
+precedence over the environment variable.
+
+Do not commit `.env`, Tokens, Cookies, or identity keys.
+
+## Common operations
+
+```bash
+docker compose logs --tail=100
+docker compose logs -f
+docker compose stop
+docker compose restart
 docker compose up -d --build
 ```
 
-<p>Set <code>DOUK_API_TOKEN</code> to a random value before startup; without it only loopback clients are accepted and NAS/LAN requests receive 403. <code>DOUK_IDENTITY_KEY</code> encrypts collector Cookie, Proxy, and device data. For production, prefer mounting the 32-byte key as a Docker Secret at <code>/run/secrets/douk_identity_key</code> instead of storing it in the settings volume. Then open <code>http://NAS_IP:5555/ui</code> and enter the same API token in the top Token field.</p>
-<p><b>Back up the collector encryption key separately and securely.</b> <code>collector_pool.sqlite3</code> stores AES-256-GCM ciphertext only. If the key is lost or changed, existing Cookies, proxies, and device fingerprints cannot be recovered and must be entered again. Never commit the key to Git or bundle it with a public backup.</p>
-<p>The WebUI's “Collector Identities &amp; Routing” screen can hold multiple independent Douyin and TikTok identities, each with its own Cookie, proxy, user agent, and device parameters. Individual works, accounts, mixes, live rooms, comments, replies, searches, batched work links, account verification, collection monitoring, and daily schedules all use the same routing layer. Sticky-balanced and least-loaded strategies are available, and an account profile URL can be fixed to one identity. Batch targets are grouped by identity and run in parallel, while per-identity request delays and concurrency limits plus a platform-wide cap remain enforced; repeated failures trigger automatic cooldown. An empty <code>identity_id</code> uses automatic routing, while an explicit identity uses its stored credentials. The legacy path remains only for temporary Cookie/Proxy overrides or an unconfigured pool. Share-link redirects remain independent because they do not require an authenticated collector session.</p>
+## Updating and migrating
 
-<ol>
-<li>Get the image</li>
-<ul>
-<li>Method 1: Build the image using the <code>Dockerfile</code>.</li>
-<li>Method 2: Pull the image using the command <code>docker pull joeanamier/tiktok-downloader</code>.</li>
-<li>Method 3: Pull the image using the command <code>docker pull ghcr.io/joeanamier/tiktok-downloader</code>.</li>
-</ul>
-<li><b>Recommended: start WebUI directly in background (default command is WebUI)</b><br>
-<code>docker run -d --name douk-webui -p 5555:5555 -v tiktok_downloader_settings:/app/settings -v tiktok_downloader_downloads:/app/downloads &lt;image name&gt;</code>
-</li>
-<li>View logs: <code>docker logs -f douk-webui</code></li>
-<li>Stop container: <code>docker stop douk-webui</code></li>
-<li>If you need terminal interactive mode, override command: <code>docker run -it --rm &lt;image name&gt; uv run --no-sync main.py</code></li>
-</ol>
-<p>Docker containers cannot directly access the host machine's file system, and some features may be unavailable, for example: <code>Get Cookie from Browser</code>; if there are any other issues, please report!</p>
-<p>Set <code>root</code> to <code>/app/downloads</code> in the WebUI so downloaded files use the Compose download mount. For an external signer, place the trusted implementation at <code>settings/encipher.py</code>; the container loads it through <code>DOUK_ENCIPHER_PATH</code>.</p>
-<hr>
+Before an update, stop active collection writes and back up `.env`,
+`SETTINGS_DIR`, and `DOWNLOADS_DIR`.
 
-## Profile Avatar Setting
-
-<ul>
-<li><code>profile_avatar_folder</code>: output folder name for WebUI AI profile avatars (under <code>settings</code>, default <code>profile_avatars</code>).</li>
-</ul>
-<hr>
-
-## About Cookie
-
-[Click to view Cookie tutorial](https://github.com/JoeanAmier/TikTokDownloader/blob/master/docs/Cookie%E8%8E%B7%E5%8F%96%E6%95%99%E7%A8%8B.md)
-
-> * Cookie only needs to be re-written to the configuration file after it expires, and not every time the program is
-    run.
->
-> * The Cookie can affect the resolution of the video files downloaded from the DouYin platform. If you are unable to
-    download high-resolution video files, please try updating the Cookie!
->
-> * When the program fails to obtain data, you can try updating the Cookie or using a Cookie that is already logged in!
-
-<hr>
-
-## TikTok account config and login state
-
-<ul>
-<li>The project now supports TikTok account batch configuration through <code>accounts_urls_tiktok</code> in <code>settings.json</code>, similar to DouYin <code>accounts_urls</code>.</li>
-<li>The recommended value is a TikTok profile URL such as <code>https://www.tiktok.com/@username</code>. Work links can also be parsed, but profile URLs are recommended for batch account mode.</li>
-<li>Each <code>accounts_urls_tiktok</code> item uses the same common fields as DouYin account config: <code>mark</code>, <code>url</code>, <code>tab</code>, <code>earliest</code>, <code>latest</code>, <code>enable</code>, and <code>auto_update_earliest</code>.</li>
-<li>The WebUI <code>settings.json Editor</code> also provides a dedicated quick-auth panel for DouYin / TikTok cookies and key TikTok browser fingerprint fields.</li>
-<li>TikTok share-link parsing, single-link download, and batch-link download preserve the canonical <code>detail_url</code>; data requests use the project's <code>APITikTok</code> implementation by default.</li>
-</ul>
-
-```json
-"accounts_urls_tiktok": [
-  {
-    "mark": "hnks0505",
-    "url": "https://www.tiktok.com/@hnks0505",
-    "tab": "post",
-    "earliest": "2026/01/01",
-    "latest": "2036/01/01",
-    "enable": true,
-    "auto_update_earliest": false
-  }
-]
+```bash
+git pull
+docker compose build --pull
+docker compose up -d
+docker compose ps
+docker compose logs --tail=100
 ```
 
-<p>Request pacing and compatibility fallback example:</p>
+When replacing an older container:
 
-```json
-"request_delay": 6.0,
-"tiktok_bridge_fallback_enabled": false,
-"tiktok_api_enabled": true,
-"tiktok_api_browser": "chromium",
-"tiktok_api_browser_engine": "cloakbrowser",
-"tiktok_api_headless": false,
-"tiktok_api_humanize": true,
-"tiktok_api_human_preset": "default",
-"tiktok_api_reuse_session": true,
-"tiktok_api_persistent_profile": true,
-"tiktok_api_profile_dir": "cache/tiktok_api_profile",
-"tiktok_api_skip_on_risk": true,
-"tiktok_api_risk_cooldown_seconds": 1800
-```
+1. Record its environment variables and mounts.
+2. Stop active collection and wait for current writes to finish.
+3. Back up or snapshot the settings and downloads directories.
+4. Point the new Compose configuration at the same persistent directories.
+5. Stop the old container before starting FetchShelf.
+6. Verify accounts, schedules, task history, media files, and latest-work times.
 
-<ul>
-<li><b>External signing implementations are supported.</b> If the bundled <code>a_bogus</code>, <code>X-Bogus</code>, or <code>X-Gnarly</code> implementation expires, copy <code>encipher_example.py</code> to <code>encipher.py</code> in the source root (use <code>settings/encipher.py</code> for Docker/NAS) and implement the required classes. This file runs with the application's permissions, so only use trusted code.</li>
-<li><b>The browser compatibility bridge is disabled by default.</b> The previous TikTokApi browser path is attempted after a legacy request failure or media 403 only when <code>tiktok_bridge_fallback_enabled</code> is explicitly set to <code>true</code>.</li>
-<li><b><code>request_delay</code> is the average request interval in seconds.</b> The default <code>6</code> uses a human-like random distribution; set it to <code>0</code> to disable waiting.</li>
-<li><b>You should use a logged-in TikTok Web cookie.</b> Visitor-only values such as <code>msToken</code> or <code>ttwid</code> may lead to incomplete lists, <code>empty response</code>, captcha, or download <code>403</code>.</li>
-<li><b>Import a full logged-in browser cookie whenever possible.</b> In practice, the browser should already be logged into TikTok Web before importing <code>cookie_tiktok</code>. Common logged-in cookie keys include <code>sessionid</code>, <code>sessionid_ss</code>, <code>sid_tt</code>, and <code>uid_tt</code>.</li>
-<li><b>When the compatibility bridge is enabled, do not change its profile directory after solving a captcha.</b> Reuse the same <code>tiktok_api_profile_dir</code> so the verified browser state is preserved.</li>
-<li><b>If TikTok requires a proxy in your network, configure <code>proxy_tiktok</code>.</b> Do not rely on DouYin-only <code>proxy</code>.</li>
-<li><b>If direct media download returns 403,</b> shared TikTokApi-session download is attempted only when <code>tiktok_bridge_fallback_enabled</code> is enabled.</li>
-<li><b>For the Web API <code>/tiktok/detail</code>, prefer sending <code>detail_url</code>.</b> <code>detail_id</code> is kept mainly as a compatibility fallback, and short share links are expanded into canonical work URLs before processing.</li>
-</ul>
+Never run two containers against the same writable settings and downloads
+directories.
 
-## Other Instructions
+For upgrades from the pre-rename release:
 
-<ul>
-<li>When the program prompts the user for input, pressing Enter directly will return to the previous menu, and inputting <code>Q</code> or <code>q</code> will end the program's execution.</li>
-<li>Since fetching data for liked and favorites works of an account only returns the publication dates of those works, not the dates of the actions (liking or favouring), the program needs to retrieve all liked and favorites works data before performing date filtering. If there are a large number of works, this may take a considerable amount of time. The number of requests can be controlled via the <code>max_pages</code> parameter.</li>
-<li>To obtain data for posts made by a private account, a logged-in Cookie is required, and the logged-in account must follow the private account.</li>
-<li>When batch downloading account posts works or mix works, if the corresponding nickname or mark parameter changes, the program will automatically update the nickname and mark parameter in the file names of the downloaded works.</li>
-<li>When downloading files, the program first downloads them to a temporary folder and then moves them to the storage folder upon completion. The temporary folder will be emptied when the program ends.</li>
-<li>The <code>Batch Download Favorites Works Mode</code> currently only supports downloading Favorites works for the account corresponding to the currently logged-in Cookie and does not support multiple accounts.</li>
-<li>If you want the program to use a proxy to request data, you must set the <code>proxy</code> parameter in <code>settings.json</code>; otherwise, the program will not use a proxy.</li>
-<li>If your computer does not have a suitable program for editing JSON files, we recommend using the <a href="https://www.toolhelper.cn/JSON/JSONFormat">Online Tool</a> to edit the configuration file content, after modification, the software needs to be restarted to take effect.</li>
-<li>When the program prompts the user to input content or links, please be careful to avoid including newline characters, as this may cause unexpected issues.</li>
-<li>This project does not support downloading paid works. Please do not report any issues related to downloading paid works.</li>
-<li>On Windows systems, the program needs to be run as an administrator to read Cookies from Chromium, Chrome, and Edge browsers.</li>
-<li>This project has not been optimized for running multiple instances of the program. If you need to run multiple instances, please copy the entire project folder to avoid unexpected issues.</li>
-<li>During program execution, if you need to terminate the program or <code>ffmpeg</code>, please press <code>Ctrl + C</code> to stop the process. Do not click the close button on the terminal window directly.</li>
-</ul>
-<h2>Build of Executable File Guide</h2>
-<details>
-<summary>Build of Executable File Guide (Click to Expand)</summary>
+- Move the old WebUI token and identity key values to
+  `FETCHSHELF_API_TOKEN` and `FETCHSHELF_IDENTITY_KEY`; old variable names are
+  not accepted.
+- Keep the identity key value unchanged.
+- The Compose service and container are both named `fetchshelf`.
+- On first startup, the old application database is copied once to
+  `FetchShelf.db`; the source database is not modified or deleted.
 
-This guide will walk you through forking this repository and executing GitHub Actions to automatically build and package
-the program based on the latest source code!
+## Security notes
 
----
+- Public-account collection often works without a Cookie.
+- A logged-in Cookie can improve visibility for some content, but can also
+  increase rate-limit or account-control risk.
+- An empty `FETCHSHELF_API_TOKEN` only permits loopback requests; Docker and LAN
+  requests normally receive `403`.
+- Do not expose the WebUI directly to the public Internet. Use HTTPS, a reverse
+  proxy, and additional access control when remote access is required.
+- Only load a trusted external `encipher.py`; it runs with application
+  permissions.
 
-### Steps to Use
+## API and development
 
-#### 1. Fork the Repository
+After startup:
 
-1. Click the **Fork** button at the top right of the project repository to fork it to your personal GitHub account
-2. Your forked repository address will look like this: `https://github.com/your-username/this-repo`
+- WebUI: `http://HOST_IP:5555/ui`
+- Swagger: `http://HOST_IP:5555/docs`
+- ReDoc: `http://HOST_IP:5555/redoc`
 
----
+Frontend development instructions are in
+[webui/README.md](./webui/README.md). The Chinese
+[README](./README.md) is the primary deployment guide.
 
-#### 2. Enable GitHub Actions
+## License and acknowledgement
 
-1. Go to the page of your forked repository
-2. Click the **Settings** tab at the top
-3. Click the **Actions** tab on the right
-4. Click the **General** option
-5. Under **Actions permissions**, select **Allow all actions and reusable workflows** and click the **Save** button
+This project is provided for lawful, authorized learning and research use.
+Users are responsible for complying with local law, platform rules, privacy
+requirements, and intellectual-property rights.
 
----
+Distributed under the
+[GNU General Public License v3.0](./license).
 
-#### 3. Manually Trigger the Build Process
-
-1. In your forked repository, click the **Actions** tab at the top
-2. Find the workflow named **构建可执行文件**
-3. Click the **Run workflow** button on the right:
-    - Select the **master** or **develop** branch
-    - Click **Run workflow**
-
----
-
-#### 4. Check the Build Progress
-
-1. On the **Actions** page, you can see the execution records of the triggered workflow
-2. Click on the run record to view detailed logs to check the build progress and status
-
----
-
-#### 5. Download the Build Result
-
-1. Once the build is complete, go to the corresponding run record page
-2. In the **Artifacts** section at the bottom of the page, you will see the built result file
-3. Click to download and save it to your local machine to get the built program
-
----
-
-### Notes
-
-1. **Resource Usage**:
-    - GitHub provides free build environments for Actions, with a monthly usage limit (2000 minutes) for free-tier
-      users
-
-2. **Code Modifications**:
-    - You are free to modify the code in your forked repository to customize the build process
-    - After making changes, you can trigger the build process again to get your customized version
-
-3. **Stay in Sync with the Main Repository**:
-    - If the main repository is updated with new code or workflows, it is recommended that you periodically sync your
-      forked repository to get the latest features and fixes
-
----
-
-### Frequently Asked Questions
-
-#### Q1: Why can't I trigger the workflow?
-
-A: Please ensure that you have followed the steps to **Enable Actions**. Otherwise, GitHub will prevent the workflow
-from running
-
-#### Q2: What should I do if the build process fails?
-
-A:
-
-- Check the run logs to understand the cause of the failure
-- Ensure there are no syntax errors or dependency issues in the code
-- If the problem persists, please open an issue on
-  the [Issues page](https://github.com/JoeanAmier/TikTokDownloader/issues)
-
-#### Q3: Can I directly use the Actions from the main repository?
-
-A: Due to permission restrictions, you cannot directly trigger Actions from the main repository. Please use the forked
-repository to execute the build process
-
-</details>
-
-## Program Update
-
-<p><strong>Method 1:</strong> Download and extract the files, then copy the old version of the <code>_internal\settings</code> folder into the new version's <code>_internal</code> folder.</p>
-<p><strong>Method 2:</strong> Download and extract the files (do not run the program), then copy all files and directly overwrite the old version.</p>
-
-# ⚠️ Disclaimer
-
-<ol>
-<li>The user's use of this project is entirely at their own discretion and responsibility. The author assumes no liability for any losses, claims, or risks arising from the user's use of this project.</li>
-<li>The code and functionalities provided by the author of this project are based on current knowledge and technological developments. The author strives to ensure the correctness and security of the code according to existing technical capabilities but does not guarantee that the code is entirely free of errors or defects.</li>
-<li>All third-party libraries, plugins, or services relied upon by this project follow their respective open-source or commercial licenses. Users must review and comply with those license agreements. The author assumes no responsibility for the stability, security, or compliance of third-party components.</li>
-<li>Users must strictly comply with the requirements of the <a href="https://github.com/JoeanAmier/TikTokDownloader/blob/master/LICENSE">GNU General Public License v3.0</a> when using this project and properly indicate that the code was used under the <a href="https://github.com/JoeanAmier/TikTokDownloader/blob/master/LICENSE">GNU General Public License v3.0</a>.</li>
-<li>When using the code and features of this project, users must independently research relevant laws and regulations and ensure their actions are legal and compliant. Any legal liabilities or risks arising from violations of laws and regulations shall be borne solely by the user.</li>
-<li>Users must not use this tool to engage in any activities that infringe intellectual property rights, including but not limited to downloading or distributing copyright-protected content without authorization. The developers do not participate in, support, or endorse any unauthorized acquisition or distribution of illegal content.</li>
-<li>This project assumes no responsibility for the compliance of any data processing activities (including collection, storage, and transmission) conducted by users. Users must comply with relevant laws and regulations and ensure that their processing activities are lawful and proper. Legal liabilities resulting from non-compliant operations shall be borne by the user.</li>
-<li>Under no circumstances may users associate the author, contributors, or other related parties of this project with their usage of the project, nor may they hold these parties responsible for any loss or damage arising from such usage.</li>
-<li>The author of this project will not provide a paid version of the DouK-Downloader project, nor will they offer any commercial services related to the DouK-Downloader project.</li>
-<li>Any secondary development, modification, or compilation based on this project is unrelated to the original author. The original author assumes no liability for any consequences resulting from such secondary development. Users bear full responsibility for all outcomes arising from such modifications.</li>
-<li>This project grants no patent licenses; if the use of this project leads to patent disputes or infringement, the user bears all associated risks and responsibilities. Without written authorization from the author or rights holder, users may not use this project for any commercial promotion, marketing, or re-licensing.</li>
-<li>The author reserves the right to terminate service to any user who violates this disclaimer at any time and may require them to destroy all obtained code and derivative works.</li>
-<li>The author reserves the right to update this disclaimer at any time without prior notice. Continued use of the project constitutes acceptance of the revised terms.</li>
-</ol>
-<b>Before using the code and functionalities of this project, please carefully consider and accept the above disclaimer. If you have any questions or disagree with the statement, please do not use the code and functionalities of this project. If you use the code and functionalities of this project, it is considered that you fully understand and accept the above disclaimer, and willingly assume all risks and consequences associated with the use of this project.</b>
-
-# 💡 Project References
-
-* https://github.com/Johnserf-Seed/f2
-* https://github.com/Evil0ctal/Douyin_TikTok_Download_API
-* https://github.com/justbeluga/tiktok-web-reverse-engineering
-* https://github.com/ihmily/DouyinLiveRecorder
-* https://github.com/encode/httpx/
-* https://github.com/Textualize/rich
-* https://github.com/omnilib/aiosqlite
-* https://github.com/Tinche/aiofiles
-* https://github.com/pyinstaller/pyinstaller
-* https://foss.heptapod.net/openpyxl/openpyxl
-* https://github.com/carpedm20/emoji/
-* https://github.com/lxml/lxml
-* https://ffmpeg.org/ffmpeg-all.html
+FetchShelf evolved from
+[TikTokDownloader](https://github.com/JoeanAmier/TikTokDownloader). Thanks to
+the original author and all open-source contributors.

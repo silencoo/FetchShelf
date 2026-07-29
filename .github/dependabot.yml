@@ -10,6 +10,6 @@ updates:
       interval: "cron"
       cronjob: "0 0 * * 6"
       timezone: "Asia/Shanghai"
-    target-branch: "develop"
+    target-branch: "main"
     registries:
       - pip_mirror

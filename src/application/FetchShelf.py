@@ -29,7 +29,7 @@ from src.tools import (
     Browser,
     ColorfulConsole,
     DownloaderError,
-    RenameCompatible,
+    BrandMigration,
     choose,
     remove_empty_directories,
     safe_pop,
@@ -43,10 +43,10 @@ from .main_terminal import TikTok
 # from typing import Type
 # from webbrowser import open
 
-__all__ = ["TikTokDownloader"]
+__all__ = ["FetchShelf"]
 
 
-class TikTokDownloader:
+class FetchShelf:
     VERSION_MAJOR = VERSION_MAJOR
     VERSION_MINOR = VERSION_MINOR
     VERSION_BETA = VERSION_BETA
@@ -57,7 +57,7 @@ class TikTokDownloader:
     def __init__(
         self,
     ):
-        self.rename_compatible()
+        self.migrate_brand_data()
         self.console = ColorfulConsole(
             debug=self.VERSION_BETA,
         )
@@ -76,8 +76,8 @@ class TikTokDownloader:
         self.__function_menu = None
 
     @staticmethod
-    def rename_compatible():
-        RenameCompatible.migration_file()
+    def migrate_brand_data():
+        BrandMigration.migrate_database()
 
     async def read_config(self):
         self.config = self.__format_config(await self.database.read_config_data())
@@ -295,7 +295,7 @@ class TikTokDownloader:
             self.__update_menu()
             if not mode:
                 mode = choose(
-                    _("DouK-Downloader 功能选项"),
+                    _("FetchShelf 功能选项"),
                     [i for i, __ in self.__function_menu],
                     self.console,
                     separate=(

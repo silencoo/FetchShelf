@@ -1,4 +1,4 @@
-# DouK WebUI frontend
+# FetchShelf WebUI frontend
 
 This directory is the source for the WebUI served at `/ui`. Vite writes the production bundle to `../src/webui/static`, which remains committed so the Python application can run without Node.
 

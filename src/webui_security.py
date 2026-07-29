@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import unquote_plus
 
 REDACTED_VALUE = "[REDACTED]"
-WEBUI_TOKEN_ENV_NAMES = ("DOUK_API_TOKEN", "DOUK_WEBUI_TOKEN")
+WEBUI_TOKEN_ENV_NAME = "FETCHSHELF_API_TOKEN"
 
 WEBUI_SENSITIVE_FIELDS = frozenset(
     {
@@ -143,10 +143,7 @@ _UPTIME_PUSH_PATTERN = compile_pattern(
 
 def configured_webui_token() -> str:
     """Return the configured API token without inventing an insecure default."""
-    for name in WEBUI_TOKEN_ENV_NAMES:
-        if value := environ.get(name, "").strip():
-            return value
-    return ""
+    return environ.get(WEBUI_TOKEN_ENV_NAME, "").strip()
 
 
 def is_loopback_client(host: str | None) -> bool:
@@ -167,9 +164,8 @@ def is_loopback_client(host: str | None) -> bool:
 def validate_webui_token(token: str | None, client_host: str | None = None) -> bool:
     """Validate a configured token, or allow tokenless loopback development.
 
-    When ``DOUK_API_TOKEN`` (or the compatibility alias
-    ``DOUK_WEBUI_TOKEN``) is configured, every client must provide an exact
-    token match. Without a configured token, only a loopback ASGI peer is
+    When ``FETCHSHELF_API_TOKEN`` is configured, every client must provide an
+    exact token match. Without a configured token, only a loopback ASGI peer is
     accepted; Docker bridge, LAN and Internet peers fail closed.
     """
     expected = configured_webui_token()

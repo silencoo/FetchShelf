@@ -29,7 +29,7 @@ def load_objects_from_external_py(
     caller can fall back to the built-in implementations.
     """
     base_dir = get_base_dir()
-    configured_path = os.environ.get("DOUK_ENCIPHER_PATH", "").strip()
+    configured_path = os.environ.get("FETCHSHELF_ENCIPHER_PATH", "").strip()
     candidates = []
     if configured_path:
         candidates.append(Path(configured_path).expanduser())
@@ -44,7 +44,7 @@ def load_objects_from_external_py(
 
     try:
         spec = importlib.util.spec_from_file_location(
-            "douk_downloader_external_encipher",
+            "fetchshelf_external_encipher",
             file_path,
         )
         if spec is None or spec.loader is None:

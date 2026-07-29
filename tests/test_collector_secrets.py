@@ -41,10 +41,10 @@ def test_load_identity_key_supports_file_base64_and_environment_hex(tmp_path):
     secret_file.write_text(b64encode(key).decode("ascii"), encoding="ascii")
 
     assert load_identity_key(
-        environment={"DOUK_IDENTITY_KEY_FILE": str(secret_file)}
+        environment={"FETCHSHELF_IDENTITY_KEY_FILE": str(secret_file)}
     ) == key
     assert load_identity_key(
-        environment={"DOUK_IDENTITY_KEY": f"hex:{key.hex()}"},
+        environment={"FETCHSHELF_IDENTITY_KEY": f"hex:{key.hex()}"},
         default_key_file=tmp_path / "missing",
     ) == key
 
@@ -55,7 +55,7 @@ def test_load_identity_key_supports_exact_raw_file(tmp_path):
     secret_file.write_bytes(key)
 
     assert load_identity_key(
-        environment={"DOUK_IDENTITY_KEY_FILE": str(secret_file)}
+        environment={"FETCHSHELF_IDENTITY_KEY_FILE": str(secret_file)}
     ) == key
 
 

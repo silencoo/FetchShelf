@@ -12,8 +12,8 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  DOCKER_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/tiktok-downloader
-  GHCR_REPO: ghcr.io/${{ github.repository_owner }}/tiktok-downloader
+  DOCKER_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/fetchshelf
+  GHCR_REPO: ghcr.io/${{ github.repository_owner }}/fetchshelf
 
 jobs:
   publish-docker:

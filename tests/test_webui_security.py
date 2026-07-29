@@ -27,8 +27,7 @@ from src.webui_security import (
 
 @pytest.fixture(autouse=True)
 def clear_webui_tokens(monkeypatch):
-    monkeypatch.delenv("DOUK_API_TOKEN", raising=False)
-    monkeypatch.delenv("DOUK_WEBUI_TOKEN", raising=False)
+    monkeypatch.delenv("FETCHSHELF_API_TOKEN", raising=False)
 
 
 def test_tokenless_access_is_loopback_only():
@@ -40,7 +39,7 @@ def test_tokenless_access_is_loopback_only():
 
 
 def test_configured_token_is_required_for_every_client(monkeypatch):
-    monkeypatch.setenv("DOUK_API_TOKEN", "correct-horse")
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "correct-horse")
 
     assert is_valid_token("correct-horse", "203.0.113.10") is True
     assert is_valid_token("wrong", "127.0.0.1") is False
@@ -57,15 +56,15 @@ def test_fastapi_dependency_rejects_remote_default_and_accepts_env_token(monkeyp
     client = TestClient(app)
     assert client.get("/ui/private").status_code == 403
 
-    monkeypatch.setenv("DOUK_API_TOKEN", "nas-secret")
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "lan-secret")
     assert client.get("/ui/private", headers={"token": "wrong"}).status_code == 403
-    response = client.get("/ui/private", headers={"token": "nas-secret"})
+    response = client.get("/ui/private", headers={"token": "lan-secret"})
     assert response.status_code == 200
     assert response.json() == {"ok": True}
 
     client.cookies.set(
         WEBUI_SESSION_COOKIE,
-        "nas-secret",
+        "lan-secret",
         path="/ui",
     )
     response = client.get("/ui/private")
@@ -74,7 +73,7 @@ def test_fastapi_dependency_rejects_remote_default_and_accepts_env_token(monkeyp
 
 
 def test_raw_settings_require_explicit_secret_reveal(tmp_path, monkeypatch):
-    monkeypatch.setenv("DOUK_API_TOKEN", "settings-test-token")
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "settings-test-token")
     settings_path = tmp_path / "settings.json"
     settings_path.write_text(
         '{"cookie":"sessionid=real-secret","timeout":30}',
@@ -108,7 +107,7 @@ def test_raw_settings_require_explicit_secret_reveal(tmp_path, monkeypatch):
 
 
 def test_account_batch_task_can_pause_at_boundary_and_resume(monkeypatch):
-    monkeypatch.setenv("DOUK_API_TOKEN", "pause-test-token")
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "pause-test-token")
 
     class _Runner:
         def done(self):
@@ -175,7 +174,7 @@ def test_account_batch_task_can_pause_at_boundary_and_resume(monkeypatch):
 
 
 def test_file_browser_api_paginates_and_searches(tmp_path, monkeypatch):
-    monkeypatch.setenv("DOUK_API_TOKEN", "files-test-token")
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "files-test-token")
     download_root = tmp_path / "downloads"
     download_root.mkdir()
     for index in range(30):

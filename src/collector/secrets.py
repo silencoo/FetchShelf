@@ -61,6 +61,8 @@ class AESGCMSecretCodec(SecretCodec):
 
     codec_id = "aesgcm-v1"
     secure = True
+    # These persisted v1 protocol bytes are intentionally immutable. They are
+    # data-format identifiers, not user-facing product branding.
     _MAGIC = b"DOUKID\x01"
     _NONCE_BYTES = 12
     _AAD_PREFIX = b"douK.collector.credentials\x00v1\x00"
@@ -106,7 +108,7 @@ class AESGCMSecretCodec(SecretCodec):
         cls,
         *,
         environment: Mapping[str, str] | None = None,
-        default_key_file: str | Path = "/run/secrets/douk_identity_key",
+        default_key_file: str | Path = "/run/secrets/fetchshelf_identity_key",
     ) -> "AESGCMSecretCodec":
         return cls(
             load_identity_key(
@@ -165,16 +167,16 @@ def _decode_key_material(value: bytes) -> bytes:
 def load_identity_key(
     *,
     environment: Mapping[str, str] | None = None,
-    default_key_file: str | Path = "/run/secrets/douk_identity_key",
+    default_key_file: str | Path = "/run/secrets/fetchshelf_identity_key",
 ) -> bytes:
     """Load an identity key without ever creating or persisting one.
 
-    File-based Docker secrets take precedence. ``DOUK_IDENTITY_KEY`` is an
+    File-based Docker secrets take precedence. ``FETCHSHELF_IDENTITY_KEY`` is an
     explicit fallback for environments that cannot mount a secret file.
     """
 
     values = environ if environment is None else environment
-    configured_path = values.get("DOUK_IDENTITY_KEY_FILE", "").strip()
+    configured_path = values.get("FETCHSHELF_IDENTITY_KEY_FILE", "").strip()
     key_path = Path(configured_path or default_key_file)
     try:
         if key_path.is_file():
@@ -184,12 +186,12 @@ def load_identity_key(
             f"unable to read collector identity key file: {key_path}"
         ) from error
 
-    if inline := values.get("DOUK_IDENTITY_KEY", ""):
+    if inline := values.get("FETCHSHELF_IDENTITY_KEY", ""):
         return _decode_key_material(inline.encode("utf-8"))
 
     raise SecretCodecUnavailable(
-        "collector identity key is missing; mount DOUK_IDENTITY_KEY_FILE "
-        f"(default {key_path}) or set DOUK_IDENTITY_KEY"
+        "collector identity key is missing; mount FETCHSHELF_IDENTITY_KEY_FILE "
+        f"(default {key_path}) or set FETCHSHELF_IDENTITY_KEY"
     )
 
 

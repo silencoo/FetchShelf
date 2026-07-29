@@ -1,11 +1,11 @@
-# English translations for DouK-Downloader package.
-# Copyright (C) 2024 THE DouK-Downloader'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the DouK-Downloader package.
+# English translations for FetchShelf package.
+# Copyright (C) 2024 THE FetchShelf'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the FetchShelf package.
 # FIRST AUTHOR <yonglelolu@foxmail.com>, 2024.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: DouK-Downloader 5.8\n"
+"Project-Id-Version: FetchShelf 5.8\n"
 "Report-Msgid-Bugs-To: <yonglelolu@foxmail.com>\n"
 "POT-Creation-Date: 2025-11-04 10:48+0800\n"
 "PO-Revision-Date: 2024-12-22 21:46+0800\n"
@@ -840,67 +840,67 @@ msgstr "Starting to retrieve Collections data"
 msgid "请选择采集功能"
 msgstr "Please select the function menu"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:108
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:108
 msgid "禁用"
 msgstr "Disable"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:109
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:109
 msgid "启用"
 msgstr "Enable"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:112
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:112
 msgid "从剪贴板读取 Cookie (抖音)"
 msgstr "Extracting cookie (DouYin) from clipboard"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:113
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:113
 msgid "从浏览器读取 Cookie (抖音)"
 msgstr "Extracting cookie (DouYin) from browser"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:115
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:115
 msgid "从剪贴板读取 Cookie (TikTok)"
 msgstr "Extracting cookie (TikTok) from clipboard"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:116
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:116
 msgid "从浏览器读取 Cookie (TikTok)"
 msgstr "Extracting cookie (TikTok) from browser"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:117
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:117
 msgid "终端交互模式"
 msgstr "Terminal Mode"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:118
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:118
 msgid "后台监听模式"
 msgstr "Monitoring Mode"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:119
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:119
 msgid "Web API 模式"
 msgstr "Web API Mode"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:120
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:120
 msgid "Web UI 模式"
 msgstr "Web UI Mode"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:124
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:124
 msgid "{}作品下载记录"
 msgstr "{} Works Download History"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:127
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:127
 msgid "删除作品下载记录"
 msgstr "Delete Works Download History"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:129
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:129
 msgid "{}运行日志记录"
 msgstr "{} Run Log History"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:132
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:132
 msgid "检查程序版本更新"
 msgstr "Check for Program Version Updates"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:133
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:133
 msgid "切换语言"
 msgstr "切换到简体中文"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:149
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:149
 msgid ""
 "访问 http://127.0.0.1:5555/docs 或者 http://127.0.0.1:5555/redoc 可以查阅 "
 "API 模式说明文档！"
@@ -908,57 +908,57 @@ msgstr ""
 "Visit http://127.0.0.1:5555/docs or http://127.0.0.1:5555/redoc to view the "
 "API mode documentation!"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:190
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:190
 msgid "是否已仔细阅读上述免责声明(YES/NO): "
 msgstr "Have you carefully read the above disclaimer (YES/NO):"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:224
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:224
 msgid "项目地址: {}"
 msgstr "Project URL: {}"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:225
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:225
 msgid "项目文档: {}"
 msgstr "Project Documentation: {}"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:226
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:226
 msgid "开源许可: {}\n"
 msgstr "Open Source License: {}\n"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:248
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:248
 #, python-brace-format
 msgid "检测到新版本: {major}.{minor}"
 msgstr "New version detected: {major}.{minor}"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:255
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:255
 msgid "当前版本为开发版, 可更新至正式版"
 msgstr ""
 "The current version is a development version, update to the stable version."
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:260
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:260
 msgid "当前已是最新开发版"
 msgstr "The current version is the latest development version."
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:264
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:264
 msgid "当前已是最新正式版"
 msgstr "The current version is the latest stable version."
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:268
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:268
 msgid "检测新版本失败"
 msgstr "Failed to check for new version."
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:280
-msgid "DouK-Downloader 功能选项"
-msgstr "DouK-Downloader Feature Options"
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:280
+msgid "FetchShelf 功能选项"
+msgstr "FetchShelf Feature Options"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:322
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:322
 msgid "修改设置成功！"
 msgstr "Settings updated successfully!"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:334
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:334
 msgid "Cookie 获取教程："
 msgstr "Cookie retrieval tutorial:"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:340
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:340
 msgid ""
 "复制 Cookie 内容至剪贴板后，按回车键确认继续；若输入任意内容并按回车，则取消"
 "操作："
@@ -966,11 +966,11 @@ msgstr ""
 "After pasting the cookie into the clipboard, press Enter to proceed. Enter "
 "any text + Enter to abort."
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:379
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:379
 msgid "作品下载记录功能已禁用！"
 msgstr "Works download history feature is disabled!"
 
-#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\TikTokDownloader.py:445
+#: C:\Users\You\PycharmProjects\TikTokDownloader\src\application\FetchShelf.py:445
 msgid "正在关闭程序"
 msgstr "Shutting down the program"
 
@@ -1150,7 +1150,7 @@ msgstr ""
 "make sure to update the configuration file accordingly!"
 
 msgid ""
-"关于 DouK-Downloader 的 免责声明：\n"
+"关于 FetchShelf 的 免责声明：\n"
 "\n"
 "1. 使用者对本项目的使用由使用者自行决定，并自行承担风险。作者对使用者使用本项"
 "目所产生的任何损失、责任、或风险概不负责。\n"
@@ -1171,8 +1171,7 @@ msgid ""
 "用者自行承担。\n"
 "8. 使用者在任何情况下均不得将本项目的作者、贡献者或其他相关方与使用者的使用行"
 "为联系起来，或要求其对使用者使用本项目所产生的任何损失或损害负责。\n"
-"9. 本项目的作者不会提供 DouK-Downloader 项目的付费版本，也不会提供与 DouK-"
-"Downloader 项目相关的任何商业服务。\n"
+"9. 本项目的作者不会提供 FetchShelf 项目的付费版本，也不会提供与 FetchShelf 项目相关的任何商业服务。\n"
 "10. 基于本项目进行的任何二次开发、修改或编译的程序与原创作者无关，原创作者不"
 "承担与二次开发行为或其结果相关的任何责任，使用者应自行对因二次开发可能带来的"
 "各种情况负全部责任。\n"
@@ -1189,7 +1188,7 @@ msgid ""
 "和功能，则视为您已完全理解并接受上述免责声明，并自愿承担使用本项目的一切风险"
 "和后果。\n"
 msgstr ""
-"Disclaimer for DouK-Downloader:\n"
+"Disclaimer for FetchShelf:\n"
 "\n"
 "1. The use of this project is entirely at the user's own discretion and "
 "risk. The author assumes no responsibility or liability of any kind for any "
@@ -1225,8 +1224,7 @@ msgstr ""
 "other related parties of this project with their usage of the project, nor "
 "may they hold these parties liable for any loss or damage resulting from "
 "such usage.\n"
-"9. The author of this project will not provide a paid version of the DouK-"
-"Downloader project, nor will they offer any commercial services related to "
+"9. The author of this project will not provide a paid version of the FetchShelf project, nor will they offer any commercial services related to "
 "it.\n"
 "10. Any secondary development, modification, or compilation based on this "
 "project is unrelated to the original author. The original author assumes no "
@@ -1274,10 +1272,9 @@ msgid "音乐"
 msgstr "Music"
 
 #: C:\Users\You\PycharmProjects\TikTokDownloader\src\downloader\download.py:255
-msgid "程序将会调用 ffmpeg 下载直播，关闭 DouK-Downloader 不会中断下载！"
+msgid "程序将会调用 ffmpeg 下载直播，关闭 FetchShelf 不会中断下载！"
 msgstr ""
-"The program will call ffmpeg to download the live stream. Closing DouK-"
-"Downloader will not interrupt the download!"
+"The program will call ffmpeg to download the live stream. Closing FetchShelf will not interrupt the download!"
 
 #: C:\Users\You\PycharmProjects\TikTokDownloader\src\downloader\download.py:332
 #: C:\Users\You\PycharmProjects\TikTokDownloader\src\downloader\download.py:335

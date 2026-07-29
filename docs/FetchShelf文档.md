@@ -1,25 +1,7 @@
-<div align="center">
-<img src="https://github.com/JoeanAmier/TikTokDownloader/blob/master/static/images/DouK-Downloader.png" alt="DouK-Downloader" height="256" width="256"><br>
-<h1>DouK-Downloader 项目文档</h1>
-<a href="https://trendshift.io/repositories/6222" target="_blank"><img src="https://trendshift.io/api/badge/repositories/6222" alt="" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-<br>
-<img alt="GitHub" src="https://img.shields.io/github/license/JoeanAmier/TikTokDownloader?style=flat-square">
-<img alt="GitHub forks" src="https://img.shields.io/github/forks/JoeanAmier/TikTokDownloader?style=flat-square&color=55efc4">
-<img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/JoeanAmier/TikTokDownloader?style=flat-square&color=fda7df">
-<img alt="GitHub code size in bytes" src="https://img.shields.io/github/languages/code-size/JoeanAmier/TikTokDownloader?style=flat-square&color=a29bfe">
-<br>
-<img alt="Static Badge" src="https://img.shields.io/badge/Python-3.12-b8e994?style=flat-square&logo=python&labelColor=3dc1d3">
-<img alt="GitHub release (with filter)" src="https://img.shields.io/github/v/release/JoeanAmier/TikTokDownloader?style=flat-square&color=48dbfb">
-<img src="https://img.shields.io/badge/Sourcery-enabled-884898?style=flat-square&color=1890ff" alt="">
-<img alt="Static Badge" src="https://img.shields.io/badge/Docker-badc58?style=flat-square&logo=docker">
-<img alt="GitHub all releases" src="https://img.shields.io/github/downloads/JoeanAmier/TikTokDownloader/total?style=flat-square&color=ffdd59">
-</div>
-<br>
-<p>🔥 <b>TikTok 发布/喜欢/合辑/直播/视频/图集/音乐；抖音发布/喜欢/收藏/收藏夹/视频/图集/实况/直播/音乐/合集/评论/账号/搜索/热榜数据采集工具：</b>完全开源，基于 HTTPX 模块实现的免费数据采集和文件下载工具；批量下载抖音账号发布、喜欢、收藏、收藏夹作品；批量下载 TikTok 账号发布、喜欢作品；下载抖音链接或 TikTok 链接作品；获取抖音直播拉流地址；下载抖音直播视频；获取 TikTok 直播拉流地址；下载 TikTok 直播视频；采集抖音作品评论数据；批量下载抖音合集作品；批量下载 TikTok 合辑作品；采集抖音账号详细数据；采集抖音用户 / 作品 / 直播搜索结果；采集抖音热榜数据。</p>
-<p>⭐ <b>项目版本：<code>5.8 Beta</code>；文档更新日期：<code>2026/2/28</code></b></p>
-<p>⭐ <b>项目文档正在完善，如果发现任何错误或描述模糊之处，请告知作者以便改进！本项目历史名称：<code>TikTokDownloader</code></b></p>
-<p>⭐ Due to the author’s limited time and energy, the complete English documentation for this project is not yet available. If you wish to read the full documentation, we recommend using AI translation tools to assist your understanding. If you would like to contribute to the translation, your help is warmly welcomed.</p>
-<hr>
+# FetchShelf 进阶文档
+
+本文保留源码终端模式和高级参数说明。Docker 部署请以项目根目录的
+[README](../README.md) 为准。
 <h1>快速入门</h1>
 <p>⭐ 本项目包含手动构建可执行文件的 GitHub Actions，使用者可以随时使用 GitHub Actions 将最新源码构建为可执行文件！</p>
 <p>⭐ 自动构建可执行文件教程请查阅本文档的 <code>构建可执行文件指南</code> 部分；如果需要更加详细的图文教程，请 <a href="https://mp.weixin.qq.com/s/TorfoZKkf4-x8IBNLImNuw">查阅文章</a>！</p>
@@ -38,10 +20,10 @@
 <li>运行 <code>python -m venv venv</code> 命令创建虚拟环境（可选）</li>
 <li>运行 <code>.\venv\Scripts\activate.ps1</code> 或者 <code>venv\Scripts\activate</code> 命令激活虚拟环境（可选）</li>
 <li>运行 <code>pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt</code> 命令安装程序所需模块</li>
-<li>运行 <code>python .\main.py</code> 或者 <code>python main.py</code> 命令启动 DouK-Downloader</li>
+<li>运行 <code>python .\main.py</code> 或者 <code>python main.py</code> 命令启动 FetchShelf</li>
 </ol>
 </li>
-<li>阅读 DouK-Downloader 的免责声明，根据提示输入内容</li>
+<li>阅读 FetchShelf 的免责声明，根据提示输入内容</li>
 <li>将 Cookie 信息写入配置文件
 <ol><b>从剪贴板读取 Cookie（推荐）</b>
 <li>参考 <a href="https://github.com/JoeanAmier/TikTokDownloader/blob/master/docs/Cookie%E8%8E%B7%E5%8F%96%E6%95%99%E7%A8%8B.md">Cookie 提取教程</a>，复制所需 Cookie 至剪贴板</li>
@@ -62,19 +44,14 @@
 <p><b>TikTok 平台功能需要额外设置配置文件 <code>browser_info_tiktok</code> 的 <code>device_id</code> 参数，否则 TikTok 平台功能可能无法正常使用！参数获取方式与 Cookie 类似，详见 <a href="https://github.com/JoeanAmier/TikTokDownloader/blob/master/docs/Cookie%E8%8E%B7%E5%8F%96%E6%95%99%E7%A8%8B.md">Cookie 获取教程</a></b></p>
 <h2>Docker 容器</h2>
 <ol>
-<li>获取镜像</li>
-<ul>
-<li>方式一：使用 <code>Dockerfile</code> 文件构建镜像</li>
-<li>方式二：使用 <code>docker pull joeanamier/tiktok-downloader</code> 命令拉取镜像</li>
-<li>方式三：使用 <code>docker pull ghcr.io/joeanamier/tiktok-downloader</code> 命令拉取镜像</li>
-</ul>
-<li>创建容器：<code>docker run --name 容器名称(可选) -p 主机端口号:5555 -v tiktok_downloader_settings:/app/settings -it &lt;镜像名称&gt;</code>
-</li>
-<br><b>注意：</b>此处的 <code>&lt;镜像名称&gt;</code> 需与您在第一步中使用的镜像名称保持一致（例如 <code>joeanamier/tiktok-downloader</code> 或 <code>ghcr.io/joeanamier/tiktok-downloader</code>）
+<li>复制配置：<code>cp .env.example .env</code>，设置 Token 与身份密钥</li>
+<li>构建镜像：<code>docker compose build</code></li>
+<li>创建并启动容器：<code>docker compose up -d</code></li>
 <li>运行容器
 <ul>
-<li>启动容器：<code>docker start -i 容器名称/容器 ID</code></li>
-<li>重启容器：<code>docker restart -i 容器名称/容器 ID</code></li>
+<li>查看日志：<code>docker compose logs -f</code></li>
+<li>停止容器：<code>docker compose stop</code></li>
+<li>重启容器：<code>docker compose restart</code></li>
 </ul>
 </li>
 </ol>
@@ -506,7 +483,7 @@ built with gcc 14.2.0 (crosstool-NG 1.27.0.18_7458341)
     "url": "已登录 Cookie 的账号主页链接"
   },
   "owner_url_tiktok": "参数规则与 owner_url 一致",
-  "root": "C:\\DouK-Downloader",
+  "root": "C:\\FetchShelf",
   "folder_name": "SOLO",
   "name_format": "create_time uid id",
   "desc_length": 64,
@@ -535,7 +512,7 @@ built with gcc 14.2.0 (crosstool-NG 1.27.0.18_7458341)
   "max_retry": 10,
   "max_pages": 2,
   "run_command": "6 2 1",
-  "ffmpeg": "C:\\DouK-Downloader\\ffmpeg.exe",
+  "ffmpeg": "C:\\FetchShelf\\ffmpeg.exe",
   "live_qualities": "1",
   "douyin_platform": true,
   "tiktok_platform": true,
@@ -640,12 +617,12 @@ built with gcc 14.2.0 (crosstool-NG 1.27.0.18_7458341)
 
 ```json
 {
-  "root": "C:\\DouK-Downloader",
+  "root": "C:\\FetchShelf",
   "folder_name": "SOLO"
 }
 ```
 
-<p>程序会将账号作品和合集作品的文件 和 记录的数据储存至 <code>C:\DouK-Downloader</code> 文件夹内，链接作品的文件会储存至 <code>C:\DouK-Downloader\SOLO</code> 文件夹内。</p>
+<p>程序会将账号作品和合集作品的文件 和 记录的数据储存至 <code>C:\FetchShelf</code> 文件夹内，链接作品的文件会储存至 <code>C:\FetchShelf\SOLO</code> 文件夹内。</p>
 <h3>文件名称格式</h3>
 
 ```json
@@ -810,8 +787,8 @@ built with gcc 14.2.0 (crosstool-NG 1.27.0.18_7458341)
 <p>下载说明：</p>
 <ul>
 <li>程序会询问用户是否下载直播视频，支持同时下载多个直播视频。</li>
-<li>程序调用 <code>ffmpeg</code> 下载直播时，关闭 DouK-Downloader 不会影响直播下载。</li>
-<li><del>程序调用内置下载器下载直播时，需要保持 DouK-Downloader 运行直到直播结束。</del></li>
+<li>程序调用 <code>ffmpeg</code> 下载直播时，关闭 FetchShelf 不会影响直播下载。</li>
+<li><del>程序调用内置下载器下载直播时，需要保持 FetchShelf 运行直到直播结束。</del></li>
 <li>程序询问是否下载直播时，输入直播清晰度或者对应序号即可下载，例如：下载最高清晰度输入 <code>FULL_HD1</code> 或者 <code>1</code> 均可。</li>
 <li><del>程序调用内置下载器下载的直播文件，视频时长会显示为直播总时长，实际视频内容从下载时间开始，靠后部分的片段无法播放。</del></li>
 <li>直播视频会下载至 <code>root</code> 参数路径下的 <code>Live</code> 文件夹。</li>
@@ -1104,8 +1081,8 @@ built with gcc 14.2.0 (crosstool-NG 1.27.0.18_7458341)
 <p>下载说明：</p>
 <ul>
 <li>程序会询问用户是否下载直播视频，支持同时下载多个直播视频。</li>
-<li>程序调用 <code>ffmpeg</code> 下载直播时，关闭 DouK-Downloader 不会影响直播下载。</li>
-<li><del>程序调用内置下载器下载直播时，需要保持 DouK-Downloader 运行直到直播结束。</del></li>
+<li>程序调用 <code>ffmpeg</code> 下载直播时，关闭 FetchShelf 不会影响直播下载。</li>
+<li><del>程序调用内置下载器下载直播时，需要保持 FetchShelf 运行直到直播结束。</del></li>
 <li>程序询问是否下载直播时，输入直播清晰度或者对应序号即可下载，例如：下载最高清晰度输入 <code>FULL_HD1</code> 或者 <code>1</code> 均可。</li>
 <li><del>程序调用内置下载器下载的直播文件，视频时长会显示为直播总时长，实际视频内容从下载时间开始，靠后部分的片段无法播放。</del></li>
 <li>直播视频会下载至 <code>root</code> 参数路径下的 <code>Live</code> 文件夹。</li>
@@ -1156,7 +1133,7 @@ demo()
 <li>启用该功能：程序会记录下载成功的作品 ID，如果对作品文件进行移动、重命名或者删除操作，程序不会重复下载该作品，如果想要重新下载该作品，需要删除记录数据中对应的作品 ID。</li>
 <li>禁用该功能：程序会在下载文件前检测文件是否存在，如果文件存在会自动跳过下载该作品，如果对作品文件进行移动、重命名或者删除操作，程序将会重新下载该作品。</li>
 </ul>
-<p>数据路径: <code>./settings/DouK-Downloader.db</code> 的 <code>download_data</code> 数据表。</p>
+<p>数据路径: <code>./settings/FetchShelf.db</code> 的 <code>download_data</code> 数据表。</p>
 <h2>删除指定下载记录</h2>
 <p>输入作品 ID 或者作品完整链接（多个作品之间使用空格分隔，支持混合输入），删除作品下载记录中对应的数据，如果输入 <code>all</code>，代表清空作品下载记录数据！</p>
 <h2>启用/禁用运行日志记录</h2>
@@ -1201,7 +1178,7 @@ demo()
 <p>在 <code>批量下载账号作品</code> 和 <code>批量下载合集作品</code> 模式下，程序会自动判断账号昵称/合集标题是否发生变化，如果发生变化，程序会自动识别已下载作品文件名称中的账号昵称/合集标题，并修改至最新账号昵称/合集标题。</p>
 <p>程序会优先使用账号标识/合集标识进行更新处理，如果账号标识/合集标识为空字符串，程序会自动使用账号昵称/合集标题进行更新处理。</p>
 <h3>映射缓存数据</h3>
-<p><strong>数据路径: <code>./settings/DouK-Downloader.db</code> 的 <code>mapping_data</code> 数据表；</strong>
+<p><strong>数据路径: <code>./settings/FetchShelf.db</code> 的 <code>mapping_data</code> 数据表；</strong>
 用于记录账号 / 合集标识和账号昵称，当账号 / 合集标识或账号昵称发生变化时，程序会对相应的文件夹和文件进行重命名更新处理。</p>
 <p><strong>缓存数据仅供程序读取和修改，不建议手动编辑数据内容。</strong></p>
 
@@ -1325,7 +1302,7 @@ A: 由于权限限制，您无法直接触发主仓库的 Actions。请通过 Fo
 <li>使用者不得使用本工具从事任何侵犯知识产权的行为，包括但不限于未经授权下载、传播受版权保护的内容，开发者不参与、不支持、不认可任何非法内容的获取或分发。</li>
 <li>本项目不对使用者涉及的数据收集、存储、传输等处理活动的合规性承担责任。使用者应自行遵守相关法律法规，确保处理行为合法正当；因违规操作导致的法律责任由使用者自行承担。</li>
 <li>使用者在任何情况下均不得将本项目的作者、贡献者或其他相关方与使用者的使用行为联系起来，或要求其对使用者使用本项目所产生的任何损失或损害负责。</li>
-<li>本项目的作者不会提供 DouK-Downloader 项目的付费版本，也不会提供与 DouK-Downloader 项目相关的任何商业服务。</li>
+<li>本项目的作者不会提供 FetchShelf 项目的付费版本，也不会提供与 FetchShelf 项目相关的任何商业服务。</li>
 <li>基于本项目进行的任何二次开发、修改或编译的程序与原创作者无关，原创作者不承担与二次开发行为或其结果相关的任何责任，使用者应自行对因二次开发可能带来的各种情况负全部责任。</li>
 <li>本项目不授予使用者任何专利许可；若使用本项目导致专利纠纷或侵权，使用者自行承担全部风险和责任。未经作者或权利人书面授权，不得使用本项目进行任何商业宣传、推广或再授权。</li>
 <li>作者保留随时终止向任何违反本声明的使用者提供服务的权利，并可能要求其销毁已获取的代码及衍生作品。</li>

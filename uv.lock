@@ -213,7 +213,7 @@ wheels = [
 ]
 
 [[package]]
-name = "douk-downloader"
+name = "fetchshelf"
 version = "5.8"
 source = { virtual = "." }
 dependencies = [

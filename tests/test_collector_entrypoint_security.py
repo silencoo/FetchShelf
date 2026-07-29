@@ -134,7 +134,7 @@ def _assert_secrets_absent(value) -> None:
 
 
 def _entrypoint_test_client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DOUK_API_TOKEN", "entrypoint-test-token")
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "entrypoint-test-token")
     server = APIServer.__new__(APIServer)
     server.server = FastAPI()
     server.collector_store = CollectorStore(

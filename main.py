@@ -1,11 +1,11 @@
 from asyncio import CancelledError
 from asyncio import run
 
-from src.application import TikTokDownloader
+from src.application import FetchShelf
 
 
 async def main():
-    async with TikTokDownloader() as downloader:
+    async with FetchShelf() as downloader:
         try:
             await downloader.run()
         except (
