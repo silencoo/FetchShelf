@@ -2,6 +2,7 @@ from .browser import Browser
 from .capture import capture_error_params
 from .capture import capture_error_request
 from .choose import choose
+from .check_node import is_node_available
 from .cleaner import Cleaner
 from .console import ColorfulConsole
 from .dynamic_import import load_objects_from_external_py

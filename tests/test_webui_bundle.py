@@ -78,11 +78,15 @@ def test_webui_bundle_keeps_core_interaction_hooks():
         'id="monitor-list"',
         'id="schedule-list"',
         'id="task-queue-list"',
+        'id="task-filter-group"',
+        'id="task-search-input"',
+        'id="task-raw-result"',
         'id="task-account-checkpoints"',
         'id="schedule-overlap-policy"',
         'id="schedule-identity-failure-action"',
         'id="schedule-identity-failure-threshold"',
         'id="workflow-detail-form"',
+        'id="workbench-overview"',
         'id="workbench-task-center"',
         'id="workbench-automation"',
         'id="workbench-developer-tools"',
@@ -96,6 +100,47 @@ def test_webui_bundle_keeps_core_interaction_hooks():
 
     assert "/ui/static/app.js" not in index
     assert "/ui/static/styles.css" not in index
+
+
+def test_task_account_rows_offer_safe_external_navigation():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+    styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
+
+    assert "function safeExternalHttpUrl(value)" in script
+    assert 'parsed.protocol === "http:" || parsed.protocol === "https:"' in script
+    assert 'nameNode.target = "_blank"' in script
+    assert 'nameNode.rel = "noopener noreferrer"' in script
+    assert 'action.textContent = "无可用链接"' in script
+    assert 'document.createTextNode("打开账号")' in script
+    assert "refreshIcons(refs.taskAccountList)" in script
+    assert ".task-account-open" in styles
+    assert ".task-account-link:hover" in styles
+    assert 'visibility: "私密 / 可见性"' in script
+    assert 'private_followed_empty: "已关注的私密账号未返回作品"' in script
+    assert 'attemptedIdentityIds.join(" → ")' in script
+    assert "account.recovered_by_identity" in script
+    assert ".task-account-diagnostic-grid" in styles
+    assert 'id="task-account-archive-dialog"' in index
+    assert 'id="task-account-select-page-btn"' in index
+    assert 'id="task-account-clear-selection-btn"' in index
+    assert 'id="task-account-open-selected-btn"' in index
+    assert 'id="task-account-archive-selected-btn"' in index
+    assert 'document.createTextNode("移出名单")' in script
+    assert '"/ui/api/accounts/archive-batch"' in script
+    assert '"/ui/api/accounts/archive"' in script
+    assert "account.configured !== false" in script
+    assert "taskAccountSelected: new Map()" in script
+    assert "function selectVisibleTaskAccounts()" in script
+    assert "function clearTaskAccountSelection()" in script
+    assert "selectedTaskAccountItems().map((item) => item.url)" in script
+    assert "closeTaskAccountArchiveDialog" in script
+    assert ".task-account-bulk-toolbar" in styles
+    assert ".task-account-select" in styles
+    assert ".task-account-actions" in styles
+    assert ".task-account-archive" in styles
 
 
 def test_webui_source_keeps_complete_theme_contract():
@@ -120,6 +165,49 @@ def test_webui_source_keeps_complete_theme_contract():
 
     assert ':root[data-theme="light"]' in styles
     assert "color-scheme: light" in styles
+
+
+def test_webui_source_exposes_tiktok_identity_modes_without_requiring_cookie():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+
+    for value in ("anonymous", "authenticated", "adult_authenticated"):
+        assert f'<option value="{value}">' in index
+    assert 'id="collector-identity-auth-mode"' in index
+    assert "identity.route_configured" in script
+    assert 'collectorCredentialChip("Cloak 会话", true)' in script
+    assert 'refs.collectorIdentityConcurrency.disabled = isAnonymous' in script
+    assert 'auth_mode: refs.collectorIdentityPlatform.value === "tiktok"' in script
+
+
+def test_webui_source_exposes_identity_login_browser_without_cookie_copying():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+    styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
+    dockerfile = PROJECT_ROOT.joinpath("Dockerfile").read_text(encoding="utf-8")
+
+    for hook in (
+        'id="collector-login-browser-dialog"',
+        'id="collector-login-browser-viewport"',
+        'id="collector-login-browser-reconnect-btn"',
+        'id="collector-login-browser-fullscreen-btn"',
+        'id="collector-login-browser-stop-btn"',
+        'id="collector-login-browser-save-btn"',
+    ):
+        assert index.count(hook) == 1
+    assert "完成登录并保存" in index
+    assert 'data-collector-action="login-browser"' in script
+    assert 'await import("@novnc/novnc")' in script
+    assert "viewer_protocol_prefix" in script
+    assert "login_browser_active" in script
+    assert ".collector-login-browser-viewport" in styles
+    assert ".collector-login-browser-frame:fullscreen" in styles
+    assert "x11vnc" in dockerfile
+    assert "fonts-noto-cjk" in dockerfile
 
 
 def test_webui_production_bundle_includes_theme_runtime_and_styles():
@@ -243,6 +331,7 @@ def test_webui_source_keeps_file_browser_navigation_contract():
 
 
 def test_account_board_cards_remain_usable_at_high_density():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
     script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
         encoding="utf-8",
     )
@@ -253,16 +342,79 @@ def test_account_board_cards_remain_usable_at_high_density():
     assert 'name.title = item.mark || item.url || "未设置 mark"' in script
     assert 'class="profile-actions-menu"' in script
     assert 'aria-label="更多账户操作"' in script
+    assert 'data-action="board-open-gallery"' in script
     assert 'data-action="board-open-files"' in script
+    assert "浏览原始目录" in script
     assert 'data-action="board-refresh-media"' in script
     assert 'data-action="board-generate-avatar"' in script
     assert 'event.key !== "Escape"' in script
+    assert "function openAccountGallery(" in script
+    assert "function loadAccountGallery(" in script
+    assert 'fetchJson(`/ui/api/accounts/board/gallery?' in script
+    assert "refs.accountGalleryDialog.showModal()" in script
+    assert "account-gallery-media-frame-${item.kind}" in script
 
-    assert "grid-template-columns: repeat(var(--board-columns), minmax(0, 1fr));" in styles
+    for hook in (
+        'id="account-gallery-dialog"',
+        'id="account-gallery-stage"',
+        'id="account-gallery-grid"',
+        'id="account-gallery-kind"',
+        'id="account-gallery-pin-btn"',
+    ):
+        assert index.count(hook) == 1
+
+    assert "column-count: var(--board-columns);" in styles
+    assert ".profile-board > .empty-tip {\n  column-span: all;" in styles
+    assert (
+        ".profile-card {\n"
+        "  position: relative;\n"
+        "  display: flex;\n"
+        "  width: 100%;"
+    ) in styles
+    profile_card_styles = styles[
+        styles.index(".profile-card {") : styles.index(".profile-card:hover")
+    ]
+    assert "break-inside: avoid;" in profile_card_styles
     assert "-webkit-line-clamp: 2;" in styles
     assert ".profile-state-row" in styles
     assert ".profile-actions-popover" in styles
     assert ".profile-latest-short" in styles
+    assert ".account-gallery-layout" in styles
+    assert ".account-gallery-thumb" in styles
+    assert ".account-gallery-media-frame-video" in styles
+    assert "aspect-ratio: var(--media-aspect, 9 / 16);" in styles
+    assert "overflow-x: hidden;" in styles
+    assert 'class="account-gallery-scroll"' in index
+    assert ".account-gallery-scroll" in styles
+    assert "column-count: 3;" in styles
+    assert "break-inside: avoid;" in styles
+    assert "column-span: all;" in styles
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in styles
+    assert (
+        ".account-gallery-thumb-media :is(img, video) {\n"
+        "  width: 100%;\n"
+        "  height: 100%;\n"
+        "  object-fit: contain;"
+    ) in styles
+    assert "function syncNaturalMediaRatio(" in script
+    assert 'container.style.setProperty("--media-aspect"' in script
+    assert 'state.accountBoard.viewMode === "avatar" && hasMedia' in script
+    assert '<option value="avatar">紧凑媒体</option>' in index
+    assert ".profile-board.profile-board-compact .profile-media-wrap {\n  border-radius:" in styles
+    assert "account-gallery-thumb-media-${item.kind}" in script
+    assert ".account-gallery-thumb-media-image img {\n  width: 100%;\n  height: auto;" in styles
+    assert ".profile-media-wrap-image img {\n  width: 100%;\n  height: auto;" in styles
+    assert (
+        ".account-gallery-media-frame :is(img, video) {\n"
+        "  display: block;\n"
+        "  width: auto;\n"
+        "  max-width: 100%;\n"
+        "  height: auto;\n"
+        "  max-height: 100%;\n"
+        "  object-fit: contain;"
+    ) in styles
+    assert 'id="account-gallery-kind" data-ui-select="false"' in index
+    assert 'id="account-gallery-page-size" data-ui-select="false"' in index
 
 
 def test_webui_websocket_uses_http_only_session_cookie_not_token_query():
@@ -300,11 +452,12 @@ def test_webui_source_prioritizes_the_download_workflow():
         encoding="utf-8",
     )
 
+    overview = index.index('id="workbench-overview"')
     quick_download = index.index('id="workflow-detail-form"')
     task_center = index.index('id="workbench-task-center"')
     automation = index.index('id="workbench-automation"')
     developer_tools = index.index('id="workbench-developer-tools"')
-    assert quick_download < task_center < automation < developer_tools
+    assert overview < quick_download < task_center < automation < developer_tools
 
     assert index.count('id="workflow-detail-count"') == 1
     assert '<option value="auto">自动识别</option>' in index
@@ -332,6 +485,16 @@ def test_webui_source_prioritizes_the_download_workflow():
     assert 'state.activeTab === "workbench"' in script
     assert "!document.hidden" in script
     assert 'main.className = "task-main task-main-button"' in script
+    assert 'taskEndpointLabel(task.endpoint)' in script
+    assert 'status.className = `task-state-text ${taskStateClass(taskStatus)}`' in script
+    assert "function renderFilteredTaskList()" in script
+    assert 'data-task-filter="attention"' in index
+    assert 'id="task-search-input"' in index
+    assert 'id="task-raw-result"' in index
+    assert 'refs.taskAccountCheckpoints.open = true' in script
+    assert '.task-filter-btn[aria-pressed="true"]' in SOURCE_ROOT.joinpath(
+        "src", "styles.css"
+    ).read_text(encoding="utf-8")
     assert 'pausing: "暂停中"' in script
     assert 'paused: "已暂停"' in script
     assert "task.pause_supported" in script
@@ -339,6 +502,9 @@ def test_webui_source_prioritizes_the_download_workflow():
     assert 'taskControl(task.task_id, "resume")' in script
     assert 'taskControl(task.task_id, "retry-failed")' in script
     assert "function loadTaskAccounts(" in script
+    assert "function loadOverview(" in script
+    assert 'fetchJson(`/ui/api/overview${query}`' in script
+    assert 'loadOverview({ refreshMedia: true })' in script
     assert 'id="schedule-notify-identity-failure"' in index
     assert "等待完成后执行（推荐）" in index
     assert "未配置 Cookie 的普通账号不会因此暂停" in index
@@ -346,6 +512,45 @@ def test_webui_source_prioritizes_the_download_workflow():
     assert '["pending", "running", "pausing", "paused"].includes(taskStatus)' in script
     assert "const focusedTaskId =" in script
     assert "focusTarget?.focus({ preventScroll: true })" in script
+
+
+def test_workbench_live_refresh_preserves_browsing_state():
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+
+    assert "const TASK_POLL_ACTIVE_MS = 2000" in script
+    assert "const TASK_POLL_IDLE_MS = 15000" in script
+    assert "function taskRenderKey(task)" in script
+    assert "function taskListRenderKey(items)" in script
+    assert "if (listChanged)" in script
+    assert "taskRenderKey(selected) !== state.selectedTaskRenderKey" in script
+    assert "taskChanged || taskFinishedWhileSelected" in script
+    assert "const pollDue = Date.now() - state.taskLastPollAt >= pollInterval" in script
+
+
+def test_webui_source_explains_bark_delivery_and_monitor_failures():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+    styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
+
+    assert index.count('class="notification-panel"') == 2
+    assert "每次下载任务结束都会发送结果" in index
+    assert "抓取异常（包括 HTTP 403）会立即通知" in index
+    assert 'aria-describedby="schedule-bark-help"' in index
+    assert 'aria-describedby="monitor-bark-help"' in index
+
+    assert "Bark：每次任务结束通知" in script
+    assert "Bark：异常或发现新增账号时通知" in script
+    assert 'statusLabel = "上次运行失败"' in script
+    assert 'class="task-time task-result-error"' in script
+    assert 'withBusyButton(event.currentTarget, "执行中"' in script
+
+    assert ".notification-panel" in styles
+    assert ".task-state-text.is-error" in styles
+    assert ".task-result-error" in styles
 
 
 def test_webui_source_keeps_compact_account_tables_and_collapsible_raw_editor():

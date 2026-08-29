@@ -89,6 +89,40 @@ def test_task_journal_recovers_only_unfinished_account(tmp_path: Path):
     reopened.close()
 
 
+def test_task_journal_persists_structured_account_outcome(tmp_path: Path):
+    journal = TaskJournal(tmp_path / "structured.sqlite3")
+    task = _task("T000002")
+    journal.save_task(task)
+    journal.prepare_accounts(
+        task["task_id"],
+        [{"mark": "private", "url": "https://example.test/private"}],
+    )
+    journal.mark_account_running(task["task_id"], 1, identity_id="dy-one")
+    journal.mark_account_finished(
+        task["task_id"],
+        1,
+        status="failed",
+        identity_id="dy-two",
+        reason="私密账号对当前身份不可见",
+        result={
+            "outcome_code": "private_not_visible",
+            "failure_category": "visibility",
+            "retryable": True,
+            "attempted_identities": [
+                {"identity_id": "dy-one", "outcome_code": "private_not_visible"},
+                {"identity_id": "dy-two", "outcome_code": "private_not_visible"},
+            ],
+        },
+    )
+
+    account = journal.list_accounts(task["task_id"])[0]
+    assert account["identity_id"] == "dy-two"
+    assert account["result"]["outcome_code"] == "private_not_visible"
+    assert account["result"]["failure_category"] == "visibility"
+    assert len(account["result"]["attempted_identities"]) == 2
+    journal.close()
+
+
 @pytest.mark.asyncio
 async def test_restore_enqueues_pending_but_preserves_paused_task(tmp_path: Path):
     journal = TaskJournal(tmp_path / "ui_task_runtime.sqlite3")
@@ -152,7 +186,7 @@ async def test_overlap_policy_defaults_to_wait_and_skips_duplicate(tmp_path: Pat
     assert active["task_id"] == "T000001"
 
 
-def test_schedule_identity_failure_policy_is_opt_in():
+def test_schedule_identity_failure_notification_defaults_on():
     server = APIServer.__new__(APIServer)
     defaults = server._normalize_schedule_payload(
         {
@@ -172,7 +206,7 @@ def test_schedule_identity_failure_policy_is_opt_in():
 
     assert defaults["identity_failure_action"] == "continue"
     assert defaults["identity_failure_threshold"] == 3
-    assert defaults["notify_on_identity_failure"] is False
+    assert defaults["notify_on_identity_failure"] is True
     assert enabled["identity_failure_action"] == "pause"
     assert enabled["notify_on_identity_failure"] is True
     assert enabled["bark_url"] == "https://api.day.app/example"
@@ -224,6 +258,255 @@ def test_retry_failed_endpoint_creates_linked_failed_only_task(
     assert retry["payload"]["use_settings"] is False
     assert [item["mark"] for item in retry["payload"]["items"]] == ["bad"]
     assert server.ui_task_queue.get_nowait() == "T000002"
+    journal.close()
+
+
+def test_failed_task_account_can_be_archived_from_future_collection(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "journal-test-token")
+    account_url = "https://www.douyin.com/user/inactive-account?from=task"
+    normalized_url = "https://www.douyin.com/user/inactive-account"
+    journal = TaskJournal(tmp_path / "ui_task_runtime.sqlite3")
+    task = _task(status="failed")
+    task["payload"] = {
+        "use_settings": False,
+        "items": [{"mark": "inactive", "url": account_url, "enable": True}],
+    }
+    journal.save_task(task)
+    journal.prepare_accounts(task["task_id"], task["payload"]["items"])
+    journal.mark_account_running(task["task_id"], 1)
+    journal.mark_account_finished(
+        task["task_id"],
+        1,
+        status="failed",
+        reason="账号已注销或不可访问",
+        result={
+            "outcome_code": "account_deleted",
+            "failure_category": "account_unavailable",
+        },
+    )
+
+    settings_updates = []
+    assignment_deletes = []
+
+    class FakeParameter:
+        def __init__(self):
+            self.accounts_urls = [
+                SimpleNamespace(
+                    mark="inactive",
+                    url=account_url,
+                    tab="post",
+                    earliest="",
+                    latest="",
+                    enable=True,
+                    auto_update_earliest=False,
+                    pages=None,
+                )
+            ]
+            self.accounts_urls_tiktok = []
+            self.deleted_accounts = []
+            self.deleted_accounts_tiktok = []
+            self.settings = SimpleNamespace(
+                update=lambda data: settings_updates.append(data)
+            )
+
+        @staticmethod
+        def check_urls_params(rows):
+            return [SimpleNamespace(**item) for item in rows]
+
+        @staticmethod
+        def check_deleted_accounts(rows):
+            return [dict(item) for item in rows]
+
+        def get_settings_data(self):
+            return {
+                "accounts_urls": [vars(item) for item in self.accounts_urls],
+                "accounts_urls_tiktok": [
+                    vars(item) for item in self.accounts_urls_tiktok
+                ],
+                "deleted_accounts": self.deleted_accounts,
+                "deleted_accounts_tiktok": self.deleted_accounts_tiktok,
+            }
+
+    server = APIServer.__new__(APIServer)
+    server.server = FastAPI()
+    server.parameter = FakeParameter()
+    server.task_journal = journal
+    server.ui_tasks = {task["task_id"]: server._hydrate_ui_task(task)}
+    server.ui_task_queue = Queue()
+    server.ui_task_counter = 1
+    server._backup_settings_file = lambda reason="manual": f"{reason}.json"
+    server.collector_store = SimpleNamespace(
+        delete_assignment=lambda platform, target_type, target_key: assignment_deletes.append(
+            (platform.value, target_type, target_key)
+        )
+        or True
+    )
+    server.logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+    )
+    server.setup_routes()
+    client = TestClient(server.server)
+
+    before = client.get(
+        f"/ui/api/tasks/{task['task_id']}/accounts?status=failed",
+        headers={"token": "journal-test-token"},
+    )
+    assert before.status_code == 200
+    assert before.json()["items"][0]["configured"] is True
+    assert before.json()["items"][0]["platform"] == "douyin"
+
+    archived = client.post(
+        "/ui/api/accounts/archive",
+        headers={"token": "journal-test-token"},
+        json={
+            "platform": "douyin",
+            "url": normalized_url,
+            "reason": "人工确认账号已注销",
+        },
+    )
+    assert archived.status_code == 200
+    payload = archived.json()
+    assert payload["archived"] is True
+    assert payload["removed_count"] == 1
+    assert payload["accounts_urls"] == []
+    assert payload["deleted_accounts"][0]["url"] == account_url
+    assert payload["deleted_accounts"][0]["reason"] == "人工确认账号已注销"
+    assert payload["deleted_accounts"][0]["enable"] is False
+    assert settings_updates
+    assert assignment_deletes == [("douyin", "account", normalized_url)]
+
+    after = client.get(
+        f"/ui/api/tasks/{task['task_id']}/accounts?status=failed",
+        headers={"token": "journal-test-token"},
+    )
+    assert after.status_code == 200
+    assert after.json()["items"][0]["configured"] is False
+    journal.close()
+
+
+def test_failed_task_accounts_can_be_archived_in_one_batch(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "journal-test-token")
+    first_url = "https://www.douyin.com/user/first?from=task"
+    second_url = "https://www.douyin.com/user/second"
+    backup_calls = []
+    settings_updates = []
+    assignment_deletes = []
+
+    class FakeParameter:
+        def __init__(self):
+            self.accounts_urls = [
+                SimpleNamespace(mark="first", url=first_url, enable=True),
+                SimpleNamespace(mark="first duplicate", url=first_url, enable=True),
+                SimpleNamespace(mark="second", url=second_url, enable=True),
+                SimpleNamespace(
+                    mark="keep",
+                    url="https://www.douyin.com/user/keep",
+                    enable=True,
+                ),
+            ]
+            self.accounts_urls_tiktok = []
+            self.deleted_accounts = [
+                {
+                    "mark": "old first",
+                    "url": "https://www.douyin.com/user/first",
+                    "enable": False,
+                },
+                {
+                    "mark": "older",
+                    "url": "https://www.douyin.com/user/older",
+                    "enable": False,
+                },
+            ]
+            self.deleted_accounts_tiktok = []
+            self.settings = SimpleNamespace(
+                update=lambda data: settings_updates.append(data)
+            )
+
+        @staticmethod
+        def check_urls_params(rows):
+            return [SimpleNamespace(**item) for item in rows]
+
+        @staticmethod
+        def check_deleted_accounts(rows):
+            return [dict(item) for item in rows]
+
+        def get_settings_data(self):
+            return {
+                "accounts_urls": [vars(item) for item in self.accounts_urls],
+                "accounts_urls_tiktok": [],
+                "deleted_accounts": self.deleted_accounts,
+                "deleted_accounts_tiktok": [],
+            }
+
+    journal = TaskJournal(tmp_path / "ui_task_runtime.sqlite3")
+    server = APIServer.__new__(APIServer)
+    server.server = FastAPI()
+    server.parameter = FakeParameter()
+    server.task_journal = journal
+    server.ui_tasks = {}
+    server.ui_task_queue = Queue()
+    server.ui_task_counter = 0
+    server._backup_settings_file = (
+        lambda reason="manual": backup_calls.append(reason) or f"{reason}.json"
+    )
+    server.collector_store = SimpleNamespace(
+        delete_assignment=lambda platform, target_type, target_key: assignment_deletes.append(
+            (platform.value, target_type, target_key)
+        )
+        or True
+    )
+    server.logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+    )
+    server.setup_routes()
+    client = TestClient(server.server)
+
+    response = client.post(
+        "/ui/api/accounts/archive-batch",
+        headers={"token": "journal-test-token"},
+        json={
+            "platform": "douyin",
+            "urls": [first_url, second_url, second_url],
+            "reason": "批量确认账号不可用",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["archived_count"] == 2
+    assert payload["removed_count"] == 3
+    assert payload["assignment_removed"] == 2
+    assert len(backup_calls) == 1
+    assert len(settings_updates) == 1
+    assert [item["mark"] for item in payload["accounts_urls"]] == ["keep"]
+    assert [item["mark"] for item in payload["deleted_accounts"]] == [
+        "first",
+        "second",
+        "older",
+    ]
+    assert all(
+        item["reason"] == "批量确认账号不可用"
+        for item in payload["deleted_accounts"][:2]
+    )
+    assert assignment_deletes == [
+        ("douyin", "account", "https://www.douyin.com/user/first"),
+        ("douyin", "account", second_url),
+    ]
+
+    invalid = client.post(
+        "/ui/api/accounts/archive-batch",
+        headers={"token": "journal-test-token"},
+        json={"platform": "douyin", "urls": []},
+    )
+    assert invalid.status_code == 400
     journal.close()
 
 
@@ -549,6 +832,67 @@ def test_account_board_can_sort_by_matched_folder_update_time(
     ]
     assert page["items"][0]["folder_updated_at"] > page["items"][1]["folder_updated_at"]
     assert page["items"][2]["folder_updated_at"] == ""
+
+
+def test_account_board_gallery_is_recursive_filterable_and_account_scoped(
+    tmp_path: Path,
+):
+    account_url = "https://www.douyin.com/user/gallery-account"
+    account_dir = tmp_path / "UID123_GalleryAccount_发布作品"
+    nested_dir = account_dir / "图集"
+    nested_dir.mkdir(parents=True)
+    image_path = nested_dir / "2026-08-27_image.jpg"
+    video_path = account_dir / "2026-08-28_video.mp4"
+    ignored_path = account_dir / "notes.txt"
+    image_path.write_bytes(b"image")
+    video_path.write_bytes(b"video")
+    ignored_path.write_text("ignored", encoding="utf-8")
+    utime(image_path, (1_800_000_000, 1_800_000_000))
+    utime(video_path, (1_900_000_000, 1_900_000_000))
+
+    server = APIServer.__new__(APIServer)
+    server._find_active_account_row = lambda platform, url: (
+        {"url": account_url, "mark": "GalleryAccount"}
+        if url == account_url
+        else None
+    )
+    server._scope_root = lambda scope: tmp_path
+    server._account_board_dirs = lambda root: [account_dir]
+    server._account_board_dir_mark_index = lambda candidates: {}
+    server._account_board_mark_candidates = lambda mark, index: [account_dir]
+
+    gallery = server._build_account_board_gallery(
+        "douyin",
+        account_url,
+        1,
+        24,
+    )
+    images = server._build_account_board_gallery(
+        "douyin",
+        account_url,
+        1,
+        24,
+        media_kind="image",
+    )
+
+    assert gallery["folder_found"] is True
+    assert gallery["folder_path"] == account_dir.name
+    assert gallery["total"] == 2
+    assert gallery["image_total"] == 1
+    assert gallery["video_total"] == 1
+    assert gallery["truncated"] is False
+    assert gallery["index_limit"] == 10_000
+    assert [item["kind"] for item in gallery["items"]] == ["video", "image"]
+    assert images["total"] == 1
+    assert images["items"][0]["path"].endswith("图集/2026-08-27_image.jpg")
+
+    with pytest.raises(LookupError, match="account_not_found"):
+        server._build_account_board_gallery(
+            "douyin",
+            "https://www.douyin.com/user/not-configured",
+            1,
+            24,
+        )
 
 
 @pytest.mark.asyncio

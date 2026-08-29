@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.collector import (
+    CollectorAuthMode,
     CollectorCredentials,
     CollectorIdentity,
     build_collector_runtime,
@@ -90,6 +91,105 @@ async def test_tiktok_runtime_isolates_proxy_headers_and_profile(tmp_path, monke
 
     await runtime.close()
     assert runtime.owned_client.closed is True
+
+
+@pytest.mark.asyncio
+async def test_anonymous_tiktok_runtime_bootstraps_ephemeral_cloak_session(
+    tmp_path,
+    monkeypatch,
+):
+    base = _parameter()
+    identity = CollectorIdentity(
+        identity_id="tt-anonymous",
+        name="TikTok anonymous",
+        platform="tiktok",
+        auth_mode=CollectorAuthMode.ANONYMOUS,
+    )
+    credentials = CollectorCredentials(
+        cookie="sessionid=must-be-ignored",
+        proxy="socks5://proxy.test:1080",
+    )
+
+    class _Bridge:
+        def __init__(self, parameter, proxy=None):
+            assert proxy == credentials.proxy
+
+        async def bootstrap_anonymous_session(self):
+            return {
+                "cookies": {"msToken": "anonymous-token", "ttwid": "visitor"},
+                "user_agent": "anonymous-agent",
+                "params": {"device_id": "anonymous-device"},
+            }
+
+        @classmethod
+        async def close_for_params(cls, parameter):
+            return None
+
+    monkeypatch.setattr("src.collector.runtime.TikTokAPIBridge", _Bridge)
+    runtime = build_collector_runtime(
+        base,
+        identity,
+        credentials,
+        settings_dir=tmp_path,
+        client_factory=_Client,
+    )
+
+    assert runtime.credentials.cookie == ""
+    await runtime.prepare()
+
+    assert runtime.parameter.ms_token_tiktok == "anonymous-token"
+    assert runtime.parameter.api_params_tiktok["device_id"] == "anonymous-device"
+    assert runtime.parameter.headers_tiktok["Cookie"].startswith("msToken=")
+    assert runtime.parameter.headers_tiktok["User-Agent"] == "anonymous-agent"
+    assert runtime.parameter.proxy_tiktok == credentials.proxy
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_douyin_runtime_preserves_refreshed_token_when_identity_has_none(tmp_path):
+    base = _parameter()
+    identity = CollectorIdentity(
+        identity_id="dy-main",
+        name="Douyin main",
+        platform="douyin",
+    )
+    credentials = CollectorCredentials(cookie="sessionid=secret")
+
+    runtime = build_collector_runtime(
+        base,
+        identity,
+        credentials,
+        settings_dir=tmp_path,
+        client_factory=_Client,
+    )
+
+    assert "msToken" not in runtime.parameter.api_params
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_douyin_runtime_accepts_query_token_from_browser_info(tmp_path):
+    base = _parameter()
+    identity = CollectorIdentity(
+        identity_id="dy-main",
+        name="Douyin main",
+        platform="douyin",
+    )
+    credentials = CollectorCredentials(
+        cookie="sessionid=secret",
+        browser_info={"msToken": "query-token"},
+    )
+
+    runtime = build_collector_runtime(
+        base,
+        identity,
+        credentials,
+        settings_dir=tmp_path,
+        client_factory=_Client,
+    )
+
+    assert runtime.parameter.api_params["msToken"] == "query-token"
+    await runtime.close()
 
 
 async def _async_none():

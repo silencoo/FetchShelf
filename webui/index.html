@@ -1015,8 +1015,8 @@
             <label class="field compact">
               <span>展示模式</span>
               <select id="board-view-mode">
-                <option value="avatar">高密度头像</option>
-                <option value="media">媒体卡片</option>
+                <option value="avatar">紧凑媒体</option>
+                <option value="media">详细媒体</option>
               </select>
             </label>
             <label class="field compact board-density-control">
@@ -1026,6 +1026,11 @@
             <span id="board-density-label" class="badge">4 列</span>
             <button id="board-prev-btn" type="button" class="btn ghost">上一页</button>
             <button id="board-next-btn" type="button" class="btn ghost">下一页</button>
+            <div class="page-jump board-page-jump">
+              <label for="board-page-input">跳至</label>
+              <input id="board-page-input" type="number" min="1" value="1" inputmode="numeric" />
+              <button id="board-page-jump-btn" type="button" class="btn ghost">前往</button>
+            </div>
             <span id="board-meta" class="badge">第 1 / 1 页</span>
           </div>
           <div id="board-status" class="status-line">切换到该标签页后自动加载</div>
@@ -1078,10 +1083,6 @@
               <input id="monitor-default-latest" type="text" placeholder="YYYY/MM/DD" />
             </label>
             <label class="field">
-              <span>Bark URL</span>
-              <input id="monitor-bark-url" type="text" placeholder="https://api.day.app/xxx" />
-            </label>
-            <label class="field">
               <span>采集身份</span>
               <select id="monitor-identity" aria-describedby="monitor-identity-help">
                 <option value="">自动路由</option>
@@ -1102,6 +1103,22 @@
             role="status"
             aria-live="polite"
           >自动路由会按抖音身份池策略执行；填写兼容覆盖会绕过身份池。</p>
+          <fieldset class="notification-panel">
+            <legend>Bark 通知</legend>
+            <label class="field">
+              <span>推送地址（可选）</span>
+              <input
+                id="monitor-bark-url"
+                type="url"
+                autocomplete="off"
+                aria-describedby="monitor-bark-help"
+                placeholder="https://api.day.app/xxxx"
+              />
+            </label>
+            <p id="monitor-bark-help" class="notification-copy">
+              配置后，抓取异常（包括 HTTP 403）会立即通知；成功轮次仅在发现新增账号时通知，避免无新增时重复推送。
+            </p>
+          </fieldset>
           <div class="monitor-toggle-row">
             <label class="toggle-field">
               <input id="monitor-enabled" type="checkbox" checked />
@@ -1144,8 +1161,8 @@
           <div class="collector-notice" role="note">
             <span class="collector-notice-icon" aria-hidden="true">i</span>
             <div>
-              <strong>凭据只写入，不回显</strong>
-              <p>页面只展示 Cookie、代理等凭据是否已配置；编辑身份时敏感输入始终为空。</p>
+              <strong>登录身份可直接使用内置浏览器</strong>
+              <p>保存身份后从身份卡片打开登录浏览器，Cookie 会自动加密写入；手动粘贴仍作为备用方式。</p>
             </div>
           </div>
 
@@ -1427,6 +1444,22 @@
                     <input id="collector-identity-concurrency" type="number" min="1" max="16" value="1" />
                   </label>
                 </div>
+                <div id="collector-tiktok-auth-fields" class="inline-grid" hidden>
+                  <label class="field">
+                    <span>TikTok 身份类型</span>
+                    <select
+                      id="collector-identity-auth-mode"
+                      aria-describedby="collector-identity-auth-mode-help"
+                    >
+                      <option value="anonymous">匿名</option>
+                      <option value="authenticated">登录</option>
+                      <option value="adult_authenticated">18+ 登录</option>
+                    </select>
+                  </label>
+                  <p id="collector-identity-auth-mode-help" class="field-help">
+                    匿名身份由独立 Cloak profile 自动维护临时会话；登录身份需要 Cookie。
+                  </p>
+                </div>
                 <label class="toggle-field collector-enabled-toggle">
                   <input id="collector-identity-enabled" type="checkbox" checked />
                   <span>启用身份并允许自动路由</span>
@@ -1437,19 +1470,23 @@
                 <div class="collector-credentials-heading">
                   <div>
                     <h3 id="collector-credentials-title">登录与网络凭据</h3>
-                    <p>仅在需要新增或替换时填写；保存后不会再次显示。</p>
+                    <p>代理会同时用于内置登录浏览器；Cookie 输入仅作为手动备用方式。</p>
                   </div>
                   <span class="badge warn">WRITE ONLY</span>
                 </div>
                 <label class="field">
-                  <span>完整 Cookie</span>
+                  <span id="collector-identity-cookie-label">完整 Cookie（手动备用）</span>
                   <textarea
                     id="collector-identity-cookie"
                     rows="4"
                     autocomplete="off"
                     spellcheck="false"
+                    aria-describedby="collector-identity-cookie-help"
                     placeholder="留空表示不修改；请粘贴完整的已登录 Web Cookie"
                   ></textarea>
+                  <span id="collector-identity-cookie-help" class="field-help">
+                    登录身份需要完整 Web Cookie；匿名身份会忽略此字段并使用 Cloak 会话。
+                  </span>
                 </label>
                 <label class="field">
                   <span>代理地址</span>
@@ -1504,6 +1541,130 @@
           aria-labelledby="tab-workbench"
           data-tab-panel="workbench"
         >
+          <section
+            id="workbench-overview"
+            class="workbench-overview tool-block tool-block-full"
+            aria-labelledby="overview-title"
+            aria-busy="true"
+          >
+            <header class="overview-header">
+              <div>
+                <h2 id="overview-title">运行概览</h2>
+                <p id="overview-freshness" class="overview-freshness" role="status" aria-live="polite">
+                  正在读取实时状态…
+                </p>
+              </div>
+              <button id="overview-refresh-btn" type="button" class="btn ghost overview-refresh-btn">
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                <span>刷新统计</span>
+              </button>
+              <button id="overview-backup-btn" type="button" class="btn ghost overview-refresh-btn">
+                <i data-lucide="save" aria-hidden="true"></i>
+                <span>立即备份</span>
+              </button>
+              <button id="overview-integrity-btn" type="button" class="btn ghost overview-refresh-btn">
+                <i data-lucide="radar" aria-hidden="true"></i>
+                <span>完整性扫描</span>
+              </button>
+            </header>
+
+            <div class="overview-grid">
+              <section class="overview-domain overview-domain-crawl" aria-labelledby="overview-crawl-title">
+                <div class="overview-domain-heading overview-domain-heading-split">
+                  <span>
+                    <i data-lucide="radar" aria-hidden="true"></i>
+                    <h3 id="overview-crawl-title">账号采集</h3>
+                  </span>
+                  <strong id="overview-crawl-status" class="overview-state-text">等待数据</strong>
+                </div>
+                <div id="overview-crawl-progress-block" class="overview-progress" hidden>
+                  <div class="overview-progress-copy">
+                    <span id="overview-crawl-task">—</span>
+                    <strong id="overview-crawl-progress-value">0 / 0</strong>
+                  </div>
+                  <progress id="overview-crawl-progress" max="100" value="0">0%</progress>
+                </div>
+                <dl class="overview-timeline">
+                  <div>
+                    <dt>最新开始</dt>
+                    <dd id="overview-crawl-started">—</dd>
+                  </div>
+                  <div>
+                    <dt>最新结束</dt>
+                    <dd id="overview-crawl-finished">—</dd>
+                  </div>
+                </dl>
+                <p id="overview-crawl-meta" class="overview-domain-meta">等待任务记录</p>
+              </section>
+
+              <section class="overview-domain overview-domain-collectors" aria-labelledby="overview-collectors-title">
+                <div class="overview-domain-heading">
+                  <i data-lucide="key-round" aria-hidden="true"></i>
+                  <h3 id="overview-collectors-title">采集身份</h3>
+                </div>
+                <dl class="overview-metrics overview-collector-metrics">
+                  <div class="overview-stat overview-stat-primary">
+                    <dt>全部身份</dt>
+                    <dd id="overview-collector-total">—</dd>
+                  </div>
+                  <div class="overview-stat">
+                    <dt>可路由</dt>
+                    <dd id="overview-collector-routable">—</dd>
+                  </div>
+                  <div class="overview-stat">
+                    <dt>已配代理</dt>
+                    <dd id="overview-collector-proxy">—</dd>
+                  </div>
+                  <div class="overview-stat">
+                    <dt>当前占用</dt>
+                    <dd id="overview-collector-leases">—</dd>
+                  </div>
+                  <div class="overview-stat">
+                    <dt>403 / 风控</dt>
+                    <dd id="overview-collector-risk">—</dd>
+                  </div>
+                  <div class="overview-stat">
+                    <dt>冷却中</dt>
+                    <dd id="overview-collector-cooldown">—</dd>
+                  </div>
+                </dl>
+                <p id="overview-collector-meta" class="overview-domain-meta">等待身份状态</p>
+                <div id="overview-identity-health" class="overview-identity-health"></div>
+              </section>
+
+              <section class="overview-domain overview-domain-media" aria-labelledby="overview-media-title">
+                <div class="overview-domain-heading">
+                  <i data-lucide="folder-open" aria-hidden="true"></i>
+                  <h3 id="overview-media-title">媒体库</h3>
+                </div>
+                <dl class="overview-metrics overview-media-metrics">
+                  <div class="overview-stat overview-stat-primary">
+                    <dt>占用空间</dt>
+                    <dd id="overview-media-size">—</dd>
+                  </div>
+                  <div class="overview-stat">
+                    <dt>视频</dt>
+                    <dd id="overview-video-count">—</dd>
+                  </div>
+                  <div class="overview-stat">
+                    <dt>图片</dt>
+                    <dd id="overview-image-count">—</dd>
+                  </div>
+                  <div class="overview-stat">
+                    <dt>全部文件</dt>
+                    <dd id="overview-file-count">—</dd>
+                  </div>
+                </dl>
+                <div class="overview-health-row">
+                  <span>磁盘 <strong id="overview-storage-percent">—</strong></span>
+                  <span>剩余 <strong id="overview-storage-free">—</strong></span>
+                  <span>异常文件 <strong id="overview-integrity-count">—</strong></span>
+                </div>
+                <p id="overview-media-meta" class="overview-domain-meta">等待首次后台统计</p>
+              </section>
+            </div>
+          </section>
+
           <form
             id="workflow-detail-form"
             class="tool-block tool-block-full workbench-primary"
@@ -1602,6 +1763,27 @@
               <button id="task-queue-refresh-btn" type="button" class="btn ghost">刷新</button>
             </div>
             <div id="task-queue-meta" class="task-queue-meta">任务: 0 · 等待加载</div>
+            <div class="task-list-toolbar" aria-label="任务筛选">
+              <div id="task-filter-group" class="task-filter-group" role="group" aria-label="按任务状态筛选">
+                <button type="button" class="task-filter-btn" data-task-filter="all" aria-pressed="true">
+                  全部 <span data-task-filter-count="all">0</span>
+                </button>
+                <button type="button" class="task-filter-btn" data-task-filter="active" aria-pressed="false">
+                  进行中 <span data-task-filter-count="active">0</span>
+                </button>
+                <button type="button" class="task-filter-btn" data-task-filter="attention" aria-pressed="false">
+                  需处理 <span data-task-filter-count="attention">0</span>
+                </button>
+                <button type="button" class="task-filter-btn" data-task-filter="complete" aria-pressed="false">
+                  已完成 <span data-task-filter-count="complete">0</span>
+                </button>
+              </div>
+              <label class="task-search-field">
+                <span class="sr-only">搜索任务</span>
+                <i data-lucide="search" aria-hidden="true"></i>
+                <input id="task-search-input" type="search" autocomplete="off" placeholder="搜索任务编号或类型" />
+              </label>
+            </div>
             <div class="task-center-layout">
               <div class="task-list-panel">
                 <h4>最近任务</h4>
@@ -1641,23 +1823,91 @@
                     <span id="task-account-summary">等待任务数据</span>
                   </summary>
                   <div class="task-account-toolbar">
-                    <span>按任务顺序显示前 100 个账号</span>
+                    <label class="field compact">
+                      <span>状态</span>
+                      <select id="task-account-status-filter">
+                        <option value="">全部状态</option>
+                        <option value="failed">仅失败</option>
+                        <option value="success">仅成功</option>
+                        <option value="pending">仅等待</option>
+                        <option value="running">仅执行中</option>
+                        <option value="skipped">仅跳过</option>
+                      </select>
+                    </label>
+                    <label class="field compact">
+                      <span>失败分类</span>
+                      <select id="task-account-category-filter">
+                        <option value="">全部分类</option>
+                        <option value="identity">身份 / 风控</option>
+                        <option value="visibility">私密 / 可见性</option>
+                        <option value="account_unavailable">账号不可用</option>
+                        <option value="network">网络 / 代理</option>
+                        <option value="download">下载 / 保存</option>
+                        <option value="parse">解析失败</option>
+                        <option value="other">其他</option>
+                      </select>
+                    </label>
+                    <button id="task-account-retry-category-btn" type="button" class="btn ghost">
+                      重试当前分类
+                    </button>
+                    <button id="task-account-export-btn" type="button" class="btn ghost">
+                      导出 URL
+                    </button>
                     <button id="task-account-refresh-btn" type="button" class="btn ghost">
                       刷新检查点
                     </button>
                   </div>
+                  <div class="task-account-bulk-toolbar" aria-label="账号批量操作">
+                    <span
+                      id="task-account-selection-status"
+                      class="task-account-selection-status"
+                      role="status"
+                      aria-live="polite"
+                    >已选 0（跨页累计） · 本页可选 0</span>
+                    <div class="task-account-bulk-actions">
+                      <button id="task-account-select-page-btn" type="button" class="btn ghost" disabled>
+                        选择本页
+                      </button>
+                      <button id="task-account-clear-selection-btn" type="button" class="btn ghost" disabled>
+                        清除选择
+                      </button>
+                      <button id="task-account-open-selected-btn" type="button" class="btn ghost" disabled>
+                        <i data-lucide="external-link" aria-hidden="true"></i>
+                        打开所选
+                      </button>
+                      <button id="task-account-archive-selected-btn" type="button" class="btn ghost danger" disabled>
+                        <i data-lucide="trash-2" aria-hidden="true"></i>
+                        移出所选
+                      </button>
+                    </div>
+                  </div>
+                  <div id="task-account-category-summary" class="task-account-category-summary"></div>
                   <div
                     id="task-account-list"
                     class="task-account-list"
                     aria-live="polite"
+                    tabindex="-1"
                   ></div>
+                  <div class="task-account-pagination" aria-label="账号检查点分页">
+                    <button id="task-account-prev-btn" type="button" class="btn ghost">上一页</button>
+                    <div class="page-jump">
+                      <label for="task-account-page-input">第</label>
+                      <input id="task-account-page-input" type="number" min="1" value="1" inputmode="numeric" />
+                      <button id="task-account-page-jump-btn" type="button" class="btn ghost">前往</button>
+                    </div>
+                    <span id="task-account-page-meta" class="status-line">第 1 / 1 页</span>
+                    <button id="task-account-next-btn" type="button" class="btn ghost">下一页</button>
+                  </div>
                 </details>
-                <pre
-                  id="task-result"
-                  class="json-output task-result"
-                  aria-labelledby="task-detail-title"
-                  tabindex="0"
-                >暂无结果</pre>
+                <details id="task-raw-result" class="task-raw-result">
+                  <summary>原始结果 JSON</summary>
+                  <pre
+                    id="task-result"
+                    class="json-output task-result"
+                    aria-labelledby="task-detail-title"
+                    tabindex="0"
+                  >暂无结果</pre>
+                </details>
               </div>
             </div>
           </section>
@@ -1803,20 +2053,28 @@
                     placeholder="如 https://kuma.example/api/push/xxxx"
                   />
                 </label>
-                <label class="field">
-                  <span>Bark URL（可选）</span>
-                  <input
-                    id="schedule-bark-url"
-                    type="url"
-                    placeholder="如 https://api.day.app/xxxx"
-                  />
-                </label>
-                <div class="monitor-toggle-row">
-                  <label class="toggle-field">
-                    <input id="schedule-notify-identity-failure" type="checkbox" />
-                    <span>身份异常时发送通知</span>
+                <fieldset class="notification-panel">
+                  <legend>Bark 通知</legend>
+                  <label class="field">
+                    <span>推送地址（可选）</span>
+                    <input
+                      id="schedule-bark-url"
+                      type="url"
+                      autocomplete="off"
+                      aria-describedby="schedule-bark-help"
+                      placeholder="https://api.day.app/xxxx"
+                    />
                   </label>
-                </div>
+                  <p id="schedule-bark-help" class="notification-copy">
+                    配置后，每次下载任务结束都会发送结果，覆盖成功、部分失败、失败和取消。
+                  </p>
+                  <div class="monitor-toggle-row notification-toggle-row">
+                    <label class="toggle-field">
+                      <input id="schedule-notify-identity-failure" type="checkbox" checked />
+                      <span>身份连续异常时额外即时通知</span>
+                    </label>
+                  </div>
+                </fieldset>
                 <div class="card-actions">
                   <button id="schedule-create-btn" type="button" class="btn primary">创建定时任务</button>
                   <button id="schedule-refresh-btn" type="button" class="btn ghost">刷新列表</button>
@@ -1926,6 +2184,147 @@
     </div>
 
     <dialog
+      id="account-gallery-dialog"
+      class="account-gallery-dialog"
+      aria-labelledby="account-gallery-title"
+      aria-describedby="account-gallery-meta"
+    >
+      <div class="account-gallery-shell">
+        <header class="account-gallery-header">
+          <div class="account-gallery-heading">
+            <h2 id="account-gallery-title">账户 Gallery</h2>
+            <p id="account-gallery-meta">等待选择账户</p>
+          </div>
+          <div class="account-gallery-header-actions">
+            <a
+              id="account-gallery-account-link"
+              class="btn ghost"
+              target="_blank"
+              rel="noreferrer"
+              aria-disabled="true"
+            >
+              <i data-lucide="external-link" aria-hidden="true"></i>
+              打开主页
+            </a>
+            <button
+              id="account-gallery-close-btn"
+              type="button"
+              class="btn ghost"
+              aria-label="关闭账户 Gallery"
+            >
+              <i data-lucide="x" aria-hidden="true"></i>
+            </button>
+          </div>
+        </header>
+
+        <div class="account-gallery-toolbar">
+          <label class="field compact">
+            <span>媒体类型</span>
+            <select id="account-gallery-kind" data-ui-select="false">
+              <option value="all">全部媒体</option>
+              <option value="image">仅图片</option>
+              <option value="video">仅视频</option>
+            </select>
+          </label>
+          <label class="field compact">
+            <span>每页</span>
+            <select id="account-gallery-page-size" data-ui-select="false">
+              <option value="12">12 项</option>
+              <option value="24" selected>24 项</option>
+              <option value="48">48 项</option>
+              <option value="72">72 项</option>
+            </select>
+          </label>
+          <button id="account-gallery-reload-btn" type="button" class="btn ghost">
+            <i data-lucide="refresh-cw" aria-hidden="true"></i>
+            刷新
+          </button>
+          <span id="account-gallery-counts" class="status-line" aria-live="polite">
+            尚未加载媒体
+          </span>
+        </div>
+
+        <div class="account-gallery-layout">
+          <section class="account-gallery-viewer" aria-label="当前媒体预览">
+            <div class="account-gallery-canvas">
+              <button
+                id="account-gallery-media-prev-btn"
+                type="button"
+                class="account-gallery-nav account-gallery-nav-prev"
+                aria-label="上一个媒体"
+              >
+                <i data-lucide="chevron-left" aria-hidden="true"></i>
+              </button>
+              <div
+                id="account-gallery-stage"
+                class="account-gallery-stage"
+                role="group"
+                aria-live="polite"
+                aria-label="账户媒体预览"
+              >
+                <div class="account-gallery-empty">选择账户后在这里浏览媒体</div>
+              </div>
+              <button
+                id="account-gallery-media-next-btn"
+                type="button"
+                class="account-gallery-nav account-gallery-nav-next"
+                aria-label="下一个媒体"
+              >
+                <i data-lucide="chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
+            <footer class="account-gallery-selection">
+              <div>
+                <strong id="account-gallery-selection-name">尚未选择媒体</strong>
+                <span id="account-gallery-selection-meta">—</span>
+              </div>
+              <div class="account-gallery-selection-actions">
+                <button id="account-gallery-pin-btn" type="button" class="btn ghost" disabled>
+                  <i data-lucide="pin" aria-hidden="true"></i>
+                  设为看板媒体
+                </button>
+                <a
+                  id="account-gallery-open-link"
+                  class="btn ghost"
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-disabled="true"
+                >原文件</a>
+              </div>
+            </footer>
+          </section>
+
+          <aside class="account-gallery-browser" aria-label="账户媒体列表">
+            <div class="account-gallery-scroll">
+              <div
+                id="account-gallery-grid"
+                class="account-gallery-grid"
+                aria-label="账户媒体缩略图"
+                tabindex="-1"
+              ></div>
+            </div>
+            <div class="account-gallery-pagination" aria-label="账户媒体分页">
+              <button id="account-gallery-prev-btn" type="button" class="btn ghost">
+                <i data-lucide="chevron-left" aria-hidden="true"></i>
+                上一页
+              </button>
+              <div class="page-jump account-gallery-page-jump">
+                <label for="account-gallery-page-input">跳至</label>
+                <input id="account-gallery-page-input" type="number" min="1" value="1" inputmode="numeric" />
+                <button id="account-gallery-page-jump-btn" type="button" class="btn ghost">前往</button>
+              </div>
+              <span id="account-gallery-page-meta" class="status-line">第 1 / 1 页</span>
+              <button id="account-gallery-next-btn" type="button" class="btn ghost">
+                下一页
+                <i data-lucide="chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog
       id="file-lightbox"
       class="file-lightbox"
       aria-labelledby="file-lightbox-title"
@@ -1985,10 +2384,160 @@
           使用 ← / → 切换媒体，按 Esc 关闭。图片和视频始终按原始比例完整显示。
         </p>
       </div>
-    </dialog>
+        </dialog>
 
-    <dialog
-      id="deleted-accounts-dialog"
+        <dialog
+          id="collector-login-browser-dialog"
+          class="collector-login-browser-dialog"
+          aria-labelledby="collector-login-browser-title"
+          aria-describedby="collector-login-browser-description"
+        >
+          <div class="collector-login-browser-shell">
+            <div class="collector-login-browser-head">
+              <div class="collector-login-browser-heading">
+                <div class="collector-login-browser-title-row">
+                  <i data-lucide="monitor-up" aria-hidden="true"></i>
+                  <h2 id="collector-login-browser-title">身份登录浏览器</h2>
+                </div>
+                <p id="collector-login-browser-description">
+                  浏览器使用当前采集身份的独立 Profile 与代理；完成登录后直接保存，无需复制 Cookie。
+                </p>
+              </div>
+              <button
+                id="collector-login-browser-close-btn"
+                type="button"
+                class="btn ghost collector-dialog-close"
+                aria-label="暂时关闭身份登录浏览器窗口"
+                title="暂时关闭"
+              >
+                <i data-lucide="x" aria-hidden="true"></i>
+                <span class="sr-only">暂时关闭</span>
+              </button>
+            </div>
+
+            <div class="collector-login-browser-toolbar">
+              <div class="collector-login-browser-session-meta">
+                <strong id="collector-login-browser-identity">—</strong>
+                <span id="collector-login-browser-expiry">会话准备中</span>
+              </div>
+              <div class="collector-login-browser-tools">
+                <button
+                  id="collector-login-browser-reconnect-btn"
+                  type="button"
+                  class="btn ghost"
+                  hidden
+                >
+                  <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                  <span>重新连接</span>
+                </button>
+                <button
+                  id="collector-login-browser-fullscreen-btn"
+                  type="button"
+                  class="btn ghost"
+                >
+                  <i data-lucide="maximize-2" aria-hidden="true"></i>
+                  <span>全屏</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="collector-login-browser-frame">
+              <div
+                id="collector-login-browser-viewport"
+                class="collector-login-browser-viewport"
+                tabindex="0"
+                aria-label="可交互的远程身份登录浏览器"
+              ></div>
+              <div
+                id="collector-login-browser-overlay"
+                class="collector-login-browser-overlay"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="loading-spinner" aria-hidden="true"></span>
+                <strong>正在启动隔离浏览器…</strong>
+                <span>首次启动可能需要一些时间</span>
+              </div>
+            </div>
+
+            <div class="collector-login-browser-footer">
+              <div>
+                <div
+                  id="collector-login-browser-status"
+                  class="status-line collector-login-browser-status"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >等待连接</div>
+                <p>暂时关闭窗口不会停止会话；会话到期或保存成功后会自动回收。</p>
+              </div>
+              <div class="collector-login-browser-actions">
+                <button
+                  id="collector-login-browser-stop-btn"
+                  type="button"
+                  class="btn ghost danger"
+                >停止会话</button>
+                <button
+                  id="collector-login-browser-save-btn"
+                  type="button"
+                  class="btn primary"
+                >完成登录并保存</button>
+              </div>
+            </div>
+          </div>
+        </dialog>
+
+        <dialog
+          id="task-account-archive-dialog"
+          class="collector-dialog task-account-archive-dialog"
+          aria-labelledby="task-account-archive-title"
+          aria-describedby="task-account-archive-description"
+        >
+          <div class="collector-dialog-form">
+            <div class="collector-dialog-head">
+              <div>
+                <h2 id="task-account-archive-title">将账号移出采集名单</h2>
+                <p id="task-account-archive-description">
+                  该操作只影响后续采集，并保留可以从设置页撤销的删除区记录。
+                </p>
+              </div>
+              <button
+                id="task-account-archive-close-btn"
+                type="button"
+                class="btn ghost collector-dialog-close"
+                aria-label="关闭"
+              >
+                <i data-lucide="x" aria-hidden="true"></i>
+              </button>
+            </div>
+            <div class="collector-dialog-body">
+              <section class="collector-dialog-section">
+                <h3 id="task-account-archive-summary">等待选择账号</h3>
+                <p>
+                  当前任务的失败记录和已经下载的图片、视频不会被删除；账号会停止参与后续完整采集。
+                </p>
+              </section>
+              <div
+                id="task-account-archive-status"
+                class="status-line"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              ></div>
+            </div>
+            <div class="collector-dialog-actions">
+              <button id="task-account-archive-cancel-btn" type="button" class="btn ghost">
+                保留账号
+              </button>
+              <button id="task-account-archive-confirm-btn" type="button" class="btn danger">
+                移入删除区
+              </button>
+            </div>
+          </div>
+        </dialog>
+
+        <dialog
+          id="deleted-accounts-dialog"
       class="collector-dialog deleted-accounts-dialog"
       aria-labelledby="deleted-accounts-dialog-title"
       aria-describedby="deleted-accounts-dialog-description"

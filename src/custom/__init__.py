@@ -18,6 +18,7 @@ from .internal import (
     LICENCE,
     DOCUMENTATION_URL,
     USERAGENT,
+    IMPERSONATE,
     RETRY,
     BLANK_PREVIEW,
     TIMEOUT,

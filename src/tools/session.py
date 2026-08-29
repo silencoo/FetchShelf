@@ -1,8 +1,9 @@
 from typing import TYPE_CHECKING, Union
 
-from httpx import AsyncClient, AsyncHTTPTransport, Client, HTTPTransport
+from curl_cffi.requests import Session as CurlSession
+from httpx import AsyncClient, AsyncHTTPTransport
 
-from ..custom import TIMEOUT, USERAGENT
+from ..custom import IMPERSONATE, TIMEOUT, USERAGENT
 from ..tools import DownloaderError
 from .capture import capture_error_params
 from .retry import Retry
@@ -56,20 +57,17 @@ async def request_params(
     proxy: str = None,
     **kwargs,
 ):
-    with Client(
+    with CurlSession(
         headers=headers
         or {
-            "User-Agent": useragent,
             "Content-Type": "application/json; charset=utf-8",
             # "Referer": "https://www.douyin.com/"
         },
-        follow_redirects=True,
+        impersonate=IMPERSONATE,
+        allow_redirects=True,
         timeout=timeout,
         verify=False,
-        mounts={
-            "http://": HTTPTransport(proxy=proxy),
-            "https://": HTTPTransport(proxy=proxy),
-        },
+        proxy=proxy,
     ) as client:
         return await request(
             logger,
@@ -91,7 +89,7 @@ async def request(
         "LoggerManager",
         "Logger",
     ],
-    client: Client,
+    client: CurlSession,
     method: str,
     url: str,
     resp="json",

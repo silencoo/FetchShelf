@@ -154,21 +154,36 @@ class Downloader:
         type_: str,
         tiktok=False,
         **kwargs,
-    ) -> None:
+    ) -> dict:
         if not self.download or not data:
-            return
+            return {
+                "ok": True,
+                "enabled": bool(self.download),
+                "requested_file_count": 0,
+                "failed_file_count": 0,
+                "failed_item_count": 0,
+                "missing_download_url_count": 0,
+            }
         self.log.info(_("开始下载作品文件"))
         match type_:
             case "batch":
-                await self.run_batch(data, tiktok, **kwargs)
+                return await self.run_batch(data, tiktok, **kwargs)
             case "detail":
-                await self.run_general(data, tiktok, **kwargs)
+                return await self.run_general(data, tiktok, **kwargs)
             case "music":
                 await self.run_music(data, **kwargs)
             case "live":
                 await self.run_live(data, tiktok, **kwargs)
             case _:
                 raise ValueError
+        return {
+            "ok": True,
+            "enabled": True,
+            "requested_file_count": 0,
+            "failed_file_count": 0,
+            "failed_item_count": 0,
+            "missing_download_url_count": 0,
+        }
 
     async def run_batch(
         self,
@@ -196,7 +211,7 @@ class Downloader:
                 collect_name,
             ),
         )
-        await self.batch_processing(
+        return await self.batch_processing(
             data,
             root,
             tiktok=tiktok,
@@ -204,7 +219,7 @@ class Downloader:
 
     async def run_general(self, data: list[dict], tiktok: bool, **kwargs):
         root = self.storage_folder(mode="detail")
-        await self.batch_processing(
+        return await self.batch_processing(
             data,
             root,
             tiktok=tiktok,
@@ -297,6 +312,9 @@ class Downloader:
             skipped_video=set(),
             downloaded_live=set(),
             skipped_live=set(),
+            missing_image=set(),
+            missing_video=set(),
+            missing_live=set(),
         )
         tasks = []
         for item in data:
@@ -323,12 +341,14 @@ class Downloader:
                     **params,
                     type_=_("图集"),
                     skipped=count.skipped_image,
+                    missing=count.missing_image,
                 )
             elif t == _("视频"):
                 await self.download_video(
                     **params,
                     type_=_("视频"),
                     skipped=count.skipped_video,
+                    missing=count.missing_video,
                     tiktok=kwargs.get("tiktok", False),
                 )
             elif t == _("实况"):
@@ -337,6 +357,7 @@ class Downloader:
                     type_=_("实况"),
                     **params,
                     skipped=count.skipped_live,
+                    missing=count.missing_live,
                 )
             else:
                 raise DownloaderError
@@ -345,10 +366,34 @@ class Downloader:
                 type=_("音乐"),
             )
             self.download_cover(**params)
-        await self.downloader_chart(
+        results = await self.downloader_chart(
             tasks, count, self.general_progress_object(), **kwargs
         )
         self.statistics_count(count)
+        failed_items = {
+            str(task[4])
+            for task, result in zip(tasks, results)
+            if result is False and len(task) > 4
+        }
+        missing_items = (
+            count.missing_image | count.missing_video | count.missing_live
+        )
+        return {
+            "ok": not failed_items and not missing_items,
+            "enabled": True,
+            "requested_file_count": len(tasks),
+            "failed_file_count": sum(result is False for result in results),
+            "failed_item_count": len(failed_items | missing_items),
+            "missing_download_url_count": len(missing_items),
+            "downloaded_item_count": len(
+                count.downloaded_image
+                | count.downloaded_video
+                | count.downloaded_live
+            ),
+            "skipped_item_count": len(
+                count.skipped_image | count.skipped_video | count.skipped_live
+            ),
+        }
 
     async def downloader_chart(
         self,
@@ -369,7 +414,7 @@ class Downloader:
                 )
                 for task in tasks
             ]
-            await gather(*tasks)
+            return await gather(*tasks)
 
     def deal_folder_path(
         self,
@@ -401,12 +446,15 @@ class Downloader:
         id_: str,
         item: SimpleNamespace,
         skipped: set,
+        missing: set | None,
         temp_root: Path,
         actual_root: Path,
         suffix: str = "jpeg",
         type_: str = _("图集"),
     ) -> None:
         if not item["downloads"]:
+            if missing is not None:
+                missing.add(id_)
             self.log.error(
                 _("【{type}】{name} 提取文件下载地址失败，跳过下载").format(
                     type=type_, name=name
@@ -452,6 +500,7 @@ class Downloader:
         id_: str,
         item: SimpleNamespace,
         skipped: set,
+        missing: set | None,
         temp_root: Path,
         actual_root: Path,
         suffix: str = "mp4",
@@ -459,6 +508,8 @@ class Downloader:
         tiktok: bool = False,
     ) -> None:
         if not item["downloads"]:
+            if missing is not None:
+                missing.add(id_)
             self.log.error(
                 _("【{type}】{name} 提取文件下载地址失败，跳过下载").format(
                     type=type_, name=name

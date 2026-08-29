@@ -7,6 +7,7 @@ import pytest
 
 from src.application import main_server as main_server_module
 from src.application.main_server import APIServer
+from src.application.main_terminal import TikTok
 from src.collector import (
     AESGCMSecretCodec,
     AssignmentSource,
@@ -534,6 +535,172 @@ def test_proxy_only_identity_is_not_routable_without_cookie(tmp_path: Path):
             [{"url": "https://www.douyin.com/user/demo"}],
             forced_identity_id="dy-proxy-only",
         )
+    server.collector_store.close()
+
+
+@pytest.mark.asyncio
+async def test_visibility_failure_probes_other_identity_and_pins_success(
+    tmp_path: Path,
+    monkeypatch,
+):
+    server = APIServer.__new__(APIServer)
+    server.collector_store = CollectorStore(
+        tmp_path / "visibility.sqlite3",
+        codec=AESGCMSecretCodec(b"v" * 32),
+    )
+    server.collector_leases = IdentityLeaseManager()
+    server.database = object()
+    server.console = SimpleNamespace()
+    server.logger = SimpleNamespace(info=lambda *args, **kwargs: None)
+    server.parameter = SimpleNamespace(
+        accounts_urls=[],
+        accounts_urls_tiktok=[],
+        earliest_update_days=3,
+        auto_backfill_mark=True,
+        settings=SimpleNamespace(path=tmp_path / "settings.json"),
+    )
+    server._persist_account_runtime_updates = lambda **kwargs: None
+    target = "https://www.douyin.com/user/private-account"
+    for identity_id in ("dy-cannot-see", "dy-follows"):
+        identity = CollectorIdentity(
+            identity_id=identity_id,
+            name=identity_id,
+            platform=CollectorPlatform.DOUYIN,
+        )
+        server.collector_store.save_identity(
+            identity,
+            credentials=CollectorCredentials(cookie=f"sessionid={identity_id}"),
+        )
+    server.collector_store.upsert_assignments(
+        [
+            CollectorAssignment(
+                platform=CollectorPlatform.DOUYIN,
+                target_type="account",
+                target_key=target,
+                identity_id="dy-cannot-see",
+                source=AssignmentSource.POLICY,
+            )
+        ]
+    )
+
+    class _VisibilityWorker:
+        def __init__(self, parameter, database, server_mode=True):
+            self.identity_id = parameter.collector_identity_id
+
+        async def check_sec_user_id(self, url, tiktok=False):
+            return "private-account"
+
+        async def deal_account_detail(self, *args, **kwargs):
+            if self.identity_id == "dy-cannot-see":
+                return {
+                    "ok": False,
+                    "outcome_code": "private_not_visible",
+                    "reason": "私密账号对当前身份不可见",
+                    "failure_category": "visibility",
+                    "terminal_status": "failed",
+                    "retryable": True,
+                    "cross_identity": True,
+                    "affects_identity_health": False,
+                    "context": {},
+                }
+            return {
+                "ok": True,
+                "outcome_code": "success",
+                "reason": "",
+                "failure_category": "",
+                "terminal_status": "success",
+                "retryable": False,
+                "cross_identity": False,
+                "affects_identity_health": False,
+                "context": {"mark": kwargs["mark"], "item_count": 3},
+            }
+
+    monkeypatch.setattr(main_server_module, "TikTok", _VisibilityWorker)
+    monkeypatch.setattr(
+        main_server_module,
+        "build_collector_runtime",
+        lambda base, identity, credentials, settings_dir: _Runtime(identity),
+    )
+
+    result = await server._run_ui_account_batch(
+        {
+            "use_settings": False,
+            "items": [{"mark": "private", "url": target, "enable": True}],
+        },
+        tiktok=False,
+    )
+
+    assert result.data["success"] == 1
+    assert result.data["failed"] == 0
+    route = result.data["routes"][0]
+    assert [
+        item["identity_id"] for item in route["attempted_identities"]
+    ] == ["dy-cannot-see", "dy-follows"]
+    assert route["recovered_by_identity"] == "dy-follows"
+    assignment = server.collector_store.get_assignment(
+        CollectorPlatform.DOUYIN,
+        "account",
+        target,
+    )
+    assert assignment.identity_id == "dy-follows"
+    assert assignment.source == AssignmentSource.POLICY
+    server.collector_store.close()
+
+
+def test_account_outcomes_distinguish_empty_private_and_download_failure():
+    worker = TikTok.__new__(TikTok)
+    worker._account_info_diagnostic = {}
+    worker._account_items_diagnostic = {}
+
+    empty = worker._empty_account_outcome(
+        {"nickname": "public", "aweme_count": 0, "secret": 0},
+        False,
+    )
+    private = worker._empty_account_outcome(
+        {
+            "nickname": "private",
+            "aweme_count": 12,
+            "secret": 1,
+            "follow_status": 1,
+        },
+        False,
+    )
+    download = worker._successful_account_outcome(
+        {
+            "item_count": 2,
+            "download": {"ok": False, "failed_item_count": 1},
+        }
+    )
+
+    assert empty["outcome_code"] == "no_works"
+    assert empty["terminal_status"] == "skipped"
+    assert private["outcome_code"] == "private_followed_empty"
+    assert private["failure_category"] == "visibility"
+    assert private["cross_identity"] is True
+    assert download["outcome_code"] == "download_failed"
+    assert download["failure_category"] == "download"
+
+
+def test_anonymous_tiktok_identity_routes_without_cookie(tmp_path: Path):
+    server = _routing_server(tmp_path)
+    server.collector_store.save_identity(
+        CollectorIdentity(
+            identity_id="tt-anonymous",
+            name="Anonymous",
+            platform=CollectorPlatform.TIKTOK,
+            auth_mode="anonymous",
+        ),
+        credentials=CollectorCredentials(proxy="socks5://proxy.test:1080"),
+    )
+
+    route = server._plan_collector_account_routes(
+        CollectorPlatform.TIKTOK,
+        [{"url": "https://www.tiktok.com/@demo"}],
+        forced_identity_id="tt-anonymous",
+    )[0]
+
+    assert route["identity_id"] == "tt-anonymous"
+    assert route["reason"] == "task_override"
     server.collector_store.close()
 
 

@@ -1,4 +1,15 @@
-from asyncio import Event, Queue, CancelledError, create_task, gather, sleep
+from asyncio import (
+    FIRST_COMPLETED,
+    Event,
+    Queue,
+    CancelledError,
+    create_task,
+    gather,
+    open_connection,
+    sleep,
+    to_thread,
+    wait,
+)
 from datetime import datetime, timedelta
 from hashlib import md5
 from json import JSONDecodeError, dumps, loads
@@ -6,11 +17,16 @@ from mimetypes import guess_type
 from pathlib import Path
 from random import choice
 from re import compile, sub
-from shutil import copy2
+from shutil import copy2, disk_usage
+from sqlite3 import connect as sqlite_connect
+from tempfile import TemporaryDirectory
 from textwrap import dedent
+from threading import Lock, Thread
+from time import monotonic
 from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import (
     Depends,
@@ -42,9 +58,11 @@ from ..collector import (
     AESGCMSecretCodec,
     AssignmentSource,
     BindingFailureMode,
+    CollectorAuthMode,
     CollectorAssignment,
     CollectorCredentials,
     CollectorIdentity,
+    CollectorLoginBrowserManager,
     CollectorPlatform,
     CollectorPolicy,
     CollectorRuntimeState,
@@ -55,6 +73,11 @@ from ..collector import (
     IdentityPlatformError,
     IdentityStatus,
     LeaseConfigurationError,
+    LoginBrowserBusyError,
+    LoginBrowserDependencyError,
+    LoginBrowserError,
+    LoginBrowserNotAuthenticatedError,
+    LoginBrowserNotFoundError,
     RouteTarget,
     RouteUnavailable,
     RoutingStrategy,
@@ -63,6 +86,7 @@ from ..collector import (
     UnavailableSecretCodec,
     build_collector_runtime,
     candidate_available,
+    fetch_douyin_collection_via_browser,
     migrate_legacy_settings,
     plan_routes,
 )
@@ -170,7 +194,21 @@ class APIServer(TikTok):
     IDENTITY_FAILURE_ACTIONS = frozenset({"continue", "pause"})
     COLLECT_MONITOR_PAGE_COUNT = 20
     COLLECT_MONITOR_MAX_PAGES = 30
+    OVERVIEW_MEDIA_CACHE_TTL_SECONDS = 300
+    STORAGE_ALERT_THRESHOLDS = (75, 85, 95)
+    CONFIGURATION_SNAPSHOT_RETENTION = 14
     UI_TASK_SENSITIVE_FIELDS = WEBUI_SENSITIVE_FIELDS
+    ACCOUNT_FAILURE_CATEGORIES = frozenset(
+        {
+            "identity",
+            "visibility",
+            "account_unavailable",
+            "network",
+            "download",
+            "parse",
+            "other",
+        }
+    )
 
     def __init__(
         self,
@@ -203,10 +241,23 @@ class APIServer(TikTok):
             self.parameter.settings.path.parent,
             codec=collector_codec,
         )
+        self.collector_login_browser = CollectorLoginBrowserManager(
+            self.parameter.settings.path.parent,
+        )
         self.task_journal = TaskJournal.in_settings_dir(
             self.parameter.settings.path.parent,
         )
         self.collector_leases = IdentityLeaseManager()
+        self._overview_media_lock = Lock()
+        self._overview_media_cache: dict[str, Any] = {}
+        self._overview_media_cache_updated_monotonic = 0.0
+        self._overview_media_scan_attempt_monotonic = 0.0
+        self._overview_media_scan_started_at = ""
+        self._overview_media_scan_error = ""
+        self._overview_media_scan_thread: Thread | None = None
+        self._maintenance_lock = Lock()
+        self._storage_alert_pending_level = 0
+        self._storage_alert_last_level = 0
         self._initialize_legacy_collectors()
 
     @staticmethod
@@ -287,6 +338,50 @@ class APIServer(TikTok):
     def _collector_public_data(value) -> dict:
         return value.model_dump(mode="json")
 
+    def _get_collector_login_browser(self) -> CollectorLoginBrowserManager:
+        manager = getattr(self, "collector_login_browser", None)
+        if manager is None:
+            settings_path = getattr(
+                getattr(self, "parameter", None),
+                "settings",
+                None,
+            )
+            settings_path = getattr(
+                settings_path,
+                "path",
+                PROJECT_ROOT.joinpath("settings.json"),
+            )
+            manager = CollectorLoginBrowserManager(Path(settings_path).parent)
+            self.collector_login_browser = manager
+        return manager
+
+    def _collector_identity_public_data(self, value) -> dict:
+        data = self._collector_public_data(value)
+        manager = getattr(self, "collector_login_browser", None)
+        data["login_browser_active"] = bool(
+            manager and manager.is_identity_locked(value.identity_id)
+        )
+        return data
+
+    def _collector_identity_login_locked(self, identity_id: str) -> bool:
+        manager = getattr(self, "collector_login_browser", None)
+        return bool(manager and manager.is_identity_locked(identity_id))
+
+    @staticmethod
+    def _collector_login_browser_http_error(error: Exception) -> HTTPException:
+        if isinstance(error, LoginBrowserDependencyError):
+            return HTTPException(status_code=503, detail=str(error))
+        if isinstance(error, LoginBrowserNotFoundError):
+            return HTTPException(status_code=404, detail=str(error))
+        if isinstance(
+            error,
+            (LoginBrowserBusyError, LoginBrowserNotAuthenticatedError),
+        ):
+            return HTTPException(status_code=409, detail=str(error))
+        if isinstance(error, LoginBrowserError):
+            return HTTPException(status_code=400, detail=str(error))
+        return APIServer._collector_http_error(error)
+
     @staticmethod
     def _safe_validation_errors(error: ValidationError | RequestValidationError) -> list[dict]:
         return [
@@ -336,6 +431,7 @@ class APIServer(TikTok):
             "identity_id",
             "name",
             "platform",
+            "auth_mode",
             "enabled",
             "weight",
             "request_delay",
@@ -388,8 +484,48 @@ class APIServer(TikTok):
         credentials = self.collector_store.load_credentials(identity_id)
         if require_proxy and not credentials.proxy:
             raise HTTPException(status_code=400, detail="Proxy is not configured.")
-        if not require_proxy and not credentials.cookie:
+        if (
+            not require_proxy
+            and not credentials.cookie
+            and identity.auth_mode != CollectorAuthMode.ANONYMOUS
+        ):
             raise HTTPException(status_code=400, detail="Cookie is not configured.")
+        if (
+            not require_proxy
+            and identity.platform == CollectorPlatform.TIKTOK
+            and identity.auth_mode == CollectorAuthMode.ANONYMOUS
+        ):
+            settings_path = getattr(
+                getattr(self.parameter, "settings", None),
+                "path",
+                PROJECT_ROOT.joinpath("settings.json"),
+            )
+            runtime = build_collector_runtime(
+                self.parameter,
+                identity,
+                credentials,
+                settings_dir=Path(settings_path).parent,
+            )
+            try:
+                await runtime.prepare()
+                cookie_count = len(runtime.parameter.cookie_dict_tiktok)
+            finally:
+                await runtime.close()
+            state = self.collector_store.get_runtime(identity_id)
+            state.status = IdentityStatus.WARNING
+            state.last_validated_at = self._collector_timestamp()
+            state.last_error_code = "anonymous_session_pending_target_check"
+            self.collector_store.save_runtime(state)
+            return {
+                "ok": True,
+                "identity_id": identity_id,
+                "platform": identity.platform.value,
+                "auth_mode": identity.auth_mode.value,
+                "status_code": 200,
+                "validation_level": "anonymous_session",
+                "cookie_count": cookie_count,
+                "message": "匿名 Cloak 会话已建立；可用性将在首次目标采集时确认。",
+            }
         headers = {}
         if credentials.user_agent:
             headers["User-Agent"] = credentials.user_agent
@@ -430,6 +566,7 @@ class APIServer(TikTok):
             "ok": True,
             "identity_id": identity_id,
             "platform": identity.platform.value,
+            "auth_mode": identity.auth_mode.value,
             "status_code": response.status_code,
             "validation_level": "connectivity",
             "message": (
@@ -455,6 +592,8 @@ class APIServer(TikTok):
             "started_at": None,
             "finished_at": None,
             "updated_at": self._now_text(),
+            "eta_baseline_current": 0,
+            "eta_baseline_at": None,
             "retry_of": retry_of,
             "retry_mode": retry_mode,
             "worker": None,
@@ -484,6 +623,8 @@ class APIServer(TikTok):
     @staticmethod
     def _hydrate_ui_task(task: dict) -> dict:
         task = dict(task)
+        if task.get("status") == "success" and isinstance(task.get("result"), dict):
+            task["status"] = APIServer._ui_task_result_status(task["result"])
         task.setdefault("pause_supported", APIServer._ui_task_pause_supported(
             str(task.get("endpoint") or "")
         ))
@@ -496,6 +637,8 @@ class APIServer(TikTok):
         task.setdefault("worker", None)
         task.setdefault("started_at", None)
         task.setdefault("finished_at", None)
+        task.setdefault("eta_baseline_current", None)
+        task.setdefault("eta_baseline_at", None)
         task["_runner"] = None
         task["_pause_event"] = None
         task["_pause_requested"] = False
@@ -527,7 +670,9 @@ class APIServer(TikTok):
             task_id = self._normalize_string(stored.get("task_id"))
             if not task_id:
                 continue
-            self.ui_tasks[task_id] = self._hydrate_ui_task(stored)
+            hydrated = self._hydrate_ui_task(stored)
+            self.ui_tasks[task_id] = hydrated
+            journal.save_task(hydrated)
         self._refresh_task_counter()
         for task in self.ui_tasks.values():
             if task.get("status") == "pending":
@@ -545,6 +690,7 @@ class APIServer(TikTok):
                 key: value
                 for key, value in task.items()
                 if not key.startswith("_")
+                and key not in {"eta_baseline_current", "eta_baseline_at"}
             }
         )
 
@@ -635,6 +781,12 @@ class APIServer(TikTok):
             if normalized["enabled"]:
                 self._start_single_schedule_runner(normalized["schedule_id"])
         self._refresh_schedule_counter()
+        try:
+            await to_thread(self._maybe_create_daily_configuration_snapshot)
+        except Exception as error:
+            self.logger.warning(
+                _("每日配置快照失败：{error}").format(error=error)
+            )
 
     async def _stop_ui_schedules(self) -> None:
         for task in self.ui_schedule_tasks.values():
@@ -678,6 +830,23 @@ class APIServer(TikTok):
         message = str(result.get("message", ""))
         return "失败" in message or "参数错误" in message
 
+    @classmethod
+    def _ui_task_result_status(cls, result) -> str:
+        data = result.get("data") if isinstance(result, dict) else None
+        if isinstance(data, dict) and any(key in data for key in ("success", "failed")):
+            try:
+                succeeded = max(0, int(data.get("success") or 0))
+                failed = max(0, int(data.get("failed") or 0))
+            except (TypeError, ValueError):
+                pass
+            else:
+                if failed and succeeded:
+                    return "partial_success"
+                if failed and not succeeded:
+                    return "failed"
+                return "success"
+        return "failed" if cls._is_failed_response(result) else "success"
+
     def _sync_runtime_http_clients(self) -> None:
         if hasattr(self.links, "requester"):
             self.links.requester.client = self.parameter.client
@@ -696,6 +865,15 @@ class APIServer(TikTok):
         task["status"] = "running"
         task["worker"] = worker_id
         task["started_at"] = self._now_text()
+        progress = task.get("progress") if isinstance(task.get("progress"), dict) else {}
+        try:
+            resumed_current = max(0, int(progress.get("current") or 0))
+        except (TypeError, ValueError):
+            resumed_current = 0
+        task["eta_baseline_current"] = (
+            resumed_current if task.get("recovered_after_restart") else 0
+        )
+        task["eta_baseline_at"] = task["started_at"]
         task["updated_at"] = self._now_text()
         self._persist_ui_task(task)
         execution_payload = dict(task["payload"])
@@ -712,6 +890,8 @@ class APIServer(TikTok):
                 **progress,
             }
             task["updated_at"] = self._now_text()
+            if task.get("recovered_after_restart"):
+                task["message"] = _("服务重启后已恢复并继续执行")
             self._persist_ui_task(task)
 
         async def pause_checkpoint() -> None:
@@ -753,7 +933,7 @@ class APIServer(TikTok):
             task["updated_at"] = self._now_text()
             if self._normalize_bool(
                 task.get("payload", {}).get("notify_on_identity_failure"),
-                default=False,
+                default=True,
             ):
                 signature = "|".join(
                     (
@@ -800,7 +980,7 @@ class APIServer(TikTok):
                 if isinstance(result, dict)
                 else ""
             )
-            task["status"] = "failed" if self._is_failed_response(result) else "success"
+            task["status"] = self._ui_task_result_status(result)
         except CancelledError:
             journal = getattr(self, "task_journal", None)
             if journal is not None:
@@ -851,9 +1031,7 @@ class APIServer(TikTok):
                         if isinstance(retry_result, dict)
                         else ""
                     )
-                    task["status"] = (
-                        "failed" if self._is_failed_response(retry_result) else "success"
-                    )
+                    task["status"] = self._ui_task_result_status(retry_result)
                     return
                 except Exception:
                     pass
@@ -865,11 +1043,18 @@ class APIServer(TikTok):
             if isinstance(progress, dict):
                 if task.get("status") == "success":
                     progress["label"] = _("执行完成")
+                elif task.get("status") == "partial_success":
+                    progress["label"] = _("部分完成")
                 elif task.get("status") == "failed":
                     progress["label"] = _("执行失败")
                 elif task.get("status") == "canceled":
                     progress["label"] = _("已取消")
-            if task.get("status") in {"success", "failed", "canceled"}:
+            if task.get("status") in {
+                "success",
+                "partial_success",
+                "failed",
+                "canceled",
+            }:
                 task["finished_at"] = self._now_text()
             else:
                 task["finished_at"] = None
@@ -880,7 +1065,12 @@ class APIServer(TikTok):
             task["_active_units"] = 0
             self._persist_ui_task(task)
             schedule_url = self._normalize_string(task.get("schedule_uptime_kuma_url"))
-            if schedule_url and task.get("status") in {"success", "failed", "canceled"}:
+            if schedule_url and task.get("status") in {
+                "success",
+                "partial_success",
+                "failed",
+                "canceled",
+            }:
                 status, message = self._build_uptime_kuma_status(
                     task,
                     self._normalize_string(task.get("schedule_name")),
@@ -894,6 +1084,13 @@ class APIServer(TikTok):
                             proxy=self._normalize_string(task.get("payload", {}).get("proxy")),
                         )
                     )
+            if task.get("status") in {
+                "success",
+                "partial_success",
+                "failed",
+                "canceled",
+            }:
+                await self._notify_ui_task_completion(task)
 
     async def _execute_ui_endpoint(self, endpoint: str, payload: dict):
         payload = dict(payload)
@@ -1032,6 +1229,10 @@ class APIServer(TikTok):
         images = 0
         videos = 0
         total_size = 0
+        latest_modified_at = 0.0
+        zero_byte_files = 0
+        temporary_files = 0
+        scan_errors = 0
         root = scope_root or current
         for path in current.rglob("*"):
             try:
@@ -1048,16 +1249,352 @@ class APIServer(TikTok):
                     images += 1
                 elif suffix in VIDEO_SUFFIXES:
                     videos += 1
-                total_size += path.stat().st_size
+                file_stat = path.stat()
+                total_size += file_stat.st_size
+                if file_stat.st_size == 0:
+                    zero_byte_files += 1
+                if suffix in {".part", ".tmp", ".download", ".crdownload"}:
+                    temporary_files += 1
+                latest_modified_at = max(latest_modified_at, file_stat.st_mtime)
             except OSError:
+                scan_errors += 1
                 continue
+        try:
+            disk = disk_usage(current)
+            used_percent = round((disk.used / disk.total) * 100, 1) if disk.total else 0
+        except OSError:
+            disk = None
+            used_percent = 0
         return {
             "folders": folders,
             "files": files,
             "images": images,
             "videos": videos,
+            "other_files": max(0, files - images - videos),
             "size": total_size,
             "size_human": self._human_size(total_size),
+            "integrity": {
+                "zero_byte_files": zero_byte_files,
+                "temporary_files": temporary_files,
+                "scan_errors": scan_errors,
+                "checked_files": files,
+            },
+            "storage": (
+                {
+                    "total": disk.total,
+                    "used": disk.used,
+                    "free": disk.free,
+                    "used_percent": used_percent,
+                    "alert_level": self._storage_alert_level_for_percent(
+                        used_percent
+                    ),
+                    "thresholds": list(self.STORAGE_ALERT_THRESHOLDS),
+                }
+                if disk is not None
+                else {}
+            ),
+            "latest_updated_at": (
+                datetime.fromtimestamp(latest_modified_at)
+                .astimezone()
+                .isoformat(timespec="seconds")
+                if latest_modified_at
+                else ""
+            ),
+        }
+
+    def _ensure_overview_media_state(self) -> None:
+        """Initialize overview cache fields for lightweight test instances."""
+
+        if not hasattr(self, "_overview_media_lock"):
+            self._overview_media_lock = Lock()
+        if not hasattr(self, "_overview_media_cache"):
+            self._overview_media_cache = {}
+        if not hasattr(self, "_overview_media_cache_updated_monotonic"):
+            self._overview_media_cache_updated_monotonic = 0.0
+        if not hasattr(self, "_overview_media_scan_attempt_monotonic"):
+            self._overview_media_scan_attempt_monotonic = 0.0
+        if not hasattr(self, "_overview_media_scan_started_at"):
+            self._overview_media_scan_started_at = ""
+        if not hasattr(self, "_overview_media_scan_error"):
+            self._overview_media_scan_error = ""
+        if not hasattr(self, "_overview_media_scan_thread"):
+            self._overview_media_scan_thread = None
+        self._ensure_maintenance_state()
+
+    @classmethod
+    def _storage_alert_level_for_percent(cls, used_percent: float) -> int:
+        return max(
+            (threshold for threshold in cls.STORAGE_ALERT_THRESHOLDS if used_percent >= threshold),
+            default=0,
+        )
+
+    def _refresh_overview_media_cache(self, root: Path) -> None:
+        try:
+            stats = self._collect_scope_stats(
+                root,
+                scope="download",
+                scope_root=root,
+            )
+            refreshed_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        except Exception as error:
+            logger = getattr(self, "logger", None)
+            if logger:
+                logger.error(f"Overview media scan failed: {error}")
+            with self._overview_media_lock:
+                self._overview_media_scan_error = "媒体目录统计失败"
+            return
+        with self._overview_media_lock:
+            self._overview_media_cache = {
+                **stats,
+                "refreshed_at": refreshed_at,
+            }
+            self._overview_media_cache_updated_monotonic = monotonic()
+            self._overview_media_scan_error = ""
+        storage = stats.get("storage") if isinstance(stats.get("storage"), dict) else {}
+        level = int(storage.get("alert_level") or 0)
+        if level > self._storage_alert_last_level:
+            self._storage_alert_pending_level = level
+        elif level == 0 and self._storage_alert_last_level:
+            self._storage_alert_last_level = 0
+            self._save_storage_alert_state(0)
+
+    def _overview_media_snapshot(self, *, force_refresh: bool = False) -> dict:
+        self._ensure_overview_media_state()
+        root = self._scope_root("download").expanduser().resolve()
+        with self._overview_media_lock:
+            cache_age = (
+                monotonic() - self._overview_media_cache_updated_monotonic
+                if self._overview_media_cache
+                else None
+            )
+            running = bool(
+                self._overview_media_scan_thread
+                and self._overview_media_scan_thread.is_alive()
+            )
+            stale = cache_age is None or (
+                cache_age >= self.OVERVIEW_MEDIA_CACHE_TTL_SECONDS
+            )
+            retry_ready = not self._overview_media_scan_error or (
+                monotonic() - self._overview_media_scan_attempt_monotonic >= 60
+            )
+            if not running and (force_refresh or (stale and retry_ready)):
+                self._overview_media_scan_attempt_monotonic = monotonic()
+                self._overview_media_scan_started_at = (
+                    datetime.now().astimezone().isoformat(timespec="seconds")
+                )
+                self._overview_media_scan_error = ""
+                thread = Thread(
+                    target=self._refresh_overview_media_cache,
+                    args=(root,),
+                    name="fetchshelf-overview-media-scan",
+                    daemon=True,
+                )
+                self._overview_media_scan_thread = thread
+                thread.start()
+                running = True
+            cache = dict(self._overview_media_cache)
+            error = self._overview_media_scan_error
+            scan_started_at = self._overview_media_scan_started_at
+
+        if running:
+            status = "refreshing" if cache else "scanning"
+        elif error:
+            status = "error"
+        elif cache:
+            status = "ready"
+        else:
+            status = "empty"
+        return {
+            **cache,
+            "status": status,
+            "stale": stale,
+            "scan_started_at": scan_started_at,
+            "error": error,
+        }
+
+    @classmethod
+    def _overview_task_snapshot(cls, task: dict | None) -> dict | None:
+        if not task:
+            return None
+        keys = (
+            "task_id",
+            "endpoint",
+            "status",
+            "created_at",
+            "started_at",
+            "finished_at",
+            "updated_at",
+            "message",
+            "progress",
+            "account_summary",
+            "schedule_id",
+            "schedule_name",
+            "recovered_after_restart",
+        )
+        snapshot = {key: task.get(key) for key in keys}
+        progress = task.get("progress") if isinstance(task.get("progress"), dict) else {}
+        try:
+            current = max(0, int(progress.get("current") or 0))
+            total = max(0, int(progress.get("total") or 0))
+            baseline_value = task.get("eta_baseline_current")
+            if task.get("recovered_after_restart") and baseline_value is None:
+                raise ValueError("Recovered task has no ETA baseline")
+            baseline_current = max(0, int(baseline_value or 0))
+            processed = max(0, current - baseline_current)
+            started_text = str(
+                task.get("eta_baseline_at")
+                or task.get("started_at")
+                or task.get("created_at")
+                or ""
+            )
+            ended_text = str(task.get("finished_at") or "")
+            started = datetime.fromisoformat(started_text.replace("Z", "+00:00"))
+            ended = (
+                datetime.fromisoformat(ended_text.replace("Z", "+00:00"))
+                if ended_text
+                else datetime.now(started.tzinfo)
+            )
+            elapsed_seconds = max(1.0, (ended - started).total_seconds())
+            throughput = processed / (elapsed_seconds / 60)
+            remaining = max(0, total - current)
+            eta_seconds = round((remaining / throughput) * 60) if throughput else None
+            snapshot["throughput_per_minute"] = round(throughput, 2)
+            snapshot["eta_seconds"] = eta_seconds
+            snapshot["eta_at"] = (
+                (datetime.now().astimezone() + timedelta(seconds=eta_seconds))
+                .isoformat(timespec="seconds")
+                if eta_seconds is not None and not task.get("finished_at")
+                else ""
+            )
+        except (TypeError, ValueError):
+            snapshot["throughput_per_minute"] = 0
+            snapshot["eta_seconds"] = None
+            snapshot["eta_at"] = ""
+        return cls._redact_ui_task_value(snapshot)
+
+    def _overview_crawl_summary(self) -> dict:
+        endpoints = {
+            "/workflow/douyin/account_batch",
+            "/workflow/tiktok/account_batch",
+        }
+        tasks = sorted(
+            (
+                item
+                for item in getattr(self, "ui_tasks", {}).values()
+                if item.get("endpoint") in endpoints
+            ),
+            key=self._ui_task_sort_key,
+            reverse=True,
+        )
+        current = next(
+            (item for item in tasks if item.get("status") in ACTIVE_TASK_STATUSES),
+            None,
+        )
+        latest_ended = next(
+            (item for item in tasks if item.get("status") not in ACTIVE_TASK_STATUSES),
+            None,
+        )
+        latest_success = next(
+            (item for item in tasks if item.get("status") == "success"),
+            None,
+        )
+        latest_completed = next(
+            (
+                item
+                for item in tasks
+                if item.get("status") in {"success", "partial_success"}
+            ),
+            None,
+        )
+        return {
+            "current": self._overview_task_snapshot(current),
+            "latest": self._overview_task_snapshot(tasks[0] if tasks else None),
+            "latest_ended": self._overview_task_snapshot(latest_ended),
+            "latest_success": self._overview_task_snapshot(latest_success),
+            "latest_completed": self._overview_task_snapshot(latest_completed),
+            "active_count": sum(
+                item.get("status") in ACTIVE_TASK_STATUSES for item in tasks
+            ),
+        }
+
+    def _overview_collector_summary(self) -> dict:
+        store = getattr(self, "collector_store", None)
+        identities = store.list_public() if store else []
+        route_configured_ids = {
+            item.identity_id for item in identities if item.route_configured
+        }
+        routable_ids = set()
+        if store:
+            for platform in CollectorPlatform:
+                routable_ids.update(
+                    item.identity_id
+                    for item in store.route_candidates(platform)
+                    if item.identity_id in route_configured_ids
+                    and not self._collector_identity_login_locked(item.identity_id)
+                    and candidate_available(item, platform=platform)
+                )
+        identity_rows = []
+        for item in identities:
+            attempts = max(0, int(item.total_successes + item.total_failures))
+            identity_rows.append(
+                {
+                    "identity_id": item.identity_id,
+                    "name": item.name,
+                    "platform": item.platform.value,
+                    "auth_mode": item.auth_mode.value,
+                    "status": item.status.value,
+                    "active_leases": item.active_leases,
+                    "successes": item.total_successes,
+                    "failures": item.total_failures,
+                    "risk_failures": item.risk_failures,
+                    "success_rate": (
+                        round((item.total_successes / attempts) * 100, 1)
+                        if attempts
+                        else None
+                    ),
+                    "cooldown_until": item.cooldown_until,
+                    "last_error_code": item.last_error_code,
+                }
+            )
+        return {
+            "total": len(identities),
+            "enabled": sum(bool(item.enabled) for item in identities),
+            "routable": len(routable_ids),
+            "attention": sum(
+                bool(item.enabled) and item.identity_id not in routable_ids
+                for item in identities
+            ),
+            "cookie_configured": sum(
+                bool(item.cookie_configured) for item in identities
+            ),
+            "anonymous": sum(
+                item.auth_mode == CollectorAuthMode.ANONYMOUS for item in identities
+            ),
+            "proxy_configured": sum(
+                bool(item.proxy_configured) for item in identities
+            ),
+            "cookie_and_proxy": sum(
+                bool(item.cookie_configured and item.proxy_configured)
+                for item in identities
+            ),
+            "route_and_proxy": sum(
+                bool(item.route_configured and item.proxy_configured)
+                for item in identities
+            ),
+            "active_leases": sum(
+                max(0, int(item.active_leases or 0)) for item in identities
+            ),
+            "risk_failures": sum(
+                max(0, int(item.risk_failures or 0)) for item in identities
+            ),
+            "cooldown": sum(
+                item.status == IdentityStatus.COOLDOWN for item in identities
+            ),
+            "identities": identity_rows,
+            "platforms": {
+                platform.value: sum(item.platform == platform for item in identities)
+                for platform in CollectorPlatform
+            },
         }
 
     @staticmethod
@@ -1309,6 +1846,294 @@ class APIServer(TikTok):
                 self.logger.warning(
                     _("Bark 通知发送失败：{error}").format(error=error),
                 )
+
+    @classmethod
+    def _build_ui_task_completion_notification(
+        cls,
+        task: dict,
+    ) -> tuple[str, str]:
+        task_status = cls._normalize_string(task.get("status")).lower()
+        result = task.get("result") if isinstance(task.get("result"), dict) else {}
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+
+        def _count(key: str) -> int | None:
+            value = data.get(key)
+            if isinstance(value, bool):
+                return None
+            try:
+                return int(value) if value is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        queued = _count("queued")
+        success = _count("success")
+        failed = _count("failed")
+        skipped = _count("skipped")
+        if task_status == "canceled":
+            outcome = "已取消"
+        elif task_status == "failed" or (
+            isinstance(failed, int)
+            and failed > 0
+            and (success is None or success <= 0)
+        ):
+            outcome = "失败"
+        elif isinstance(failed, int) and failed > 0:
+            outcome = "部分失败"
+        else:
+            outcome = "完成"
+
+        schedule_name = (
+            cls._normalize_string(task.get("schedule_name"))
+            or cls._normalize_string(task.get("task_id"))
+            or "账号批量任务"
+        )
+        platform = cls._normalize_string(task.get("schedule_platform"))
+        platform_label = {"douyin": "抖音", "tiktok": "TikTok"}.get(
+            platform.lower(),
+            platform or "-",
+        )
+        task_id = cls._normalize_string(task.get("task_id")) or "-"
+        parts = [platform_label, f"任务 {task_id}"]
+        if queued is not None:
+            parts.append(f"共 {queued}")
+        if success is not None:
+            parts.append(f"成功 {success}")
+        if failed is not None:
+            parts.append(f"失败 {failed}")
+        if skipped is not None and skipped > 0:
+            parts.append(f"跳过 {skipped}")
+
+        failures = data.get("failures") if isinstance(data.get("failures"), list) else []
+        if failures and isinstance(failures[0], dict):
+            reason = cls._normalize_string(failures[0].get("reason"))
+            if reason:
+                parts.append(reason[:120])
+        elif task_status in {"failed", "canceled"}:
+            message = cls._normalize_string(task.get("message"))
+            if message:
+                parts.append(message[:120])
+        return f"下载{outcome}: {schedule_name}", " · ".join(parts)
+
+    async def _notify_ui_task_completion(self, task: dict) -> None:
+        bark_url = self._normalize_string(task.get("schedule_bark_url"))
+        if not bark_url:
+            return
+        title, body = self._build_ui_task_completion_notification(task)
+        sent, error = await self._send_bark_notification(
+            bark_url=bark_url,
+            title=title,
+            body=body,
+            proxy=self._normalize_string(task.get("payload", {}).get("proxy")),
+        )
+        task["schedule_notification"] = {
+            "channel": "bark",
+            "status": "sent" if sent else "failed",
+            "at": self._now_text(),
+        }
+        self._persist_ui_task(task)
+        if not sent and error:
+            self.logger.warning(
+                _("Bark 任务结果通知发送失败：{error}").format(error=error),
+            )
+
+    @staticmethod
+    def _account_request_failure_reason(error: Exception | None) -> str:
+        response = getattr(error, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if status_code is None:
+            status_code = getattr(error, "status_code", None)
+        try:
+            status_code = int(status_code) if status_code is not None else None
+        except (TypeError, ValueError):
+            status_code = None
+        if status_code == 403:
+            return _("HTTP 403 Forbidden（Cookie 或采集身份可能已失效）")
+        if status_code is not None:
+            return _("采集请求失败（HTTP {status}）").format(status=status_code)
+        return _("账号作品下载失败")
+
+    @classmethod
+    def _account_exception_outcome(cls, error: Exception | None) -> dict:
+        reason = cls._account_request_failure_reason(error)
+        category = cls._account_failure_category(reason)
+        error_type = type(error).__name__.lower() if error is not None else ""
+        if "timeout" in error_type:
+            code = "request_timeout"
+            category = "network"
+            reason = _("账号采集请求超时")
+        elif category == "identity":
+            code = "identity_forbidden"
+        elif category == "network":
+            code = "network_error"
+        else:
+            code = "runtime_error"
+            reason = _("账号处理过程中发生未分类异常")
+        return {
+            "ok": False,
+            "context": {},
+            "outcome_code": code,
+            "reason": reason,
+            "failure_category": category,
+            "terminal_status": "failed",
+            "retryable": True,
+            "cross_identity": category in {"identity", "network"},
+            "affects_identity_health": category in {"identity", "network"},
+        }
+
+    @classmethod
+    def _normalize_account_worker_outcome(cls, value: Any) -> dict:
+        if isinstance(value, dict) and value.get("outcome_code"):
+            result = dict(value)
+            result["context"] = (
+                result.get("context")
+                if isinstance(result.get("context"), dict)
+                else {}
+            )
+            result["ok"] = bool(result.get("ok"))
+            result["terminal_status"] = str(
+                result.get("terminal_status")
+                or ("success" if result["ok"] else "failed")
+            )
+            result["failure_category"] = str(
+                result.get("failure_category")
+                or cls._account_failure_category(
+                    result.get("reason"),
+                    result.get("outcome_code"),
+                )
+            )
+            return result
+        if value:
+            context = value if isinstance(value, dict) else {}
+            return {
+                "ok": True,
+                "context": context,
+                "outcome_code": "success",
+                "reason": "",
+                "failure_category": "",
+                "terminal_status": "success",
+                "retryable": False,
+                "cross_identity": False,
+                "affects_identity_health": False,
+            }
+        # Compatibility for third-party/older workers that still return None.
+        # The native worker now returns a structured reason instead.
+        return {
+            "ok": False,
+            "context": {},
+            "outcome_code": "legacy_empty_result",
+            "reason": _("账号处理未返回结果，旧版采集器未提供具体原因"),
+            "failure_category": "other",
+            "terminal_status": "failed",
+            "retryable": True,
+            "cross_identity": True,
+            "affects_identity_health": True,
+        }
+
+    @staticmethod
+    def _account_failure_category(reason: Any, outcome_code: Any = "") -> str:
+        code = str(outcome_code or "").strip().lower()
+        if code in {
+            "identity_forbidden",
+            "rate_limited",
+            "risk_control",
+        }:
+            return "identity"
+        if code in {
+            "private_followed_empty",
+            "private_not_visible",
+            "works_not_visible",
+        }:
+            return "visibility"
+        if code in {
+            "account_deleted",
+            "profile_unavailable",
+            "account_unavailable",
+        }:
+            return "account_unavailable"
+        if code in {
+            "request_timeout",
+            "network_error",
+            "upstream_unavailable",
+        }:
+            return "network"
+        if code == "download_failed":
+            return "download"
+        if code in {"invalid_account_url", "parse_failed"}:
+            return "parse"
+        text = str(reason or "").strip().lower()
+        if any(
+            hint in text
+            for hint in (
+                "403",
+                "forbidden",
+                "cookie",
+                "身份",
+                "登录",
+                "验证",
+                "captcha",
+                "risk",
+            )
+        ):
+            return "identity"
+        if any(
+            hint in text
+            for hint in (
+                "已注销",
+                "不存在",
+                "私密",
+                "account not found",
+                "user not found",
+                "deleted",
+            )
+        ):
+            return "account_unavailable"
+        if any(
+            hint in text
+            for hint in (
+                "timeout",
+                "timed out",
+                "proxy",
+                "network",
+                "connect",
+                "http 5",
+                "网络",
+                "连接",
+                "超时",
+            )
+        ):
+            return "network"
+        if any(hint in text for hint in ("下载", "保存", "write", "ffmpeg")):
+            return "download"
+        if any(hint in text for hint in ("解析", "提取", "parse", "decode")):
+            return "parse"
+        return "other"
+
+    @classmethod
+    def _task_account_with_category(cls, account: dict) -> dict:
+        result = dict(account)
+        outcome = account.get("result")
+        outcome = outcome if isinstance(outcome, dict) else {}
+        for key in (
+            "outcome_code",
+            "retryable",
+            "attempted_identities",
+            "recovered_by_identity",
+            "failure_category",
+            "context",
+        ):
+            if key in outcome:
+                result[key] = outcome[key]
+        category = str(result.get("failure_category") or "").strip().lower()
+        if category not in cls.ACCOUNT_FAILURE_CATEGORIES:
+            category = cls._account_failure_category(
+                account.get("reason"),
+                result.get("outcome_code"),
+            )
+        result["outcome_category"] = category
+        result["failure_category"] = (
+            category if account.get("status") == "failed" else ""
+        )
+        return result
 
     @staticmethod
     def _normalize_optional_int(value: Any) -> int | None:
@@ -1579,6 +2404,165 @@ class APIServer(TikTok):
         self._set_account_rows(True, deleted_tiktok, deleted=True)
         self.parameter.settings.update(self.parameter.get_settings_data())
         return {
+            "accounts_urls": self._account_rows(False),
+            "accounts_urls_tiktok": self._account_rows(True),
+            "deleted_accounts": self._account_rows(False, deleted=True),
+            "deleted_accounts_tiktok": self._account_rows(True, deleted=True),
+        }
+
+    def _archive_account_configuration(
+        self,
+        *,
+        platform: str,
+        url: str,
+        reason: str = "",
+    ) -> dict:
+        result = self._archive_account_configurations(
+            platform=platform,
+            urls=[url],
+            reason=reason,
+        )
+        archived_accounts = result.pop("archived_accounts", [])
+        normalized_url = result.get("urls", [self._normalize_account_url(url)])[0]
+        return {
+            **result,
+            "message": (
+                _("账号已移入删除区。")
+                if result["archived_count"]
+                else _("账号已不在采集名单中。")
+            ),
+            "archived": bool(result["archived_count"]),
+            "assignment_removed": bool(result["assignment_removed"]),
+            "url": normalized_url,
+            "archived_account": archived_accounts[0] if archived_accounts else None,
+        }
+
+    def _archive_account_configurations(
+        self,
+        *,
+        platform: str,
+        urls: list,
+        reason: str = "",
+    ) -> dict:
+        normalized_platform = self._normalize_string(platform).lower()
+        if normalized_platform not in {"douyin", "tiktok"}:
+            raise ValueError("platform must be douyin or tiktok.")
+        if not isinstance(urls, list) or not urls:
+            raise ValueError("urls must be a non-empty list.")
+        if len(urls) > 500:
+            raise ValueError("urls cannot contain more than 500 items.")
+        normalized_urls = []
+        seen_urls = set()
+        for raw_url in urls:
+            if not isinstance(raw_url, str):
+                raise ValueError("each url must be a string.")
+            normalized_url = self._normalize_account_url(raw_url)
+            if not normalized_url:
+                raise ValueError("each url is required.")
+            if normalized_url not in seen_urls:
+                normalized_urls.append(normalized_url)
+                seen_urls.add(normalized_url)
+
+        tiktok = normalized_platform == "tiktok"
+        active_rows = [dict(item) for item in self._account_rows(tiktok)]
+        removed_rows = [
+            item
+            for item in active_rows
+            if self._normalize_account_url(item.get("url", "")) in seen_urls
+        ]
+        if not removed_rows:
+            return {
+                "message": _("所选账号已不在采集名单中。"),
+                "archived_count": 0,
+                "removed_count": 0,
+                "assignment_removed": 0,
+                "backup_path": "",
+                "platform": normalized_platform,
+                "urls": normalized_urls,
+                "archived_accounts": [],
+                "accounts_urls": self._account_rows(False),
+                "accounts_urls_tiktok": self._account_rows(True),
+                "deleted_accounts": self._account_rows(False, deleted=True),
+                "deleted_accounts_tiktok": self._account_rows(True, deleted=True),
+            }
+
+        backup_path = self._backup_settings_file(
+            reason=f"task_account_archive_batch_{normalized_platform}",
+        )
+        remaining_rows = [
+            item
+            for item in active_rows
+            if self._normalize_account_url(item.get("url", "")) not in seen_urls
+        ]
+        archive_reason = (
+            self._normalize_string(reason)[:300]
+            or _("从任务失败记录手动移出采集名单")
+        )
+        removed_by_url = {}
+        for row in removed_rows:
+            normalized_url = self._normalize_account_url(row.get("url", ""))
+            removed_by_url.setdefault(normalized_url, row)
+        deleted_at = self._now_text()
+        archived_rows = [
+            {
+                **removed_by_url[normalized_url],
+                "url": self._normalize_string(
+                    removed_by_url[normalized_url].get("url")
+                )
+                or normalized_url,
+                "enable": False,
+                "deleted_at": deleted_at,
+                "reason": archive_reason,
+            }
+            for normalized_url in normalized_urls
+            if normalized_url in removed_by_url
+        ]
+        archived_url_set = set(removed_by_url)
+        deleted_rows = [
+            dict(item)
+            for item in self._account_rows(tiktok, deleted=True)
+            if self._normalize_account_url(item.get("url", ""))
+            not in archived_url_set
+        ]
+        self._set_account_rows(tiktok, remaining_rows)
+        self._set_account_rows(tiktok, [*archived_rows, *deleted_rows], deleted=True)
+        self.parameter.settings.update(self.parameter.get_settings_data())
+
+        assignment_removed = 0
+        for normalized_url in removed_by_url:
+            try:
+                assignment_removed += int(
+                    bool(
+                        self.collector_store.delete_assignment(
+                            self._collector_platform(normalized_platform),
+                            "account",
+                            normalized_url,
+                        )
+                    )
+                )
+            except Exception as error:
+                self.logger.warning(
+                    _("清理已归档账号的身份绑定失败: {error}").format(error=error)
+                )
+        self.logger.info(
+            _(
+                "已从采集名单批量移出 {accounts} 个账号"
+                "（{platform}，匹配 {rows} 条配置）"
+            ).format(
+                accounts=len(archived_rows),
+                platform=normalized_platform,
+                rows=len(removed_rows),
+            )
+        )
+        return {
+            "message": _("所选账号已移入删除区。"),
+            "archived_count": len(archived_rows),
+            "removed_count": len(removed_rows),
+            "assignment_removed": assignment_removed,
+            "backup_path": backup_path,
+            "platform": normalized_platform,
+            "urls": normalized_urls,
+            "archived_accounts": archived_rows,
             "accounts_urls": self._account_rows(False),
             "accounts_urls_tiktok": self._account_rows(True),
             "deleted_accounts": self._account_rows(False, deleted=True),
@@ -2086,6 +3070,119 @@ class APIServer(TikTok):
             "pinned": False,
         }
 
+    def _build_account_board_gallery(
+        self,
+        platform: str,
+        url: str,
+        page: int,
+        page_size: int,
+        media_kind: str = "all",
+    ) -> dict[str, Any]:
+        normalized_platform = self._normalize_board_platform(platform)
+        account_url = self._normalize_string(url)
+        row = self._find_active_account_row(normalized_platform, account_url)
+        if not row:
+            raise LookupError("account_not_found")
+
+        root = self._scope_root("download").expanduser().resolve()
+        candidates = self._account_board_dirs(root)
+        mark_index = self._account_board_dir_mark_index(candidates)
+        mark_candidates = self._account_board_mark_candidates(
+            row.get("mark", ""),
+            mark_index,
+        )
+        if len(mark_candidates) == 1:
+            folder = mark_candidates[0]
+        else:
+            match_candidates = mark_candidates or candidates
+            folder = self._match_account_board_dir(
+                mark=row.get("mark", ""),
+                url=account_url,
+                candidates=match_candidates,
+                candidate_index=self._account_board_dir_match_index(match_candidates),
+            )
+
+        normalized_kind = self._normalize_string(media_kind).lower()
+        if normalized_kind not in {"all", "image", "video"}:
+            normalized_kind = "all"
+        try:
+            normalized_size = int(page_size)
+        except (TypeError, ValueError):
+            normalized_size = 24
+        normalized_size = max(12, min(normalized_size, 72))
+
+        gallery_limit = 10_000
+        image_total = 0
+        video_total = 0
+        truncated = False
+        all_entries = []
+        if folder and folder.exists() and folder.is_dir():
+            try:
+                for target in folder.rglob("*"):
+                    if not target.is_file():
+                        continue
+                    suffix = target.suffix.lower()
+                    if suffix not in IMAGE_SUFFIXES and suffix not in VIDEO_SUFFIXES:
+                        continue
+                    try:
+                        media_path = relative_path(root, target)
+                        resolved = resolve_within_root(root, media_path)
+                        if self._is_protected_file_scope_path(
+                            "download",
+                            root,
+                            resolved,
+                        ):
+                            continue
+                        all_entries.append(serialize_entry(root, resolved))
+                    except (OSError, ValueError):
+                        continue
+                    if suffix in IMAGE_SUFFIXES:
+                        image_total += 1
+                    else:
+                        video_total += 1
+                    if len(all_entries) >= gallery_limit:
+                        truncated = True
+                        break
+            except OSError:
+                all_entries = []
+                image_total = 0
+                video_total = 0
+        all_entries.sort(
+            key=lambda item: (
+                self._normalize_string(item.get("modified_at")),
+                self._normalize_string(item.get("name")).casefold(),
+            ),
+            reverse=True,
+        )
+        entries = [
+            item
+            for item in all_entries
+            if normalized_kind == "all" or item.get("kind") == normalized_kind
+        ]
+
+        total = len(entries)
+        pages = max(1, (total + normalized_size - 1) // normalized_size)
+        current = min(self._normalize_board_page(page), pages)
+        offset = (current - 1) * normalized_size
+        return {
+            "platform": normalized_platform,
+            "url": account_url,
+            "mark": self._normalize_string(row.get("mark")),
+            "folder_found": bool(folder),
+            "folder_path": relative_path(root, folder) if folder else "",
+            "folder_updated_at": self._account_board_folder_updated_at(folder),
+            "kind": normalized_kind,
+            "page": current,
+            "page_size": normalized_size,
+            "pages": pages,
+            "total": total,
+            "image_total": image_total,
+            "video_total": video_total,
+            "truncated": truncated,
+            "index_limit": gallery_limit,
+            "items": entries[offset:offset + normalized_size],
+        }
+
     def _active_account_rows(self, platform: str) -> list[dict]:
         tiktok = self._normalize_board_platform(platform) == "tiktok"
         rows = self._normalize_account_items(self._account_rows(tiktok))
@@ -2362,6 +3459,167 @@ class APIServer(TikTok):
         backup_dir = self.parameter.settings.path.parent.joinpath("backups")
         backup_dir.mkdir(exist_ok=True)
         return backup_dir
+
+    def _ensure_maintenance_state(self) -> None:
+        if not hasattr(self, "_maintenance_lock"):
+            self._maintenance_lock = Lock()
+        if not hasattr(self, "_storage_alert_pending_level"):
+            self._storage_alert_pending_level = 0
+        if hasattr(self, "_storage_alert_state_loaded"):
+            return
+        self._storage_alert_state_loaded = True
+        self._storage_alert_last_level = 0
+        try:
+            payload = loads(
+                self.parameter.settings.path.parent.joinpath(
+                    ".storage_alert_state.json"
+                ).read_text(encoding="utf-8")
+            )
+            self._storage_alert_last_level = max(
+                0,
+                int(payload.get("level") or 0),
+            )
+        except (OSError, TypeError, ValueError, JSONDecodeError):
+            pass
+
+    def _save_storage_alert_state(self, level: int) -> None:
+        path = self.parameter.settings.path.parent.joinpath(
+            ".storage_alert_state.json"
+        )
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            dumps(
+                {
+                    "level": max(0, int(level or 0)),
+                    "updated_at": self._now_text(),
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+
+    def _configured_bark_targets(self) -> list[str]:
+        return sorted(
+            {
+                target
+                for item in getattr(self, "ui_schedules", {}).values()
+                if (target := self._normalize_string(item.get("bark_url")))
+            }
+        )
+
+    async def _flush_storage_alert(self, media: dict) -> None:
+        self._ensure_maintenance_state()
+        level = int(getattr(self, "_storage_alert_pending_level", 0) or 0)
+        if not level:
+            return
+        targets = self._configured_bark_targets()
+        if not targets:
+            return
+        storage = media.get("storage") if isinstance(media, dict) else {}
+        percent = float(storage.get("used_percent") or 0)
+        free = int(storage.get("free") or 0)
+        sent = False
+        for bark_url in targets:
+            ok, error = await self._send_bark_notification(
+                bark_url,
+                f"FetchShelf 存储告警：已使用 {percent:.1f}%",
+                f"已触发 {level}% 阈值 · 剩余 {self._human_size(free)}",
+            )
+            sent = sent or ok
+            if error:
+                self.logger.warning(
+                    _("Bark 存储告警发送失败：{error}").format(error=error)
+                )
+        if sent:
+            self._storage_alert_last_level = level
+            self._storage_alert_pending_level = 0
+            self._save_storage_alert_state(level)
+
+    @staticmethod
+    def _backup_sqlite_database(source: Path, destination: Path) -> None:
+        source_connection = sqlite_connect(source)
+        destination_connection = sqlite_connect(destination)
+        try:
+            source_connection.backup(destination_connection)
+        finally:
+            destination_connection.close()
+            source_connection.close()
+
+    def _configuration_snapshot_files(self) -> list[tuple[Path, str]]:
+        return [
+            (self.parameter.settings.path, "settings.json"),
+            (self.collector_store.path, "collector_pool.sqlite3"),
+            (self.task_journal.path, "ui_task_runtime.sqlite3"),
+        ]
+
+    def _create_configuration_snapshot(self, reason: str = "manual") -> dict:
+        self._ensure_maintenance_state()
+        with self._maintenance_lock:
+            backup_dir = self._settings_backup_dir()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_reason = sub(
+                r"[^a-zA-Z0-9_-]+",
+                "-",
+                self._normalize_string(reason) or "manual",
+            ).strip("-")[:32] or "manual"
+            destination = backup_dir.joinpath(
+                f"fetchshelf_snapshot_{timestamp}_{safe_reason}.zip"
+            )
+            with TemporaryDirectory(dir=backup_dir) as temporary_dir:
+                temporary_root = Path(temporary_dir)
+                prepared: list[tuple[Path, str]] = []
+                for source, archive_name in self._configuration_snapshot_files():
+                    if not source.exists():
+                        continue
+                    staged = temporary_root.joinpath(archive_name)
+                    if source.suffix.lower() in {".sqlite", ".sqlite3", ".db"}:
+                        self._backup_sqlite_database(source, staged)
+                    else:
+                        copy2(source, staged)
+                    prepared.append((staged, archive_name))
+                with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:
+                    for source, archive_name in prepared:
+                        archive.write(source, arcname=archive_name)
+            snapshots = sorted(
+                backup_dir.glob("fetchshelf_snapshot_*.zip"),
+                key=lambda item: item.stat().st_mtime,
+                reverse=True,
+            )
+            for expired in snapshots[self.CONFIGURATION_SNAPSHOT_RETENTION :]:
+                expired.unlink(missing_ok=True)
+            return {
+                "name": destination.name,
+                "created_at": datetime.fromtimestamp(destination.stat().st_mtime)
+                .astimezone()
+                .isoformat(timespec="seconds"),
+                "size": destination.stat().st_size,
+                "reason": safe_reason,
+            }
+
+    def _latest_configuration_snapshot(self) -> dict | None:
+        snapshots = sorted(
+            self._settings_backup_dir().glob("fetchshelf_snapshot_*.zip"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        if not snapshots:
+            return None
+        latest = snapshots[0]
+        return {
+            "name": latest.name,
+            "created_at": datetime.fromtimestamp(latest.stat().st_mtime)
+            .astimezone()
+            .isoformat(timespec="seconds"),
+            "size": latest.stat().st_size,
+        }
+
+    def _maybe_create_daily_configuration_snapshot(self) -> dict:
+        today = datetime.now().strftime("%Y%m%d")
+        latest = self._latest_configuration_snapshot()
+        if latest and f"snapshot_{today}_" in latest["name"]:
+            return latest
+        return self._create_configuration_snapshot(reason="daily")
 
     def _backup_settings_file(self, reason: str = "manual") -> str:
         source = self.parameter.settings.path
@@ -2687,7 +3945,7 @@ class APIServer(TikTok):
             "identity_failure_threshold": identity_failure_threshold,
             "notify_on_identity_failure": self._normalize_bool(
                 payload.get("notify_on_identity_failure"),
-                default=False,
+                default=True,
             ),
             "created_at": self._normalize_string(payload.get("created_at")) or now,
             "updated_at": now,
@@ -2759,7 +4017,7 @@ class APIServer(TikTok):
             ),
             "notify_on_identity_failure": self._normalize_bool(
                 schedule.get("notify_on_identity_failure"),
-                default=False,
+                default=True,
             ),
         }
         return endpoint, payload
@@ -2807,6 +4065,7 @@ class APIServer(TikTok):
         )
         aweme_items: list[dict] = []
         seen_aweme_ids = set()
+        direct_request_failed = False
 
         for page_index in range(max_pages):
             collector = CollectsDetail(
@@ -2819,6 +4078,9 @@ class APIServer(TikTok):
                 count=page_count,
             )
             page_items = await collector.run(single_page=True)
+            if collector.last_request_error is not None:
+                direct_request_failed = True
+                break
             if not isinstance(page_items, list):
                 page_items = []
 
@@ -2843,6 +4105,24 @@ class APIServer(TikTok):
             ):
                 break
             cursor = next_cursor
+
+        if direct_request_failed:
+            self.logger.warning(
+                _(
+                    "抖音收藏夹直连接口不可用，正在切换到浏览器签名请求"
+                )
+            )
+            try:
+                return await fetch_douyin_collection_via_browser(
+                    collect_id=collect_id,
+                    cookie=cookie,
+                    proxy=proxy,
+                    limit=target,
+                )
+            except Exception as error:
+                raise RuntimeError(
+                    "Douyin collection request failed via direct and browser paths."
+                ) from error
 
         return aweme_items[:target]
 
@@ -3327,7 +4607,8 @@ class APIServer(TikTok):
         public = {
             item.identity_id: item
             for item in self.collector_store.list_public(platform)
-            if item.cookie_configured
+            if item.route_configured
+            and not self._collector_identity_login_locked(item.identity_id)
         }
         candidates = [
             item
@@ -3336,7 +4617,7 @@ class APIServer(TikTok):
         ]
         if forced_identity_id and forced_identity_id not in public:
             raise RouteUnavailable(
-                "selected collector identity is unavailable or has no credentials",
+                "selected collector identity is unavailable or has no credentials/session",
                 identity_id=forced_identity_id,
             )
         if not candidates:
@@ -3510,6 +4791,7 @@ class APIServer(TikTok):
         active_leases: int,
         successes: int = 0,
         failures: int = 0,
+        risk_failures: int = 0,
         error_code: str = "",
     ) -> None:
         state = self.collector_store.get_runtime(identity_id)
@@ -3529,6 +4811,10 @@ class APIServer(TikTok):
                 state.last_error_code = ""
         if failures:
             state.total_failures += failures
+            state.risk_failures += max(
+                max(0, int(risk_failures or 0)),
+                failures if self._is_collector_risk_error_code(error_code) else 0,
+            )
             state.last_failure_at = now
             state.last_error_code = error_code or "collector_request_failed"
             # A partial success proves the identity can still reach the target
@@ -3548,6 +4834,22 @@ class APIServer(TikTok):
                         + timedelta(seconds=policy.cooldown_seconds)
                     ).isoformat(timespec="seconds")
         self.collector_store.save_runtime(state)
+
+    @staticmethod
+    def _is_collector_risk_error_code(error_code: str) -> bool:
+        normalized = str(error_code or "").strip().lower()
+        return "403" in normalized or "forbidden" in normalized or "risk" in normalized
+
+    @staticmethod
+    def _collector_failure_error_code(error: Exception, fallback: str) -> str:
+        response = getattr(error, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if status_code is None:
+            status_code = getattr(error, "status_code", None)
+        message = str(error or "").lower()
+        if status_code == 403 or "403" in message or "forbidden" in message:
+            return "http_403_forbidden"
+        return fallback
 
     async def _execute_collector_identity_operation(
         self,
@@ -3570,8 +4872,16 @@ class APIServer(TikTok):
             raise IdentityPlatformError(
                 "selected collector identity belongs to another platform"
             )
+        if self._collector_identity_login_locked(identity_id):
+            raise RouteUnavailable(
+                "selected collector identity is busy in the login browser",
+                identity_id=identity_id,
+            )
         credentials = self.collector_store.load_credentials(identity_id)
-        if not credentials.cookie:
+        if (
+            not credentials.cookie
+            and identity.auth_mode != CollectorAuthMode.ANONYMOUS
+        ):
             raise RouteUnavailable(
                 "selected collector identity has no cookie",
                 identity_id=identity_id,
@@ -3588,6 +4898,7 @@ class APIServer(TikTok):
 
         successes = 0
         failures = 0
+        risk_failures = 0
         error_code = ""
         result = None
         acquired_identity = False
@@ -3616,6 +4927,8 @@ class APIServer(TikTok):
                             credentials,
                             settings_dir=Path(settings_path).parent,
                         )
+                        if prepare_runtime := getattr(runtime, "prepare", None):
+                            await prepare_runtime()
                         worker = TikTok(
                             runtime.parameter,
                             self.database,
@@ -3623,19 +4936,36 @@ class APIServer(TikTok):
                         )
                         result, successes, failures = await operation(
                             worker,
-                            credentials,
+                            getattr(runtime, "credentials", credentials),
                             identity_id,
                         )
                         successes = max(0, int(successes or 0))
                         failures = max(0, int(failures or 0))
+                        if isinstance(result, list):
+                            risk_failures = sum(
+                                self._account_failure_category(
+                                    item.get("reason"),
+                                    item.get("outcome_code"),
+                                )
+                                == "identity"
+                                and (
+                                    "403" in str(item.get("reason") or "")
+                                    or "forbidden" in str(item.get("reason") or "").lower()
+                                )
+                                for item in result
+                                if isinstance(item, dict)
+                            )
                         if failures:
                             error_code = failure_error_code
                     except CancelledError:
                         error_code = "task_cancelled"
                         raise
-                    except Exception:
+                    except Exception as error:
                         failures = max(1, failures)
-                        error_code = failure_error_code
+                        error_code = self._collector_failure_error_code(
+                            error,
+                            failure_error_code,
+                        )
                         raise
                     finally:
                         if runtime is not None:
@@ -3652,6 +4982,7 @@ class APIServer(TikTok):
                     active_leases=snapshot.active,
                     successes=successes,
                     failures=failures,
+                    risk_failures=risk_failures,
                     error_code=error_code,
                 )
         return result
@@ -3697,7 +5028,7 @@ class APIServer(TikTok):
                 forced_identity_id=forced_identity_id,
             )
             pool_has_cookie = any(
-                item.cookie_configured
+                item.route_configured
                 for item in self.collector_store.list_public(platform)
             )
             if routes:
@@ -3805,9 +5136,11 @@ class APIServer(TikTok):
             progress_failed = sum(
                 1 for account in journal_accounts if account["status"] == "failed"
             )
-            progress_current = progress_success + progress_failed + sum(
+            journal_skipped = sum(
                 1 for account in journal_accounts if account["status"] == "skipped"
             )
+            progress_skipped = skipped_items + journal_skipped
+            progress_current = progress_success + progress_failed + journal_skipped
             total_queued_items = len(journal_accounts)
             failures = [
                 {
@@ -3815,6 +5148,9 @@ class APIServer(TikTok):
                     "url": account["item"].get("url", ""),
                     "identity_id": account["identity_id"],
                     "reason": account["reason"] or _("账号作品下载失败"),
+                    "outcome_code": account.get("result", {}).get(
+                        "outcome_code", ""
+                    ),
                 }
                 for account in journal_accounts
                 if account["status"] == "failed"
@@ -3825,6 +5161,7 @@ class APIServer(TikTok):
             progress_current = 0
             progress_success = 0
             progress_failed = 0
+            progress_skipped = skipped_items
             total_queued_items = len(queued_items)
             failures = []
         unit_finished = (
@@ -3861,7 +5198,7 @@ class APIServer(TikTok):
                     "total": total,
                     "success": progress_success,
                     "failed": progress_failed,
-                    "skipped": skipped_items,
+                    "skipped": progress_skipped,
                     "percent": (
                         round(progress_current * 100 / total)
                         if total
@@ -3872,26 +5209,43 @@ class APIServer(TikTok):
             )
 
         def complete_progress_item(
-            ok: bool,
+            status: str,
             item: dict,
             *,
             identity_id: str = "",
             reason: str = "",
+            result: dict | None = None,
+            advance: bool = True,
+            previous_status: str = "",
         ) -> None:
-            nonlocal progress_current, progress_success, progress_failed
+            nonlocal progress_current, progress_success, progress_failed, progress_skipped
+            normalized_status = (
+                status if status in {"success", "failed", "skipped"} else "failed"
+            )
             if journal is not None:
                 journal.mark_account_finished(
                     task_id,
                     int(item.get("_task_position") or 0),
-                    status="success" if ok else "failed",
+                    status=normalized_status,
                     identity_id=identity_id,
                     reason=reason,
+                    result=result,
                 )
-            progress_current += 1
-            if ok:
-                progress_success += 1
-            else:
-                progress_failed += 1
+            def update_count(target: str, delta: int) -> None:
+                nonlocal progress_success, progress_failed, progress_skipped
+                if target == "success":
+                    progress_success += delta
+                elif target == "failed":
+                    progress_failed += delta
+                elif target == "skipped":
+                    progress_skipped += delta
+
+            if advance:
+                progress_current += 1
+                update_count(normalized_status, 1)
+            elif previous_status and previous_status != normalized_status:
+                update_count(previous_status, -1)
+                update_count(normalized_status, 1)
             report_progress(_("正在执行账号批次"))
 
         def save_account_activity(
@@ -3928,8 +5282,16 @@ class APIServer(TikTok):
                     latest_saved_work_id=self._normalize_string(
                         context.get("latest_saved_work_id")
                     ),
-                    status="success" if execution.get("ok") else "failed",
-                    error=self._normalize_string(execution.get("reason")),
+                    status=(
+                        "success"
+                        if execution.get("terminal_status") in {"success", "skipped"}
+                        else "failed"
+                    ),
+                    error=(
+                        ""
+                        if execution.get("terminal_status") in {"success", "skipped"}
+                        else self._normalize_string(execution.get("reason"))
+                    ),
                     item_count=max(0, int(context.get("item_count") or 0)),
                 )
             except (OSError, TypeError, ValueError) as error:
@@ -3977,20 +5339,33 @@ class APIServer(TikTok):
             == "pause"
             or self._normalize_bool(
                 payload.get("notify_on_identity_failure"),
-                default=False,
+                default=True,
             )
         )
         routes = []
         if queued_items and not legacy_override:
             while True:
                 try:
-                    routes = self._plan_collector_account_routes(
-                        platform_value,
-                        queued_items,
-                        forced_identity_id=forced_identity_id,
-                    )
+                    try:
+                        routes = self._plan_collector_account_routes(
+                            platform_value,
+                            queued_items,
+                            forced_identity_id=forced_identity_id,
+                            persist_assignments=False,
+                        )
+                    except TypeError as error:
+                        if "persist_assignments" not in str(error):
+                            raise
+                        # Preserve compatibility with integrations overriding
+                        # the account planner before the success-only affinity
+                        # option was introduced.
+                        routes = self._plan_collector_account_routes(
+                            platform_value,
+                            queued_items,
+                            forced_identity_id=forced_identity_id,
+                        )
                     pool_has_credentials = any(
-                        item.cookie_configured
+                        item.route_configured
                         for item in self.collector_store.list_public(platform_value)
                     )
                     if not routes and (forced_identity_id or pool_has_credentials):
@@ -4020,6 +5395,7 @@ class APIServer(TikTok):
             identity_id: str = "",
             identity_cookie: str | None = None,
             identity_proxy: str | None = None,
+            track_progress: bool = True,
         ) -> list[dict]:
             results = []
             identity_failure_streak = 0
@@ -4047,10 +5423,17 @@ class APIServer(TikTok):
                             "identity_id": identity_id,
                             "route_reason": route_reason,
                             "target_key": target_key,
-                            "reason": _("提取 sec_user_id 失败"),
+                            "context": {},
+                            "outcome_code": "invalid_account_url",
+                            "reason": _("账号链接无法提取 sec_user_id"),
+                            "failure_category": "parse",
+                            "terminal_status": "failed",
+                            "retryable": False,
+                            "cross_identity": False,
+                            "affects_identity_health": False,
                         }
                     else:
-                        context = await worker.deal_account_detail(
+                        raw_outcome = await worker.deal_account_detail(
                             index,
                             sec_user_id=sec_user_id,
                             mark=item["mark"],
@@ -4065,47 +5448,58 @@ class APIServer(TikTok):
                             proxy=identity_proxy,
                             tiktok=tiktok,
                             return_context=True,
+                            return_outcome=True,
                         )
-                        identity_request_failed = not bool(context)
+                        outcome = self._normalize_account_worker_outcome(raw_outcome)
+                        identity_request_failed = bool(
+                            outcome.get("affects_identity_health")
+                        )
                         execution = {
                             "index": index,
                             "item": item,
-                            "ok": bool(context),
-                            "context": context or {},
                             "identity_id": identity_id,
                             "route_reason": route_reason,
                             "target_key": target_key,
-                            "reason": (
-                                "" if context else _("账号作品下载失败")
-                            ),
+                            **outcome,
                         }
                 except CancelledError:
                     raise
-                except Exception:
-                    identity_request_failed = True
+                except Exception as error:
+                    outcome = self._account_exception_outcome(error)
+                    identity_request_failed = bool(
+                        outcome.get("affects_identity_health")
+                    )
                     execution = {
                         "index": index,
                         "item": item,
-                        "ok": False,
                         "identity_id": identity_id,
                         "route_reason": route_reason,
                         "target_key": target_key,
-                        "reason": _("采集请求失败"),
+                        **outcome,
                     }
                 finally:
                     mark_unit_finished()
                 results.append(execution)
-                save_account_activity(
-                    item,
-                    sec_uid=sec_user_id,
-                    execution=execution,
-                )
-                complete_progress_item(
-                    bool(execution.get("ok")),
-                    item,
-                    identity_id=identity_id,
-                    reason=execution.get("reason", ""),
-                )
+                execution["sec_uid"] = sec_user_id
+                execution["_progress_status"] = self._normalize_string(
+                    execution.get("terminal_status")
+                ) or ("success" if execution.get("ok") else "failed")
+                if track_progress:
+                    complete_progress_item(
+                        execution["_progress_status"],
+                        item,
+                        identity_id=identity_id,
+                        reason=self._normalize_string(execution.get("reason")),
+                        result={
+                            "outcome_code": self._normalize_string(
+                                execution.get("outcome_code")
+                            ),
+                            "failure_category": self._normalize_string(
+                                execution.get("failure_category")
+                            ),
+                            "retryable": bool(execution.get("retryable")),
+                        },
+                    )
                 if (
                     identity_id
                     and identity_failure_policy_enabled
@@ -4127,11 +5521,16 @@ class APIServer(TikTok):
                         identity_failure_streak = 0
                         if paused:
                             await wait_for_resume()
-                elif execution.get("ok"):
+                elif not identity_request_failed:
                     identity_failure_streak = 0
             return results
 
-        async def run_identity_group(identity_id: str, entries: list[tuple]) -> list[dict]:
+        async def run_identity_group(
+            identity_id: str,
+            entries: list[tuple],
+            *,
+            track_progress: bool = True,
+        ) -> list[dict]:
             async def operation(worker, credentials, selected_identity_id):
                 group_results = await run_entries(
                     worker,
@@ -4139,14 +5538,22 @@ class APIServer(TikTok):
                     identity_id=selected_identity_id,
                     identity_cookie=credentials.cookie or None,
                     identity_proxy=credentials.proxy or None,
+                    track_progress=track_progress,
                 )
                 group_success = sum(
-                    1 for result in group_results if result.get("ok")
+                    1
+                    for result in group_results
+                    if not result.get("affects_identity_health")
+                )
+                group_failures = sum(
+                    1
+                    for result in group_results
+                    if result.get("affects_identity_health")
                 )
                 return (
                     group_results,
                     group_success,
-                    len(group_results) - group_success,
+                    group_failures,
                 )
 
             while True:
@@ -4180,23 +5587,127 @@ class APIServer(TikTok):
                             "identity_id": identity_id,
                             "route_reason": reason,
                             "target_key": target_key,
+                            "context": {},
+                            "outcome_code": "identity_runtime_unavailable",
                             "reason": _("身份运行环境执行失败"),
+                            "failure_category": "identity",
+                            "terminal_status": "failed",
+                            "retryable": True,
+                            "cross_identity": True,
+                            "affects_identity_health": True,
+                            "sec_uid": "",
                         }
                         for index, item, reason, target_key in entries
                     ]
-                    for execution in failed_results:
-                        save_account_activity(
-                            execution["item"],
-                            sec_uid="",
-                            execution=execution,
-                        )
-                        complete_progress_item(
-                            False,
-                            execution["item"],
-                            identity_id=identity_id,
-                            reason=execution["reason"],
-                        )
+                    if track_progress:
+                        for execution in failed_results:
+                            execution["_progress_status"] = "failed"
+                            complete_progress_item(
+                                "failed",
+                                execution["item"],
+                                identity_id=identity_id,
+                                reason=execution["reason"],
+                                result={
+                                    "outcome_code": execution["outcome_code"],
+                                    "failure_category": execution[
+                                        "failure_category"
+                                    ],
+                                    "retryable": True,
+                                },
+                            )
                     return failed_results
+
+        def alternate_identity_ids(execution: dict) -> list[str]:
+            if forced_identity_id or legacy_override or not routes:
+                return []
+            target_key = self._normalize_string(execution.get("target_key"))
+            assignment = self.collector_store.get_assignment(
+                platform_value,
+                "account",
+                target_key,
+            )
+            if assignment and assignment.source == AssignmentSource.EXPLICIT:
+                return []
+            public = {
+                item.identity_id: item
+                for item in self.collector_store.list_public(platform_value)
+                if item.route_configured
+                and not self._collector_identity_login_locked(item.identity_id)
+            }
+            candidates = [
+                item
+                for item in self.collector_store.route_candidates(platform_value)
+                if item.identity_id in public
+                and candidate_available(item, platform=platform_value)
+            ]
+            policy = self.collector_store.get_policy(platform_value)
+            preferred = [
+                *policy.fallback_identity_ids,
+                policy.default_identity_id,
+            ]
+            ordered = []
+            for identity_id in [
+                *preferred,
+                *(
+                    item.identity_id
+                    for item in sorted(
+                        candidates,
+                        key=lambda item: (item.active_leases, item.identity_id),
+                    )
+                ),
+            ]:
+                if (
+                    identity_id
+                    and identity_id != execution.get("identity_id")
+                    and identity_id in public
+                    and identity_id not in ordered
+                ):
+                    ordered.append(identity_id)
+            return ordered
+
+        def persist_successful_identity(execution: dict) -> bool:
+            identity_id = self._normalize_string(execution.get("identity_id"))
+            target_key = self._normalize_string(execution.get("target_key"))
+            if not identity_id or not target_key or forced_identity_id:
+                return False
+            policy = self.collector_store.get_policy(platform_value)
+            if policy.strategy != RoutingStrategy.STICKY_BALANCED:
+                return False
+            assignment = self.collector_store.get_assignment(
+                platform_value,
+                "account",
+                target_key,
+            )
+            if assignment and assignment.source == AssignmentSource.EXPLICIT:
+                return False
+            self.collector_store.upsert_assignments(
+                [
+                    CollectorAssignment(
+                        platform=platform_value,
+                        target_type="account",
+                        target_key=target_key,
+                        identity_id=identity_id,
+                        source=AssignmentSource.POLICY,
+                    )
+                ]
+            )
+            return True
+
+        def outcome_priority(execution: dict) -> int:
+            if execution.get("ok"):
+                return 100
+            if execution.get("terminal_status") == "skipped":
+                return 90
+            category = execution.get("failure_category")
+            return {
+                "visibility": 70,
+                "account_unavailable": 60,
+                "identity": 50,
+                "network": 40,
+                "parse": 30,
+                "download": 30,
+                "other": 10,
+            }.get(category, 0)
 
         report_progress(_("准备账号批次"))
         if routes:
@@ -4243,6 +5754,118 @@ class APIServer(TikTok):
                 identity_proxy=proxy,
             )
 
+        resolved_results = []
+        for initial_execution in item_results:
+            initial_identity_id = self._normalize_string(
+                initial_execution.get("identity_id")
+            )
+            attempts = [
+                {
+                    "identity_id": initial_identity_id,
+                    "outcome_code": self._normalize_string(
+                        initial_execution.get("outcome_code")
+                    ),
+                    "reason": self._normalize_string(
+                        initial_execution.get("reason")
+                    ),
+                }
+            ]
+            selected = initial_execution
+            if (
+                not initial_execution.get("ok")
+                and initial_execution.get("cross_identity")
+            ):
+                candidates = alternate_identity_ids(initial_execution)
+                if candidates:
+                    report_progress(_("正在跨身份核验账号可见性"))
+                for candidate_id in candidates:
+                    retry_results = await run_identity_group(
+                        candidate_id,
+                        [
+                            (
+                                initial_execution["index"],
+                                initial_execution["item"],
+                                "visibility_probe",
+                                initial_execution["target_key"],
+                            )
+                        ],
+                        track_progress=False,
+                    )
+                    retry_execution = retry_results[0]
+                    attempts.append(
+                        {
+                            "identity_id": candidate_id,
+                            "outcome_code": self._normalize_string(
+                                retry_execution.get("outcome_code")
+                            ),
+                            "reason": self._normalize_string(
+                                retry_execution.get("reason")
+                            ),
+                        }
+                    )
+                    if outcome_priority(retry_execution) > outcome_priority(selected):
+                        selected = retry_execution
+                    if retry_execution.get("ok") or (
+                        retry_execution.get("terminal_status") == "skipped"
+                        and not retry_execution.get("retryable")
+                    ):
+                        selected = retry_execution
+                        break
+            selected["attempted_identities"] = attempts
+            selected["initial_identity_id"] = initial_identity_id
+            selected["_progress_status"] = initial_execution.get(
+                "_progress_status",
+                "success" if initial_execution.get("ok") else "failed",
+            )
+            selected["recovered_by_identity"] = (
+                self._normalize_string(selected.get("identity_id"))
+                if selected.get("ok")
+                and self._normalize_string(selected.get("identity_id"))
+                != initial_identity_id
+                else ""
+            )
+            if selected.get("ok"):
+                persist_successful_identity(selected)
+            resolved_results.append(selected)
+        item_results = sorted(resolved_results, key=lambda item: item["index"])
+
+        for execution in item_results:
+            result_metadata = {
+                "outcome_code": self._normalize_string(
+                    execution.get("outcome_code")
+                ),
+                "failure_category": self._normalize_string(
+                    execution.get("failure_category")
+                ),
+                "retryable": bool(execution.get("retryable")),
+                "attempted_identities": execution.get("attempted_identities", []),
+                "recovered_by_identity": self._normalize_string(
+                    execution.get("recovered_by_identity")
+                ),
+                "context": {
+                    key: execution.get("context", {}).get(key)
+                    for key in ("item_count", "download")
+                    if key in execution.get("context", {})
+                },
+            }
+            save_account_activity(
+                execution["item"],
+                sec_uid=self._normalize_string(execution.get("sec_uid")),
+                execution=execution,
+            )
+            complete_progress_item(
+                self._normalize_string(execution.get("terminal_status"))
+                or ("success" if execution.get("ok") else "failed"),
+                execution["item"],
+                identity_id=self._normalize_string(execution.get("identity_id")),
+                reason=self._normalize_string(execution.get("reason")),
+                result=result_metadata,
+                advance=False,
+                previous_status=self._normalize_string(
+                    execution.get("_progress_status")
+                ),
+            )
+
         failed_streak = 0
         failed_streak_max = 0
         route_results = []
@@ -4253,8 +5876,17 @@ class APIServer(TikTok):
                     "url": item["url"],
                     "identity_id": execution.get("identity_id", ""),
                     "selected_by": execution.get("route_reason", ""),
+                    "attempted_identities": execution.get(
+                        "attempted_identities", []
+                    ),
+                    "recovered_by_identity": execution.get(
+                        "recovered_by_identity", ""
+                    ),
                 }
             )
+            if execution.get("terminal_status") == "skipped":
+                failed_streak = 0
+                continue
             if not execution.get("ok"):
                 failed += 1
                 failed_streak += 1
@@ -4265,6 +5897,14 @@ class APIServer(TikTok):
                         "url": item["url"],
                         "identity_id": execution.get("identity_id", ""),
                         "reason": execution.get("reason") or _("账号作品下载失败"),
+                        "outcome_code": execution.get("outcome_code", ""),
+                        "failure_category": execution.get(
+                            "failure_category", "other"
+                        ),
+                        "retryable": bool(execution.get("retryable")),
+                        "attempted_identities": execution.get(
+                            "attempted_identities", []
+                        ),
                     }
                 )
                 continue
@@ -4295,8 +5935,10 @@ class APIServer(TikTok):
                                 date=earliest_target,
                             )
                         )
-        skipped = skipped_items
-        if success == 0:
+        skipped = progress_skipped
+        if failed == 0 and success == 0 and skipped > 0:
+            message = _("账号批量任务完成，没有需要下载的可见作品。")
+        elif success == 0:
             message = _("账号批量下载任务失败！")
         elif failed > 0:
             message = _("账号批量下载任务完成，部分账号未成功。")
@@ -4665,7 +6307,7 @@ class APIServer(TikTok):
                     forced_identity_id=forced_identity_id,
                 )
                 pool_has_cookie = any(
-                    item.cookie_configured
+                    item.route_configured
                     for item in self.collector_store.list_public(platform_value)
                 )
                 if not routes and (forced_identity_id or pool_has_cookie):
@@ -5153,6 +6795,7 @@ class APIServer(TikTok):
         try:
             await server.serve()
         finally:
+            await self._get_collector_login_browser().cleanup()
             await self._stop_ui_schedules()
             await self._stop_ui_task_workers()
             self.task_journal.close()
@@ -5312,6 +6955,66 @@ class APIServer(TikTok):
             return FileResponse(target, media_type=media_type)
 
         @self.server.get(
+            "/ui/api/overview",
+            summary="Web UI 运行概览",
+            description="聚合媒体库、账号批次和采集身份状态",
+            tags=[_("项目")],
+        )
+        async def webui_overview(
+            refresh_media: bool = Query(False),
+            token: str = Depends(token_dependency),
+        ):
+            media = self._overview_media_snapshot(
+                force_refresh=refresh_media,
+            )
+            await self._flush_storage_alert(media)
+            return {
+                "generated_at": datetime.now()
+                .astimezone()
+                .isoformat(timespec="seconds"),
+                "media": media,
+                "crawl": self._overview_crawl_summary(),
+                "collectors": self._overview_collector_summary(),
+                "maintenance": {
+                    "latest_snapshot": self._latest_configuration_snapshot(),
+                    "snapshot_retention": self.CONFIGURATION_SNAPSHOT_RETENTION,
+                },
+            }
+
+        @self.server.post(
+            "/ui/api/maintenance/snapshot",
+            summary="Web UI 配置与数据库快照",
+            description="一致性备份 settings 与采集/任务 SQLite 数据库",
+            tags=[_("配置")],
+        )
+        async def webui_maintenance_snapshot(
+            token: str = Depends(token_dependency),
+        ):
+            snapshot = await to_thread(
+                self._create_configuration_snapshot,
+                "manual",
+            )
+            return {
+                "message": _("配置与数据库快照已创建！"),
+                "snapshot": snapshot,
+            }
+
+        @self.server.post(
+            "/ui/api/maintenance/integrity-scan",
+            summary="Web UI 媒体完整性扫描",
+            description="后台重新扫描媒体数量、零字节文件、临时文件与读取错误",
+            tags=[_("项目")],
+        )
+        async def webui_maintenance_integrity_scan(
+            token: str = Depends(token_dependency),
+        ):
+            media = self._overview_media_snapshot(force_refresh=True)
+            return {
+                "message": _("媒体完整性扫描已在后台启动！"),
+                "media": media,
+            }
+
+        @self.server.get(
             "/ui/api/files/stats",
             summary="Web UI 文件统计",
             description="统计目录下文件/图片/视频/文件夹数量和占用空间",
@@ -5347,10 +7050,11 @@ class APIServer(TikTok):
                 "scope": scope,
                 "root": str(root_path),
                 "path": relative_path(root_path, current_path),
-                **self._collect_scope_stats(
+                **await to_thread(
+                    self._collect_scope_stats,
                     current_path,
-                    scope=scope,
-                    scope_root=root_path,
+                    scope,
+                    root_path,
                 ),
             }
 
@@ -5459,7 +7163,9 @@ class APIServer(TikTok):
             )
             items = self.collector_store.list_public(normalized_platform)
             return {
-                "items": [self._collector_public_data(item) for item in items],
+                "items": [
+                    self._collector_identity_public_data(item) for item in items
+                ],
                 "total": len(items),
                 "vault": {
                     "locked": bool(self.collector_vault_error),
@@ -5492,10 +7198,12 @@ class APIServer(TikTok):
                     for item in self.collector_store.list_public(identity.platform)
                     if item.identity_id == identity.identity_id
                 )
-                return {"identity": self._collector_public_data(public)}
+                return {"identity": self._collector_identity_public_data(public)}
             except Exception as error:
                 if isinstance(error, HTTPException):
                     raise
+                if isinstance(error, LoginBrowserError):
+                    raise self._collector_login_browser_http_error(error)
                 raise self._collector_http_error(error)
 
         @self.server.patch(
@@ -5509,6 +7217,10 @@ class APIServer(TikTok):
             token: str = Depends(token_dependency),
         ):
             try:
+                if self._collector_identity_login_locked(identity_id):
+                    raise LoginBrowserBusyError(
+                        "stop the identity login browser before editing this identity"
+                    )
                 current = self.collector_store.get_identity(identity_id)
                 identity = self._collector_identity_from_body(body, current=current)
                 await self.collector_leases.configure(
@@ -5521,10 +7233,12 @@ class APIServer(TikTok):
                     for item in self.collector_store.list_public(identity.platform)
                     if item.identity_id == identity.identity_id
                 )
-                return {"identity": self._collector_public_data(public)}
+                return {"identity": self._collector_identity_public_data(public)}
             except Exception as error:
                 if isinstance(error, HTTPException):
                     raise
+                if isinstance(error, LoginBrowserError):
+                    raise self._collector_login_browser_http_error(error)
                 raise self._collector_http_error(error)
 
         @self.server.delete(
@@ -5538,6 +7252,10 @@ class APIServer(TikTok):
         ):
             identity = None
             try:
+                if self._collector_identity_login_locked(identity_id):
+                    raise LoginBrowserBusyError(
+                        "stop the identity login browser before deleting this identity"
+                    )
                 identity = self.collector_store.get_identity(identity_id)
                 schedule_references = [
                     schedule.get("schedule_id", "")
@@ -5571,6 +7289,8 @@ class APIServer(TikTok):
                     raise
                 return {"message": _("采集身份已删除！"), "identity_id": identity_id}
             except Exception as error:
+                if isinstance(error, LoginBrowserError):
+                    raise self._collector_login_browser_http_error(error)
                 raise self._collector_http_error(error)
 
         @self.server.put(
@@ -5585,6 +7305,10 @@ class APIServer(TikTok):
             token: str = Depends(token_dependency),
         ):
             try:
+                if self._collector_identity_login_locked(identity_id):
+                    raise LoginBrowserBusyError(
+                        "stop the identity login browser before replacing credentials"
+                    )
                 identity = self.collector_store.get_identity(identity_id)
                 credentials = self._collector_credentials_from_body(identity_id, body)
                 self.collector_store.save_identity(
@@ -5598,11 +7322,13 @@ class APIServer(TikTok):
                 )
                 return {
                     "message": _("采集身份凭据已安全保存！"),
-                    "identity": self._collector_public_data(public),
+                    "identity": self._collector_identity_public_data(public),
                 }
             except Exception as error:
                 if isinstance(error, HTTPException):
                     raise
+                if isinstance(error, LoginBrowserError):
+                    raise self._collector_login_browser_http_error(error)
                 raise self._collector_http_error(error)
 
         @self.server.delete(
@@ -5615,6 +7341,10 @@ class APIServer(TikTok):
             token: str = Depends(token_dependency),
         ):
             try:
+                if self._collector_identity_login_locked(identity_id):
+                    raise LoginBrowserBusyError(
+                        "stop the identity login browser before clearing credentials"
+                    )
                 identity = self.collector_store.get_identity(identity_id)
                 self.collector_store.save_identity(
                     identity,
@@ -5622,7 +7352,268 @@ class APIServer(TikTok):
                 )
                 return {"message": _("采集身份凭据已清除！")}
             except Exception as error:
+                if isinstance(error, LoginBrowserError):
+                    raise self._collector_login_browser_http_error(error)
                 raise self._collector_http_error(error)
+
+        @self.server.post(
+            "/ui/api/collector-identities/{identity_id}/login-browser",
+            summary="Web UI 启动采集身份登录浏览器",
+            tags=[_("配置")],
+        )
+        async def webui_collector_login_browser_start(
+            identity_id: str,
+            response: Response,
+            token: str = Depends(token_dependency),
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            try:
+                if self.collector_vault_error:
+                    raise SecretCodecUnavailable(self.collector_vault_error)
+                identity = self.collector_store.get_identity(identity_id)
+                if identity.auth_mode == CollectorAuthMode.ANONYMOUS:
+                    raise LoginBrowserError(
+                        "anonymous identities do not need an interactive login browser"
+                    )
+                await self.collector_leases.configure(
+                    identity.identity_id,
+                    identity.max_concurrency,
+                )
+                lease = await self.collector_leases.snapshot(identity.identity_id)
+                manager = self._get_collector_login_browser()
+                existing = manager.session_for(identity_id)
+                if not existing and (lease.active or lease.waiting):
+                    raise LoginBrowserBusyError(
+                        "collector identity is active or waiting for a crawl"
+                    )
+                credentials = self.collector_store.load_credentials(identity_id)
+                session = await manager.start(identity, credentials)
+                ticket = await manager.issue_viewer_ticket(
+                    identity_id,
+                    session.session_id,
+                )
+                return {
+                    "session": session.public_data(),
+                    "viewer_ticket": ticket,
+                    "viewer_protocol_prefix": manager.VIEWER_PROTOCOL_PREFIX,
+                }
+            except Exception as error:
+                if isinstance(error, HTTPException):
+                    raise
+                raise self._collector_login_browser_http_error(error)
+
+        @self.server.get(
+            "/ui/api/collector-identities/{identity_id}/login-browser",
+            summary="Web UI 获取采集身份登录浏览器状态",
+            tags=[_("配置")],
+        )
+        async def webui_collector_login_browser_status(
+            identity_id: str,
+            response: Response,
+            token: str = Depends(token_dependency),
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            self.collector_store.get_identity(identity_id)
+            session = self._get_collector_login_browser().session_for(identity_id)
+            return {"session": session, "active": bool(session)}
+
+        @self.server.post(
+            "/ui/api/collector-identities/{identity_id}/login-browser/"
+            "{session_id}/viewer-ticket",
+            summary="Web UI 刷新登录浏览器查看凭证",
+            tags=[_("配置")],
+        )
+        async def webui_collector_login_browser_ticket(
+            identity_id: str,
+            session_id: str,
+            response: Response,
+            token: str = Depends(token_dependency),
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            try:
+                manager = self._get_collector_login_browser()
+                ticket = await manager.issue_viewer_ticket(identity_id, session_id)
+                return {
+                    "viewer_ticket": ticket,
+                    "viewer_protocol_prefix": manager.VIEWER_PROTOCOL_PREFIX,
+                }
+            except Exception as error:
+                raise self._collector_login_browser_http_error(error)
+
+        @self.server.post(
+            "/ui/api/collector-identities/{identity_id}/login-browser/"
+            "{session_id}/capture",
+            summary="Web UI 保存登录浏览器凭据",
+            tags=[_("配置")],
+        )
+        async def webui_collector_login_browser_capture(
+            identity_id: str,
+            session_id: str,
+            response: Response,
+            token: str = Depends(token_dependency),
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            manager = self._get_collector_login_browser()
+            try:
+                identity = self.collector_store.get_identity(identity_id)
+                captured = await manager.capture(identity_id, session_id)
+                current = self.collector_store.load_credentials(identity_id)
+                credentials = current.model_copy(
+                    update={
+                        "cookie": captured.cookie,
+                        "user_agent": captured.user_agent or current.user_agent,
+                    },
+                    deep=True,
+                )
+                self.collector_store.save_identity(
+                    identity,
+                    credentials=credentials,
+                )
+                runtime_state = self.collector_store.get_runtime(identity_id)
+                runtime_state.status = IdentityStatus.WARNING
+                runtime_state.last_validated_at = self._collector_timestamp()
+                runtime_state.last_error_code = "login_state_pending_target_check"
+                self.collector_store.save_runtime(runtime_state)
+                public = next(
+                    item
+                    for item in self.collector_store.list_public(identity.platform)
+                    if item.identity_id == identity_id
+                )
+                await manager.stop(identity_id, session_id)
+                return {
+                    "message": "登录 Cookie 已自动提取并安全保存。",
+                    "cookie_count": captured.cookie_count,
+                    "login_cookie_count": captured.login_cookie_count,
+                    "identity": self._collector_identity_public_data(public),
+                }
+            except Exception as error:
+                if isinstance(error, HTTPException):
+                    raise
+                raise self._collector_login_browser_http_error(error)
+
+        @self.server.delete(
+            "/ui/api/collector-identities/{identity_id}/login-browser/"
+            "{session_id}",
+            summary="Web UI 停止采集身份登录浏览器",
+            tags=[_("配置")],
+        )
+        async def webui_collector_login_browser_stop(
+            identity_id: str,
+            session_id: str,
+            token: str = Depends(token_dependency),
+        ):
+            stopped = await self._get_collector_login_browser().stop(
+                identity_id,
+                session_id,
+            )
+            if not stopped:
+                raise HTTPException(
+                    status_code=404,
+                    detail="collector login browser session not found",
+                )
+            return {"message": "身份登录浏览器已停止。"}
+
+        @self.server.websocket(
+            "/ui/ws/collector-identities/{identity_id}/login-browser/"
+            "{session_id}"
+        )
+        async def webui_collector_login_browser_ws(
+            websocket: WebSocket,
+            identity_id: str,
+            session_id: str,
+        ):
+            token = (
+                websocket.headers.get("token")
+                or websocket.cookies.get(WEBUI_SESSION_COOKIE)
+            )
+            client_host = websocket.client.host if websocket.client else ""
+            if not is_valid_token(token, client_host):
+                await websocket.close(code=4403, reason=_("验证失败！"))
+                return
+            origin = websocket.headers.get("origin", "")
+            host = websocket.headers.get("host", "")
+            if origin:
+                try:
+                    origin_host = urlsplit(origin).netloc.lower()
+                except ValueError:
+                    origin_host = ""
+                if not origin_host or origin_host != host.lower():
+                    await websocket.close(code=4403, reason="Origin not allowed")
+                    return
+            protocols = list(websocket.scope.get("subprotocols", []))
+            manager = self._get_collector_login_browser()
+            ticket = next(
+                (
+                    item.removeprefix(manager.VIEWER_PROTOCOL_PREFIX)
+                    for item in protocols
+                    if item.startswith(manager.VIEWER_PROTOCOL_PREFIX)
+                ),
+                "",
+            )
+            if not ticket:
+                await websocket.close(code=4403, reason="Viewer ticket required")
+                return
+            try:
+                vnc_port = await manager.begin_viewer(
+                    identity_id,
+                    session_id,
+                    ticket,
+                )
+            except LoginBrowserNotFoundError:
+                await websocket.close(code=4404, reason="Viewer session not found")
+                return
+            except LoginBrowserBusyError:
+                await websocket.close(code=4409, reason="Viewer already connected")
+                return
+
+            await websocket.accept(
+                subprotocol="binary" if "binary" in protocols else None
+            )
+            writer = None
+            tasks = set()
+            pending = set()
+            try:
+                reader, writer = await open_connection("127.0.0.1", vnc_port)
+
+                async def client_to_vnc():
+                    while True:
+                        message = await websocket.receive()
+                        if message.get("type") == "websocket.disconnect":
+                            return
+                        data = message.get("bytes")
+                        if data:
+                            writer.write(data)
+                            await writer.drain()
+
+                async def vnc_to_client():
+                    while data := await reader.read(64 * 1024):
+                        await websocket.send_bytes(data)
+
+                client_task = create_task(client_to_vnc())
+                server_task = create_task(vnc_to_client())
+                tasks = {client_task, server_task}
+                _, pending = await wait(
+                    tasks,
+                    return_when=FIRST_COMPLETED,
+                )
+            except (OSError, WebSocketDisconnect):
+                pass
+            finally:
+                for task in pending:
+                    task.cancel()
+                if tasks:
+                    await gather(*tasks, return_exceptions=True)
+                if writer is not None:
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except OSError:
+                        pass
+                await manager.end_viewer(identity_id, session_id)
+                try:
+                    await websocket.close()
+                except RuntimeError:
+                    pass
 
         async def run_collector_probe(identity_id: str, require_proxy: bool):
             try:
@@ -5905,7 +7896,8 @@ class APIServer(TikTok):
                 public = {
                     item.identity_id: item
                     for item in self.collector_store.list_public(platform_value)
-                    if item.cookie_configured
+                    if item.route_configured
+                    and not self._collector_identity_login_locked(item.identity_id)
                 }
                 candidates = [
                     item
@@ -5980,6 +7972,50 @@ class APIServer(TikTok):
             }
 
         @self.server.post(
+            "/ui/api/accounts/archive",
+            summary="Web UI 将账号移入删除区",
+            description="从后续采集目标中移除单个账号，并保留可撤销的删除区记录",
+            tags=[_("配置")],
+        )
+        async def webui_account_archive(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                return self._archive_account_configuration(
+                    platform=body.get("platform", ""),
+                    url=body.get("url", ""),
+                    reason=body.get("reason", ""),
+                )
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Payload validation failed: {error}",
+                )
+
+        @self.server.post(
+            "/ui/api/accounts/archive-batch",
+            summary="Web UI 批量将账号移入删除区",
+            description="一次备份后从后续采集目标中移除多个账号，并保留可撤销记录",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_archive_batch(
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                return self._archive_account_configurations(
+                    platform=body.get("platform", ""),
+                    urls=body.get("urls"),
+                    reason=body.get("reason", ""),
+                )
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Payload validation failed: {error}",
+                )
+
+        @self.server.post(
             "/ui/api/accounts/verify",
             summary="Web UI 批量检测账号存在性",
             description="检测账号主页是否可访问，并可自动移入 deleted_accounts",
@@ -6021,6 +8057,31 @@ class APIServer(TikTok):
                 status=status,
                 sort_by=sort,
             )
+
+        @self.server.get(
+            "/ui/api/accounts/board/gallery",
+            summary="Web UI 账户媒体 Gallery",
+            description="分页返回单个账户目录中的图片和视频，不依赖文件浏览器状态",
+            tags=[_("配置")],
+        )
+        async def webui_accounts_board_gallery(
+            platform: str = Query("douyin"),
+            url: str = Query(..., min_length=1, max_length=2048),
+            page: int = Query(1, ge=1),
+            page_size: int = Query(24, ge=12, le=72),
+            kind: str = Query("all"),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                return self._build_account_board_gallery(
+                    platform=platform,
+                    url=url,
+                    page=page,
+                    page_size=page_size,
+                    media_kind=kind,
+                )
+            except LookupError:
+                raise HTTPException(status_code=404, detail=_("账号不存在或已停用。"))
 
         @self.server.post(
             "/ui/api/accounts/board/random",
@@ -6679,6 +8740,7 @@ class APIServer(TikTok):
         )
         async def webui_retry_failed_task(
             task_id: str,
+            category: str = Query(""),
             token: str = Depends(token_dependency),
         ):
             task = self.ui_tasks.get(task_id)
@@ -6690,7 +8752,26 @@ class APIServer(TikTok):
                     detail="Task does not contain account checkpoints.",
                 )
             journal = getattr(self, "task_journal", None)
-            failed_items = journal.failed_items(task_id) if journal is not None else []
+            normalized_category = self._normalize_string(category).lower()
+            if (
+                normalized_category
+                and normalized_category not in self.ACCOUNT_FAILURE_CATEGORIES
+            ):
+                raise HTTPException(status_code=400, detail="Invalid failure category.")
+            failed_accounts = (
+                journal.list_accounts(task_id, status="failed", limit=5000)
+                if journal is not None
+                else []
+            )
+            if normalized_category:
+                failed_accounts = [
+                    item
+                    for item in failed_accounts
+                    if self._task_account_with_category(item).get(
+                        "failure_category"
+                    ) == normalized_category
+                ]
+            failed_items = [item.get("item", {}) for item in failed_accounts]
             if not failed_items:
                 raise HTTPException(
                     status_code=409,
@@ -6718,7 +8799,11 @@ class APIServer(TikTok):
                 endpoint=task["endpoint"],
                 payload=retry_payload,
                 retry_of=task_id,
-                retry_mode="failed_only",
+                retry_mode=(
+                    f"failed_category:{normalized_category}"
+                    if normalized_category
+                    else "failed_only"
+                ),
             )
             self._inherit_schedule_task_meta(new_task, task)
             return {"task": self._public_ui_task(new_task)}
@@ -6732,8 +8817,11 @@ class APIServer(TikTok):
         async def webui_task_accounts(
             task_id: str,
             status: str = Query(""),
-            limit: int = Query(500, ge=1, le=5000),
-            offset: int = Query(0, ge=0),
+            category: str = Query(""),
+            page: int = Query(1, ge=1),
+            page_size: int = Query(50, ge=1, le=200),
+            limit: int | None = Query(None, ge=1, le=5000),
+            offset: int | None = Query(None, ge=0),
             token: str = Depends(token_dependency),
         ):
             if task_id not in self.ui_tasks:
@@ -6746,19 +8834,117 @@ class APIServer(TikTok):
                 "skipped",
             }:
                 raise HTTPException(status_code=400, detail="Invalid account status.")
+            normalized_category = self._normalize_string(category).lower()
+            if (
+                normalized_category
+                and normalized_category not in self.ACCOUNT_FAILURE_CATEGORIES
+            ):
+                raise HTTPException(status_code=400, detail="Invalid failure category.")
             journal = getattr(self, "task_journal", None)
             if journal is None:
                 return {"items": [], "summary": {}}
+            all_items = journal.list_accounts(
+                task_id,
+                status=status,
+                limit=5000,
+            )
+            categorized = [self._task_account_with_category(item) for item in all_items]
+            task_endpoint = self._normalize_string(
+                self.ui_tasks[task_id].get("endpoint")
+            ).lower()
+            task_platform = "tiktok" if "/tiktok/" in task_endpoint else "douyin"
+            configured_urls = {
+                self._normalize_account_url(item.get("url", ""))
+                for item in self._account_rows(task_platform == "tiktok")
+                if self._normalize_account_url(item.get("url", ""))
+            }
+            for account in categorized:
+                item = account.get("item")
+                account_url = (
+                    self._normalize_account_url(item.get("url", ""))
+                    if isinstance(item, dict)
+                    else ""
+                )
+                account["platform"] = task_platform
+                account["configured"] = bool(
+                    account_url and account_url in configured_urls
+                )
+            all_failed = journal.list_accounts(task_id, status="failed", limit=5000)
+            category_counts = {
+                key: 0
+                for key in sorted(self.ACCOUNT_FAILURE_CATEGORIES)
+            }
+            for account in all_failed:
+                category = self._task_account_with_category(account).get(
+                    "failure_category", "other"
+                )
+                category_counts[category] = category_counts.get(category, 0) + 1
+            if normalized_category:
+                categorized = [
+                    item
+                    for item in categorized
+                    if item.get("failure_category") == normalized_category
+                ]
+            if limit is not None:
+                page_size = limit
+                page = (max(0, int(offset or 0)) // page_size) + 1
+            filtered_total = len(categorized)
+            pages = max(1, (filtered_total + page_size - 1) // page_size)
+            page = min(page, pages)
+            start = (page - 1) * page_size
             return {
                 "items": redact_webui_value(
-                    journal.list_accounts(
-                        task_id,
-                        status=status,
-                        limit=limit,
-                        offset=offset,
-                    )
+                    categorized[start : start + page_size]
                 ),
                 "summary": journal.account_summary(task_id),
+                "category_counts": category_counts,
+                "filtered_total": filtered_total,
+                "page": page,
+                "page_size": page_size,
+                "pages": pages,
+                "status": status,
+                "category": normalized_category,
+            }
+
+        @self.server.get(
+            "/ui/api/tasks/{task_id}/accounts/export",
+            summary="Web UI 导出失败账号 URL",
+            description="按失败分类导出账号主页 URL",
+            tags=[_("项目")],
+        )
+        async def webui_task_accounts_export(
+            task_id: str,
+            category: str = Query(""),
+            token: str = Depends(token_dependency),
+        ):
+            if task_id not in self.ui_tasks:
+                raise HTTPException(status_code=404, detail="Task not found.")
+            normalized_category = self._normalize_string(category).lower()
+            if (
+                normalized_category
+                and normalized_category not in self.ACCOUNT_FAILURE_CATEGORIES
+            ):
+                raise HTTPException(status_code=400, detail="Invalid failure category.")
+            accounts = self.task_journal.list_accounts(
+                task_id,
+                status="failed",
+                limit=5000,
+            )
+            urls = []
+            for account in accounts:
+                if normalized_category and self._task_account_with_category(
+                    account
+                ).get("failure_category") != normalized_category:
+                    continue
+                item = account.get("item") if isinstance(account.get("item"), dict) else {}
+                url = self._normalize_string(item.get("url"))
+                if url:
+                    urls.append(url)
+            return {
+                "task_id": task_id,
+                "category": normalized_category,
+                "count": len(urls),
+                "urls": urls,
             }
 
         @self.server.get(

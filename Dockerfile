@@ -44,7 +44,10 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     ffmpeg \
+    fonts-noto-cjk \
+    nodejs \
     xvfb \
+    x11vnc \
     xauth \
     libasound2 \
     libatk-bridge2.0-0 \

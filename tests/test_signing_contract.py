@@ -4,7 +4,9 @@ import pytest
 
 from src.config import parameter as parameter_module
 from src.config.parameter import Parameter
+from src.encrypt import DouYinParams
 from src.encrypt.xGnarly import XGnarly
+from src.interface import template as template_module
 from src.interface.template import API, APITikTok
 from src.tools import dynamic_import
 
@@ -62,24 +64,20 @@ async def test_douyin_signer_receives_effective_request_contract():
 
 
 @pytest.mark.asyncio
-async def test_tiktok_post_signers_receive_body_method_and_request_user_agent():
-    x_bogus_calls = []
-    x_gnarly_calls = []
+async def test_tiktok_post_signer_receives_request_contract():
+    calls = []
     body = {"room_id": "123", "enter_source": "others-others"}
 
-    class XBogusSigner:
-        def get_x_bogus(self, **kwargs):
-            x_bogus_calls.append(kwargs)
-            return "xb-signature"
+    class TikTokSigner:
+        available = True
 
-    class XGnarlySigner:
-        def generate(self, **kwargs):
-            x_gnarly_calls.append(kwargs)
-            return "xg-signature"
+        def sign_url(self, **kwargs):
+            calls.append(kwargs)
+            return "aid=1988&X-Dynosaur=dyno&X-Bogus=xb&X-Gnarly=xg"
 
     api = APITikTok.__new__(APITikTok)
-    api.xb = XBogusSigner()
-    api.xg = XGnarlySigner()
+    api.tiktok_params = TikTokSigner()
+    api.params = {"msToken": "session-token"}
     api.headers = {"User-Agent": "default-agent"}
     api.proxy = None
     dispatched = {}
@@ -98,18 +96,20 @@ async def test_tiktok_post_signers_receive_body_method_and_request_user_agent():
         headers={"User-Agent": "request-agent"},
     )
 
-    expected = {
-        "query": "aid=1988",
-        "data": body,
-        "method": "POST",
-        "user_agent": "request-agent",
-    }
     assert result == {"ok": True}
-    assert x_bogus_calls == [expected]
-    assert x_gnarly_calls == [expected]
+    assert calls == [
+        {
+            "query": "aid=1988",
+            "data": body,
+            "method": "POST",
+            "user_agent": "request-agent",
+            "ms_token": "session-token",
+        }
+    ]
     assert dispatched["data"] is body
-    assert "X-Bogus=xb-signature" in dispatched["params"]
-    assert "X-Gnarly=xg-signature" in dispatched["params"]
+    assert "X-Dynosaur=dyno" in dispatched["params"]
+    assert "X-Bogus=xb" in dispatched["params"]
+    assert "X-Gnarly=xg" in dispatched["params"]
 
 
 def test_builtin_x_gnarly_accepts_form_body():
@@ -155,6 +155,93 @@ def test_api_request_params_are_isolated_per_identity():
     assert second_api.params["browser_language"] == "en-US"
     assert "cursor" not in second_api.params
     assert API.params == template
+
+
+def test_builtin_douyin_contract_uses_current_impersonated_profile_and_signer():
+    params = SimpleNamespace(
+        headers={"User-Agent": "legacy-agent"},
+        logger=None,
+        ab=object(),
+        console=None,
+        max_retry=1,
+        timeout=10,
+        request_delay=0,
+        client=None,
+        proxy=None,
+        api_params={
+            "browser_platform": "Win32",
+            "browser_version": "139.0.0.0",
+        },
+        _external_signers=set(),
+    )
+
+    api = API(params)
+    signed = api.deal_url_params({"cursor": 1})
+
+    assert api.params["browser_platform"] == "MacIntel"
+    assert api.params["browser_version"] == "146.0.0.0"
+    assert signed.endswith(f"a_bogus={DouYinParams.A_BOGUS}")
+
+
+@pytest.mark.asyncio
+async def test_douyin_transport_uses_curl_impersonation_without_legacy_user_agent(
+    monkeypatch,
+):
+    captured = {}
+
+    class Response:
+        url = "https://example.test/data"
+        status_code = 200
+        headers = {}
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {"ok": True}
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            return None
+
+        async def request(self, method, url, **kwargs):
+            captured.update(method=method, url=url, **kwargs)
+            return Response()
+
+    monkeypatch.setattr(template_module, "CurlAsyncSession", Session)
+    params = SimpleNamespace(
+        headers={"User-Agent": "legacy-agent", "Cookie": "sessionid=secret"},
+        logger=SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            warning=lambda *args, **kwargs: None,
+            error=lambda *args, **kwargs: None,
+        ),
+        ab=object(),
+        console=None,
+        max_retry=0,
+        timeout=10,
+        request_delay=0,
+        client=None,
+        proxy=None,
+        api_params={},
+        _external_signers=set(),
+    )
+
+    result = await API(params).request_data_get(
+        "https://example.test/data",
+        "cursor=1",
+        params.headers,
+    )
+
+    assert result == {"ok": True}
+    assert captured["impersonate"] == "chrome146"
+    assert "User-Agent" not in captured["headers"]
+    assert captured["headers"]["Cookie"] == "sessionid=secret"
 
 
 def test_dynamic_loader_uses_documented_encipher_filename(tmp_path, monkeypatch):

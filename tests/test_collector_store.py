@@ -1,10 +1,12 @@
 from copy import deepcopy
+from sqlite3 import connect
 
 import pytest
 
 from src.collector import (
     AESGCMSecretCodec,
     CollectorAssignment,
+    CollectorAuthMode,
     CollectorCredentials,
     CollectorIdentity,
     CollectorPlatform,
@@ -107,6 +109,88 @@ def test_identity_metadata_update_preserves_credentials_when_omitted(tmp_path):
         assert store.load_credentials("tt-main").cookie == "secret"
 
 
+def test_anonymous_tiktok_identity_is_route_configured_without_cookie(tmp_path):
+    anonymous = identity().model_copy(
+        update={"auth_mode": CollectorAuthMode.ANONYMOUS}
+    )
+    with CollectorStore(tmp_path / "collector.sqlite3") as store:
+        store.upsert_identity(anonymous)
+
+        saved = store.get_identity("tt-main")
+        public = store.list_public(CollectorPlatform.TIKTOK)[0]
+
+        assert saved.auth_mode == CollectorAuthMode.ANONYMOUS
+        assert public.auth_mode == CollectorAuthMode.ANONYMOUS
+        assert public.cookie_configured is False
+        assert public.route_configured is True
+
+
+def test_anonymous_tiktok_identity_requires_serial_profile_access():
+    with pytest.raises(ValueError, match="max_concurrency=1"):
+        CollectorIdentity(
+            identity_id="tt-anonymous",
+            name="Anonymous",
+            platform=CollectorPlatform.TIKTOK,
+            auth_mode=CollectorAuthMode.ANONYMOUS,
+            max_concurrency=2,
+        )
+
+
+def test_douyin_identity_rejects_tiktok_auth_modes():
+    with pytest.raises(ValueError, match="non-TikTok"):
+        CollectorIdentity(
+            identity_id="dy-anonymous",
+            name="Anonymous",
+            platform=CollectorPlatform.DOUYIN,
+            auth_mode=CollectorAuthMode.ANONYMOUS,
+        )
+
+
+def test_store_migrates_existing_identity_table_to_auth_modes(tmp_path):
+    db = tmp_path / "collector.sqlite3"
+    with connect(db) as connection:
+        connection.execute(
+            """
+            CREATE TABLE collector_identities (
+                identity_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                weight REAL NOT NULL,
+                request_delay REAL NOT NULL,
+                max_concurrency INTEGER NOT NULL,
+                credential_configured INTEGER NOT NULL DEFAULT 0,
+                cookie_configured INTEGER NOT NULL DEFAULT 0,
+                proxy_configured INTEGER NOT NULL DEFAULT 0,
+                user_agent_configured INTEGER NOT NULL DEFAULT 0,
+                device_id_configured INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO collector_identities (
+                identity_id, name, platform, enabled, weight, request_delay,
+                max_concurrency, created_at, updated_at
+            ) VALUES ('legacy-tt', 'Legacy', 'tiktok', 1, 1, 6, 1, '', '')
+            """
+        )
+
+    with CollectorStore(db) as store:
+        assert store.get_identity("legacy-tt").auth_mode == (
+            CollectorAuthMode.AUTHENTICATED
+        )
+        columns = {
+            row["name"]
+            for row in store.connection.execute(
+                "PRAGMA table_info(collector_identities)"
+            ).fetchall()
+        }
+        assert "auth_mode" in columns
+
+
 def test_store_detects_envelope_tampering(tmp_path):
     with CollectorStore(
         tmp_path / "collector.sqlite3",
@@ -185,6 +269,9 @@ def test_runtime_state_persists_but_stale_active_lease_resets_on_reopen(tmp_path
                 status=IdentityStatus.WARNING,
                 active_leases=1,
                 consecutive_failures=2,
+                total_successes=8,
+                total_failures=3,
+                risk_failures=2,
                 last_error_code="empty_response",
             )
         )
@@ -194,6 +281,11 @@ def test_runtime_state_persists_but_stale_active_lease_resets_on_reopen(tmp_path
         assert state.active_leases == 0
         assert state.status == IdentityStatus.WARNING
         assert state.consecutive_failures == 2
+        assert state.total_successes == 8
+        assert state.total_failures == 3
+        assert state.risk_failures == 2
+        public = reopened.list_public()[0]
+        assert public.risk_failures == 2
 
 
 def test_legacy_migration_is_pure_and_store_applies_it_atomically(tmp_path):

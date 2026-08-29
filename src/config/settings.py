@@ -5,7 +5,7 @@ from shutil import move
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
-from ..custom import USERAGENT
+from ..custom import IMPERSONATE, USERAGENT
 from ..translation import _
 
 if TYPE_CHECKING:
@@ -100,15 +100,16 @@ class Settings:
         "tiktok_platform": True,
         "browser_info": {
             "User-Agent": USERAGENT,
-            "pc_libra_divert": "Windows",
+            "impersonate": IMPERSONATE,
+            "pc_libra_divert": "Mac",
             "browser_language": "zh-CN",
-            "browser_platform": "Win32",
+            "browser_platform": "MacIntel",
             "browser_name": "Chrome",
-            "browser_version": "139.0.0.0",
+            "browser_version": "146.0.0.0",
             "engine_name": "Blink",
-            "engine_version": "139.0.0.0",
-            "os_name": "Windows",
-            "os_version": "10",
+            "engine_version": "146.0.0.0",
+            "os_name": "Mac OS",
+            "os_version": "10.15.7",
             "webid": "",
         },
         "browser_info_tiktok": {

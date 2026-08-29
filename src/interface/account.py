@@ -65,7 +65,7 @@ class Account(API):
                     data_key,
                     error_text
                     or _(
-                        "该账号为私密账号，需要使用登录后的 Cookie，且登录的账号需要关注该私密账号"
+                        "账号作品列表为空；可能是暂无作品、访问权限不足或接口响应异常"
                     ),
                     cursor,
                     has_more,
@@ -82,7 +82,7 @@ class Account(API):
                     data_key,
                     error_text
                     or _(
-                        "该账号为私密账号，需要使用登录后的 Cookie，且登录的账号需要关注该私密账号"
+                        "账号作品列表为空；可能是暂无作品、访问权限不足或接口响应异常"
                     ),
                     cursor,
                     has_more,

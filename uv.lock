@@ -204,73 +204,35 @@ wheels = [
 ]
 
 [[package]]
+name = "curl-cffi"
+version = "0.16.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "cffi" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d1/f6/347067dfacb19e44a4166d7bdb183e3a2629680beceb5e52f7cb2cc1a3b4/curl_cffi-0.16.2.tar.gz", hash = "sha256:2986a86cdcf514ab73632c2de62a01db3cc97f7ecf17798a1be16180f4474198", size = 238986, upload-time = "2026-08-25T11:51:11.604Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/29/ac/3772115da1b6b9b6064e8c128dfeb6c9e708dd4603a17eb52f658558c5e1/curl_cffi-0.16.2-cp310-abi3-macosx_10_9_x86_64.whl", hash = "sha256:afe05fc1022039c2853177ef13f67b7a9915bff62e35eb4fa1a295166bc55a34", size = 3024444, upload-time = "2026-08-25T11:50:32.215Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/21/57a757acb1b43ef944735835b50cfdf00150113164d755a99f8d21d875f3/curl_cffi-0.16.2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:e6f238ddfef41a5d074bcc2f6b8fc21e653a1e7d4d9a2163839030d9de24b2ca", size = 2781420, upload-time = "2026-08-25T11:50:33.851Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/8c/755116d4f57fbad64947f47141ccc342a30bf5998ca6a33a2bcc33f34ab9/curl_cffi-0.16.2-cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:5382ca2a67a459dd6f64203555fd248b71abe4ca6cd40669902916dc5f558a33", size = 12827642, upload-time = "2026-08-25T11:50:35.388Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/31/aedc88071ee74b9b7848e48f11ddff1c242ab52f914f47309e0d15c4982f/curl_cffi-0.16.2-cp310-abi3-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:1b0deed58ca724ffdb80e1f4029208325b2a4999f0a438f55037c591232e6c18", size = 12651309, upload-time = "2026-08-25T11:50:37.272Z" },
+    { url = "https://files.pythonhosted.org/packages/65/b0/b3dd929480f419f8aa921860afb44e15d2a22fd0be5c545296b9db865aa3/curl_cffi-0.16.2-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:b2a59707f5345491a08a3d45f6895b1c9dc192d403a1ebc42c1d1ef43a58453e", size = 13474592, upload-time = "2026-08-25T11:50:39.344Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/14/fbed6244544be92659de5cad4cca8d0ef79a05c17518d1b3fd2ca84d80cc/curl_cffi-0.16.2-cp310-abi3-manylinux_2_28_armv7l.manylinux_2_31_armv7l.whl", hash = "sha256:c3645b13dc1d7dd727e90e847a767b6a2fb5a16a0cbc86a1fb8e77714775f498", size = 12833348, upload-time = "2026-08-25T11:50:41.395Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/8d/ee9b29ad9e2788cce9be333caac445be3950780e2eb1bdc47b53bb1f06c6/curl_cffi-0.16.2-cp310-abi3-manylinux_2_34_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:b07b19225a979ff85f30868712d8a274e69f013489c5b40102ec0167cd0a756a", size = 12604773, upload-time = "2026-08-25T11:50:43.476Z" },
+    { url = "https://files.pythonhosted.org/packages/60/b5/373754bf9bbdac84ec0d668d9f75487ed9ca236802c3c1edb9bb34cb045f/curl_cffi-0.16.2-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:8b6877cf7a1470e357441d5fbd4a338d2372d49c352f0b8a57e565910f932f4d", size = 12580793, upload-time = "2026-08-25T11:50:45.681Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/61/7f659fe76575494268af7ac622250f3841b2a43eac8207d1758e61e96d05/curl_cffi-0.16.2-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:23f490b0b11d87beb94d5d26c4661c26f0439396f839af322a1847c268971913", size = 13240951, upload-time = "2026-08-25T11:50:48.388Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/ac/21e1241211aa53102417c6952bb2929b1d7fee7806c9f1745b2d9f93ccdf/curl_cffi-0.16.2-cp310-abi3-win_amd64.whl", hash = "sha256:3614728ce7f15507b1e72761639c0524a434c3c8b141eb1aae7e8e037dcb292b", size = 1977254, upload-time = "2026-08-25T11:50:50.452Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/d8/178f229cd6169df842e52aa54b9b523b9642f7e09ca4f7a646a9b096a3ec/curl_cffi-0.16.2-cp310-abi3-win_arm64.whl", hash = "sha256:cbf7d2d14057bc62ae1da9e03f18f08ca18dbb43c7fca1eaa827f5d703b32f5c", size = 1711623, upload-time = "2026-08-25T11:50:52.034Z" },
+]
+
+[[package]]
 name = "cycler"
 version = "0.12.1"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a9/95/a3dbbb5028f35eafb79008e7522a75244477d2838f38cbb722248dabc2a8/cycler-0.12.1.tar.gz", hash = "sha256:88bb128f02ba341da8ef447245a9e138fae777f6a23943da4540077d3601eb1c", size = 7615, upload-time = "2023-10-07T05:32:18.335Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl", hash = "sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30", size = 8321, upload-time = "2023-10-07T05:32:16.783Z" },
-]
-
-[[package]]
-name = "fetchshelf"
-version = "5.8"
-source = { virtual = "." }
-dependencies = [
-    { name = "aiofiles" },
-    { name = "aiosqlite" },
-    { name = "cloakbrowser" },
-    { name = "cryptography" },
-    { name = "emoji" },
-    { name = "fastapi" },
-    { name = "gmssl" },
-    { name = "httpx", extra = ["socks"] },
-    { name = "lxml" },
-    { name = "mediapipe", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
-    { name = "openpyxl" },
-    { name = "pillow" },
-    { name = "pydantic" },
-    { name = "pyperclip" },
-    { name = "rich" },
-    { name = "rookiepy" },
-    { name = "tiktokapi" },
-    { name = "uvicorn" },
-    { name = "websockets" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiofiles", specifier = ">=25.1.0" },
-    { name = "aiosqlite", specifier = ">=0.21.0" },
-    { name = "cloakbrowser", specifier = ">=0.3.18" },
-    { name = "cryptography", specifier = ">=45.0.0" },
-    { name = "emoji", specifier = ">=2.15.0" },
-    { name = "fastapi", specifier = ">=0.138.1" },
-    { name = "gmssl", specifier = ">=3.2.2" },
-    { name = "httpx", extras = ["socks"], specifier = ">=0.28.1" },
-    { name = "lxml", specifier = ">=6.1.1" },
-    { name = "mediapipe", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')", specifier = ">=0.10.32" },
-    { name = "openpyxl", specifier = ">=3.1.5" },
-    { name = "pillow", specifier = ">=12.1.1" },
-    { name = "pydantic", specifier = ">=2.13.4" },
-    { name = "pyperclip", specifier = ">=1.11.0" },
-    { name = "rich", specifier = ">=15.0.0" },
-    { name = "rookiepy", specifier = ">=0.5.6" },
-    { name = "tiktokapi", editable = "vendor/TikTok-Api" },
-    { name = "uvicorn", specifier = ">=0.49.0" },
-    { name = "websockets", specifier = ">=15.0.1" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "pytest-asyncio", specifier = ">=1.3.0" },
 ]
 
 [[package]]
@@ -305,6 +267,71 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8a/c9/5e8defe249899c0dc900643695fc07829a67fc88b4ff2cdb03fcbdbf5a4b/fastapi-0.138.1.tar.gz", hash = "sha256:96e3702dce09ee0dce48856135620d3d865ca684a79fe7513fd7b13a12f82862", size = 419646, upload-time = "2026-06-25T15:40:42.115Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/a9/69a6924f645eb4dd8cd625bf255b3625990eb3e14e073438a53c405dcd3e/fastapi-0.138.1-py3-none-any.whl", hash = "sha256:b994cae7ba8b82c976a728b544244de31333fa5f7d261f9a1dffe526444cae23", size = 129182, upload-time = "2026-06-25T15:40:40.771Z" },
+]
+
+[[package]]
+name = "fetchshelf"
+version = "5.8"
+source = { virtual = "." }
+dependencies = [
+    { name = "aiofiles" },
+    { name = "aiosqlite" },
+    { name = "cloakbrowser" },
+    { name = "cryptography" },
+    { name = "curl-cffi" },
+    { name = "emoji" },
+    { name = "fastapi" },
+    { name = "gmssl" },
+    { name = "httpx", extra = ["socks"] },
+    { name = "javascript" },
+    { name = "lxml" },
+    { name = "mediapipe", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "openpyxl" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pyperclip" },
+    { name = "rich" },
+    { name = "rookiepy" },
+    { name = "tiktokapi" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiofiles", specifier = ">=25.1.0" },
+    { name = "aiosqlite", specifier = ">=0.21.0" },
+    { name = "cloakbrowser", specifier = ">=0.3.18" },
+    { name = "cryptography", specifier = ">=45.0.0" },
+    { name = "curl-cffi", specifier = ">=0.16.2" },
+    { name = "emoji", specifier = ">=2.15.0" },
+    { name = "fastapi", specifier = ">=0.138.1" },
+    { name = "gmssl", specifier = ">=3.2.2" },
+    { name = "httpx", extras = ["socks"], specifier = ">=0.28.1" },
+    { name = "javascript", specifier = ">=1!1.2.6" },
+    { name = "lxml", specifier = ">=6.1.1" },
+    { name = "mediapipe", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')", specifier = ">=0.10.32" },
+    { name = "openpyxl", specifier = ">=3.1.5" },
+    { name = "pillow", specifier = ">=12.1.1" },
+    { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "pyperclip", specifier = ">=1.11.0" },
+    { name = "rich", specifier = ">=15.0.0" },
+    { name = "rookiepy", specifier = ">=0.5.6" },
+    { name = "tiktokapi", editable = "vendor/TikTok-Api" },
+    { name = "uvicorn", specifier = ">=0.49.0" },
+    { name = "websockets", specifier = ">=15.0.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
 ]
 
 [[package]]
@@ -414,6 +441,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/72/34/14ca021ce8e5dfedc35312d08ba8bf51fdd999c576889fc2c24cb97f4f10/iniconfig-2.3.0.tar.gz", hash = "sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730", size = 20503, upload-time = "2025-10-18T21:55:43.219Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/b1/3846dd7f199d53cb17f49cba7e651e9ce294d8497c8c150530ed11865bb8/iniconfig-2.3.0-py3-none-any.whl", hash = "sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12", size = 7484, upload-time = "2025-10-18T21:55:41.639Z" },
+]
+
+[[package]]
+name = "javascript"
+version = "1!1.2.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1d/e5/782b7cfba2491e96ff463e24fadb4486ce2bc226f2071e493a9caa07f345/javascript-1!1.2.6.tar.gz", hash = "sha256:442e885b54dd9a6afe797dd6d5c3c575ec38da02a7d16749bf315aad0fa620c9", size = 38508, upload-time = "2025-09-25T11:15:44.411Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/4f/43e4b0bd6b76930e921cf5d9357cefb8ace9a2615bf53c05ff2e314ec434/javascript-1!1.2.6-py3-none-any.whl", hash = "sha256:0c68af196d450715bb74e9a25f11db67435070d91ceaff5ef28c4b4c95235ebf", size = 34802, upload-time = "2025-09-25T11:15:42.142Z" },
 ]
 
 [[package]]

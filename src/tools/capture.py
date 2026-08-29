@@ -2,6 +2,11 @@ from json.decoder import JSONDecodeError
 from ssl import SSLError
 from typing import TYPE_CHECKING, Union
 
+from curl_cffi.requests.exceptions import (
+    HTTPError as CurlHTTPError,
+    RequestException as CurlRequestError,
+    Timeout as CurlTimeout,
+)
 from httpx import HTTPStatusError, NetworkError, RequestError, TimeoutException
 
 from ..translation import _
@@ -49,14 +54,15 @@ def capture_error_params(function):
                 logger.error(
                     _("原始响应内容如下：\n{response}").format(response=response)
                 )
-        except HTTPStatusError as e:
+        except (HTTPStatusError, CurlHTTPError) as e:
             logger.error(_("响应码异常：{error}").format(error=e))
         except NetworkError as e:
             logger.error(_("网络异常：{error}").format(error=e))
-        except TimeoutException as e:
+        except (TimeoutException, CurlTimeout) as e:
             logger.error(_("请求超时：{error}").format(error=e))
         except (
             RequestError,
+            CurlRequestError,
             SSLError,
         ) as e:
             logger.error(_("网络异常：{error}").format(error=e))
@@ -68,8 +74,11 @@ def capture_error_params(function):
 def capture_error_request(function):
     async def inner(self, *args, **kwargs):
         try:
-            return await function(self, *args, **kwargs)
+            result = await function(self, *args, **kwargs)
+            self.last_request_error = None
+            return result
         except (JSONDecodeError, UnicodeDecodeError) as error:
+            self.last_request_error = error
             self.log.error(_("响应内容不是有效的 JSON 数据，请尝试更新 Cookie！"))
             if isinstance(error, JSONDecodeError):
                 self.log.error(
@@ -85,16 +94,21 @@ def capture_error_request(function):
                 self.log.error(
                     _("原始响应内容如下：\n{response}").format(response=response)
                 )
-        except HTTPStatusError as e:
+        except (HTTPStatusError, CurlHTTPError) as e:
+            self.last_request_error = e
             self.log.error(_("响应码异常：{error}").format(error=e))
         except NetworkError as e:
+            self.last_request_error = e
             self.log.error(_("网络异常：{error}").format(error=e))
-        except TimeoutException as e:
+        except (TimeoutException, CurlTimeout) as e:
+            self.last_request_error = e
             self.log.error(_("请求超时：{error}").format(error=e))
         except (
             RequestError,
+            CurlRequestError,
             SSLError,
         ) as e:
+            self.last_request_error = e
             self.log.error(_("网络异常：{error}").format(error=e))
         return None
 

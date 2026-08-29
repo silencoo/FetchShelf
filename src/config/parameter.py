@@ -26,6 +26,7 @@ from ..encrypt import (
     MsTokenTikTok,
     TtWid,
     TtWidTikTok,
+    TikTokParams,
     XBogus,
     XGnarly,
 )
@@ -131,6 +132,7 @@ class Parameter:
         self.ab = ABogus()
         self.xb = XBogus()
         self.xg = XGnarly()
+        self.tiktok_params = TikTokParams()
         self._external_signers: set[str] = set()
         self.console = console
         self.recorder = recorder

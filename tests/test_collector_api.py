@@ -6,10 +6,77 @@ from fastapi.testclient import TestClient
 from src.application.main_server import APIServer
 from src.collector import (
     AESGCMSecretCodec,
+    CapturedLoginCredentials,
     CollectorPlatform,
     CollectorStore,
     IdentityLeaseManager,
 )
+
+
+class _FakeLoginSession:
+    session_id = "lb_api_test"
+
+    def __init__(self, identity_id, platform):
+        self.identity_id = identity_id
+        self.platform = platform
+
+    def public_data(self):
+        return {
+            "session_id": self.session_id,
+            "identity_id": self.identity_id,
+            "platform": self.platform.value,
+            "status": "running",
+            "started_at": "2026-08-29T00:00:00+00:00",
+            "expires_at": "2026-08-29T00:20:00+00:00",
+            "viewer_connected": False,
+            "width": 1440,
+            "height": 900,
+            "startup_warning": "",
+        }
+
+
+class _FakeLoginBrowserManager:
+    VIEWER_PROTOCOL_PREFIX = "fetchshelf-login."
+
+    def __init__(self):
+        self.session = None
+
+    def is_identity_locked(self, identity_id):
+        return bool(self.session and self.session.identity_id == identity_id)
+
+    def session_for(self, identity_id):
+        if not self.is_identity_locked(identity_id):
+            return None
+        return self.session.public_data()
+
+    async def start(self, identity, credentials):
+        self.session = _FakeLoginSession(identity.identity_id, identity.platform)
+        return self.session
+
+    async def issue_viewer_ticket(self, identity_id, session_id):
+        assert self.is_identity_locked(identity_id)
+        assert session_id == self.session.session_id
+        return "viewer-ticket"
+
+    async def capture(self, identity_id, session_id):
+        assert self.is_identity_locked(identity_id)
+        assert session_id == self.session.session_id
+        return CapturedLoginCredentials(
+            cookie="sessionid=browser-secret; msToken=browser-token",
+            user_agent="Browser Login UA",
+            cookie_count=2,
+            login_cookie_count=1,
+        )
+
+    async def stop(self, identity_id="", session_id=""):
+        if not self.session:
+            return False
+        if identity_id and identity_id != self.session.identity_id:
+            return False
+        if session_id and session_id != self.session.session_id:
+            return False
+        self.session = None
+        return True
 
 
 def _collector_test_client(tmp_path, monkeypatch):
@@ -85,6 +152,105 @@ def test_collector_identity_api_never_returns_credentials(tmp_path, monkeypatch)
     assert "cookie" not in public
     assert "proxy" not in public
     assert "device_id" not in public
+    server.collector_store.close()
+
+
+def test_collector_api_exposes_anonymous_tiktok_route_capability(tmp_path, monkeypatch):
+    server, client = _collector_test_client(tmp_path, monkeypatch)
+    headers = {"token": "collector-test-token"}
+
+    created = client.post(
+        "/ui/api/collector-identities",
+        headers=headers,
+        json={
+            "name": "TikTok Anonymous",
+            "platform": "tiktok",
+            "auth_mode": "anonymous",
+            "max_concurrency": 1,
+        },
+    )
+
+    assert created.status_code == 200, created.text
+    public = created.json()["identity"]
+    assert public["auth_mode"] == "anonymous"
+    assert public["cookie_configured"] is False
+    assert public["route_configured"] is True
+    server.collector_store.close()
+
+
+def test_collector_login_browser_captures_credentials_without_returning_secrets(
+    tmp_path,
+    monkeypatch,
+):
+    server, client = _collector_test_client(tmp_path, monkeypatch)
+    server.collector_login_browser = _FakeLoginBrowserManager()
+    headers = {"token": "collector-test-token"}
+    created = client.post(
+        "/ui/api/collector-identities",
+        headers=headers,
+        json={
+            "name": "TikTok Browser Login",
+            "platform": "tiktok",
+            "auth_mode": "authenticated",
+        },
+    )
+    identity_id = created.json()["identity"]["identity_id"]
+    assert client.put(
+        f"/ui/api/collector-identities/{identity_id}/credentials",
+        headers=headers,
+        json={"proxy": "socks5://user:password@proxy.test:1080"},
+    ).status_code == 200
+
+    started = client.post(
+        f"/ui/api/collector-identities/{identity_id}/login-browser",
+        headers=headers,
+    )
+    assert started.status_code == 200, started.text
+    assert started.json()["viewer_ticket"] == "viewer-ticket"
+    assert "password" not in started.text
+    listed = client.get("/ui/api/collector-identities", headers=headers).json()
+    assert listed["items"][0]["login_browser_active"] is True
+
+    captured = client.post(
+        f"/ui/api/collector-identities/{identity_id}/login-browser/"
+        "lb_api_test/capture",
+        headers=headers,
+    )
+    assert captured.status_code == 200, captured.text
+    assert captured.json()["cookie_count"] == 2
+    assert "browser-secret" not in captured.text
+    assert "browser-token" not in captured.text
+    credentials = server.collector_store.load_credentials(identity_id)
+    assert credentials.cookie == "sessionid=browser-secret; msToken=browser-token"
+    assert credentials.user_agent == "Browser Login UA"
+    assert credentials.proxy == "socks5://user:password@proxy.test:1080"
+    assert captured.json()["identity"]["login_browser_active"] is False
+    server.collector_store.close()
+
+
+def test_anonymous_identity_rejects_interactive_login_browser(tmp_path, monkeypatch):
+    server, client = _collector_test_client(tmp_path, monkeypatch)
+    server.collector_login_browser = _FakeLoginBrowserManager()
+    headers = {"token": "collector-test-token"}
+    created = client.post(
+        "/ui/api/collector-identities",
+        headers=headers,
+        json={
+            "name": "TikTok Anonymous",
+            "platform": "tiktok",
+            "auth_mode": "anonymous",
+            "max_concurrency": 1,
+        },
+    )
+    identity_id = created.json()["identity"]["identity_id"]
+
+    response = client.post(
+        f"/ui/api/collector-identities/{identity_id}/login-browser",
+        headers=headers,
+    )
+
+    assert response.status_code == 400
+    assert "anonymous" in response.json()["detail"]
     server.collector_store.close()
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 IDENTITY_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,63}$"
@@ -13,6 +13,12 @@ TARGET_TYPE_PATTERN = r"^[a-z][a-z0-9_-]{0,31}$"
 class CollectorPlatform(StrEnum):
     DOUYIN = "douyin"
     TIKTOK = "tiktok"
+
+
+class CollectorAuthMode(StrEnum):
+    AUTHENTICATED = "authenticated"
+    ADULT_AUTHENTICATED = "adult_authenticated"
+    ANONYMOUS = "anonymous"
 
 
 class RoutingStrategy(StrEnum):
@@ -52,10 +58,25 @@ class CollectorIdentity(BaseModel):
     identity_id: str = Field(pattern=IDENTITY_ID_PATTERN)
     name: str = Field(min_length=1, max_length=80)
     platform: CollectorPlatform
+    auth_mode: CollectorAuthMode = CollectorAuthMode.AUTHENTICATED
     enabled: bool = True
     weight: float = Field(default=1.0, gt=0, le=100)
     request_delay: float = Field(default=6.0, ge=0, le=3600)
     max_concurrency: int = Field(default=1, ge=1, le=16)
+
+    @model_validator(mode="after")
+    def validate_auth_mode(self) -> "CollectorIdentity":
+        if (
+            self.platform != CollectorPlatform.TIKTOK
+            and self.auth_mode != CollectorAuthMode.AUTHENTICATED
+        ):
+            raise ValueError("non-TikTok identities must use authenticated mode")
+        if (
+            self.auth_mode == CollectorAuthMode.ANONYMOUS
+            and self.max_concurrency != 1
+        ):
+            raise ValueError("anonymous TikTok identities require max_concurrency=1")
+        return self
 
 
 class CollectorCredentials(BaseModel):
@@ -102,6 +123,7 @@ class CollectorRuntimeState(BaseModel):
     consecutive_failures: int = Field(default=0, ge=0)
     total_successes: int = Field(default=0, ge=0)
     total_failures: int = Field(default=0, ge=0)
+    risk_failures: int = Field(default=0, ge=0)
     cooldown_until: str = ""
     last_validated_at: str = ""
     last_success_at: str = ""
@@ -117,6 +139,7 @@ class CollectorIdentityPublic(BaseModel):
     identity_id: str = Field(pattern=IDENTITY_ID_PATTERN)
     name: str
     platform: CollectorPlatform
+    auth_mode: CollectorAuthMode = CollectorAuthMode.AUTHENTICATED
     enabled: bool
     weight: float
     request_delay: float
@@ -126,10 +149,17 @@ class CollectorIdentityPublic(BaseModel):
     proxy_configured: bool = False
     user_agent_configured: bool = False
     device_id_configured: bool = False
+    route_configured: bool = False
     status: IdentityStatus = IdentityStatus.UNTESTED
     active_leases: int = 0
+    consecutive_failures: int = 0
+    total_successes: int = 0
+    total_failures: int = 0
+    risk_failures: int = 0
     cooldown_until: str = ""
     last_validated_at: str = ""
+    last_success_at: str = ""
+    last_failure_at: str = ""
     last_error_code: str = ""
     created_at: str = ""
     updated_at: str = ""

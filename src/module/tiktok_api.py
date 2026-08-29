@@ -919,6 +919,43 @@ class TikTokAPIBridge:
             return await self._run_with_shared_api(starting_url, callback)
         return await self._run_with_fresh_api(starting_url, callback)
 
+    async def bootstrap_anonymous_session(
+        self,
+        starting_url: str = "https://www.tiktok.com/",
+    ) -> dict[str, Any]:
+        """Create or reuse an anonymous browser session for direct Web API calls.
+
+        Cookie values are returned only to the identity-scoped runtime. They are
+        intentionally not logged or persisted in the collector credential vault;
+        CloakBrowser's dedicated profile owns persistence across runs.
+        """
+
+        async def collect(api):
+            sessions = list(getattr(api, "sessions", []) or [])
+            if not sessions:
+                raise RuntimeError(_("TikTok 匿名会话未创建"))
+            session = sessions[0]
+            cookies = {
+                str(key): str(value)
+                for key, value in (await api.get_session_cookies(session)).items()
+                if value not in (None, "")
+            }
+            if not cookies.get("msToken"):
+                raise RuntimeError(_("TikTok 匿名会话未获取到 msToken"))
+            page = getattr(session, "page", None)
+            user_agent = ""
+            if page is not None:
+                user_agent = str(
+                    await page.evaluate("() => navigator.userAgent") or ""
+                )
+            return {
+                "cookies": cookies,
+                "user_agent": user_agent,
+                "params": dict(getattr(session, "params", {}) or {}),
+            }
+
+        return await self._run_with_api(starting_url, collect)
+
     async def capture_debug_artifacts(
         self,
         output_dir: Path,

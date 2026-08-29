@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from platform import system
 from re import findall
@@ -632,6 +632,304 @@ class TikTok:
                 sec_user_id = await self.links.run(sec_user_id, "user")
         return sec_user_id[0] if len(sec_user_id) > 0 else ""
 
+    def _reset_account_diagnostics(self) -> None:
+        self._account_info_diagnostic = {}
+        self._account_items_diagnostic = {}
+
+    @staticmethod
+    def _api_request_diagnostic(api: API) -> dict:
+        error = getattr(api, "last_request_error", None)
+        response = getattr(error, "response", None)
+        http_status = getattr(response, "status_code", None)
+        if http_status is None:
+            http_status = getattr(error, "status_code", None)
+        try:
+            http_status = int(http_status) if http_status is not None else None
+        except (TypeError, ValueError):
+            http_status = None
+        payload = getattr(api, "last_response_payload", None)
+        payload = payload if isinstance(payload, dict) else {}
+        api_status = payload.get("status_code")
+        if api_status is None:
+            api_status = payload.get("statusCode")
+        try:
+            api_status = int(api_status) if api_status is not None else None
+        except (TypeError, ValueError):
+            api_status = None
+        api_message = next(
+            (
+                str(payload.get(key) or "").strip()
+                for key in (
+                    "status_msg",
+                    "status_message",
+                    "message",
+                    "description",
+                )
+                if str(payload.get(key) or "").strip()
+            ),
+            "",
+        )
+        return {
+            "_error": error,
+            "error_type": type(error).__name__ if error is not None else "",
+            "http_status": http_status,
+            "api_status": api_status,
+            "api_message": api_message[:240],
+        }
+
+    @staticmethod
+    def _account_outcome(
+        *,
+        ok: bool,
+        code: str,
+        reason: str = "",
+        category: str = "",
+        terminal_status: str = "failed",
+        retryable: bool = False,
+        cross_identity: bool = False,
+        affects_identity_health: bool = False,
+        context: dict | None = None,
+    ) -> dict:
+        return {
+            "ok": bool(ok),
+            "outcome_code": str(code or "unknown"),
+            "reason": str(reason or ""),
+            "failure_category": str(category or ""),
+            "terminal_status": terminal_status,
+            "retryable": bool(retryable),
+            "cross_identity": bool(cross_identity),
+            "affects_identity_health": bool(affects_identity_health),
+            "context": context if isinstance(context, dict) else {},
+        }
+
+    @staticmethod
+    def _optional_nonnegative_int(value: Any) -> int | None:
+        try:
+            result = int(value)
+        except (TypeError, ValueError):
+            return None
+        return result if result >= 0 else None
+
+    @classmethod
+    def _account_profile_meta(cls, info: dict, tiktok: bool) -> dict:
+        source = info if isinstance(info, dict) else {}
+        if tiktok and isinstance(source.get("user"), dict):
+            source = source["user"]
+        private = any(
+            value is True or value == 1 or str(value).strip().lower() == "true"
+            for value in (
+                source.get("secret"),
+                source.get("is_private"),
+                source.get("private_account"),
+                source.get("is_secret"),
+            )
+        )
+        follow_status = cls._optional_nonnegative_int(source.get("follow_status"))
+        followed = bool(source.get("is_following")) or follow_status in {1, 2}
+        return {
+            "nickname": str(source.get("nickname") or "").strip(),
+            "aweme_count": cls._optional_nonnegative_int(
+                source.get("aweme_count", source.get("videoCount"))
+            ),
+            "private": private,
+            "followed": followed,
+            "follow_status": follow_status,
+        }
+
+    @classmethod
+    def _request_failure_outcome(cls, diagnostic: dict) -> dict | None:
+        diagnostic = diagnostic if isinstance(diagnostic, dict) else {}
+        http_status = diagnostic.get("http_status")
+        error_type = str(diagnostic.get("error_type") or "").lower()
+        api_status = diagnostic.get("api_status")
+        api_message = str(diagnostic.get("api_message") or "").strip()
+        if http_status in {401, 403}:
+            return cls._account_outcome(
+                ok=False,
+                code="identity_forbidden",
+                reason=_(
+                    "HTTP {status}：Cookie、采集身份或账号访问权限无效"
+                ).format(status=http_status),
+                category="identity",
+                retryable=True,
+                cross_identity=True,
+                affects_identity_health=True,
+            )
+        if http_status == 429:
+            return cls._account_outcome(
+                ok=False,
+                code="rate_limited",
+                reason=_("HTTP 429：采集身份触发频率限制"),
+                category="identity",
+                retryable=True,
+                cross_identity=True,
+                affects_identity_health=True,
+            )
+        if http_status is not None and http_status >= 500:
+            return cls._account_outcome(
+                ok=False,
+                code="upstream_unavailable",
+                reason=_("平台接口暂时不可用（HTTP {status}）").format(
+                    status=http_status
+                ),
+                category="network",
+                retryable=True,
+                cross_identity=True,
+                affects_identity_health=True,
+            )
+        if "timeout" in error_type:
+            return cls._account_outcome(
+                ok=False,
+                code="request_timeout",
+                reason=_("账号采集请求超时"),
+                category="network",
+                retryable=True,
+                cross_identity=True,
+                affects_identity_health=True,
+            )
+        if any(hint in error_type for hint in ("network", "request", "connect")):
+            return cls._account_outcome(
+                ok=False,
+                code="network_error",
+                reason=_("账号采集网络请求失败"),
+                category="network",
+                retryable=True,
+                cross_identity=True,
+                affects_identity_health=True,
+            )
+        if api_status not in {None, 0}:
+            risk = any(
+                hint in api_message.lower()
+                for hint in ("risk", "verify", "captcha", "风控", "验证")
+            )
+            return cls._account_outcome(
+                ok=False,
+                code="risk_control" if risk else "api_rejected",
+                reason=(
+                    _("平台接口触发风控或验证（业务状态 {status}）")
+                    if risk
+                    else _("平台接口拒绝账号作品请求（业务状态 {status}）")
+                ).format(status=api_status),
+                category="identity" if risk else "other",
+                retryable=True,
+                cross_identity=True,
+                affects_identity_health=True,
+            )
+        return None
+
+    def _empty_account_outcome(self, info: dict, tiktok: bool) -> dict:
+        for diagnostic in (
+            getattr(self, "_account_items_diagnostic", {}),
+            getattr(self, "_account_info_diagnostic", {}),
+        ):
+            if outcome := self._request_failure_outcome(diagnostic):
+                return outcome
+        meta = self._account_profile_meta(info, tiktok)
+        nickname = meta["nickname"].lower()
+        if any(
+            hint in nickname
+            for hint in (
+                "已注销",
+                "注销账号",
+                "account not found",
+                "user not found",
+                "deleted",
+            )
+        ):
+            return self._account_outcome(
+                ok=False,
+                code="account_deleted",
+                reason=_("账号已注销或不可访问"),
+                category="account_unavailable",
+                terminal_status="skipped",
+            )
+        if meta["private"]:
+            reason = (
+                _(
+                    "私密账号在已关注状态下仍未返回作品；可能已清空作品或当前身份会话未生效"
+                )
+                if meta["followed"]
+                else _("私密账号对当前采集身份不可见或尚未通过关注申请")
+            )
+            return self._account_outcome(
+                ok=False,
+                code=(
+                    "private_followed_empty"
+                    if meta["followed"]
+                    else "private_not_visible"
+                ),
+                reason=reason,
+                category="visibility",
+                retryable=True,
+                cross_identity=True,
+            )
+        if meta["aweme_count"] == 0:
+            return self._account_outcome(
+                ok=False,
+                code="no_works",
+                reason=_("账号资料显示暂无发布作品"),
+                category="empty",
+                terminal_status="skipped",
+            )
+        if meta["aweme_count"] is not None and meta["aweme_count"] > 0:
+            return self._account_outcome(
+                ok=False,
+                code="works_not_visible",
+                reason=_(
+                    "账号资料显示 {count} 个作品，但当前采集身份取得的作品列表为空"
+                ).format(count=meta["aweme_count"]),
+                category="visibility",
+                retryable=True,
+                cross_identity=True,
+            )
+        if not info:
+            return self._account_outcome(
+                ok=False,
+                code="profile_unavailable",
+                reason=_("账号资料和作品列表均为空，无法确认是注销、权限限制还是接口异常"),
+                category="account_unavailable",
+                retryable=True,
+                cross_identity=True,
+            )
+        return self._account_outcome(
+            ok=False,
+            code="account_items_empty",
+            reason=_("账号作品列表为空，无法确认是无作品、权限限制还是接口异常"),
+            category="other",
+            retryable=True,
+            cross_identity=True,
+        )
+
+    def _successful_account_outcome(self, context: dict) -> dict:
+        download = context.get("download", {}) if isinstance(context, dict) else {}
+        if isinstance(download, dict) and not download.get("ok", True):
+            failed_count = max(
+                0,
+                int(download.get("failed_item_count") or 0),
+            )
+            return self._account_outcome(
+                ok=False,
+                code="download_failed",
+                reason=_("作品列表采集成功，但有 {count} 个作品文件下载失败").format(
+                    count=failed_count
+                ),
+                category="download",
+                retryable=True,
+                context=context,
+            )
+        item_count = max(0, int(context.get("item_count") or 0))
+        return self._account_outcome(
+            ok=True,
+            code="success" if item_count else "no_matching_items",
+            reason=(
+                ""
+                if item_count
+                else _("账号可访问，但没有符合日期范围的新作品需要处理")
+            ),
+            terminal_status="success",
+            context=context,
+        )
+
     async def account_detail_inquire(
         self,
         *args,
@@ -755,9 +1053,11 @@ class TikTok:
         proxy: str = None,
         tiktok=False,
         return_context: bool = False,
+        return_outcome: bool = False,
         *args,
         **kwargs,
     ):
+        self._reset_account_diagnostics()
         self.logger.info(
             _("开始处理第 {index} 个账号").format(index=index)
             if index
@@ -786,7 +1086,8 @@ class TikTok:
                 "favorite",
                 "collection",
             }:
-                return None
+                outcome = self._empty_account_outcome(info or {}, tiktok)
+                return outcome if return_outcome else None
             self.logger.info(
                 _(
                     "如果账号发布作品均为共创作品且该账号均不是作品作者时，请配置已登录的 Cookie 后重新运行程序，其余情况请无视该提示！"
@@ -804,15 +1105,24 @@ class TikTok:
             **kwargs,
         )
         if not any(account_data):
-            return None
+            outcome = self._empty_account_outcome(info or {}, tiktok)
+            return outcome if return_outcome else None
         if source:
-            return self.extractor.source_date_filter(
+            result = self.extractor.source_date_filter(
                 account_data,
                 earliest,
                 latest,
                 tiktok,
             )
-        return await self._batch_process_detail(
+            if return_outcome:
+                return self._account_outcome(
+                    ok=True,
+                    code="success",
+                    terminal_status="success",
+                    context={"item_count": len(result or [])},
+                )
+            return result
+        result = await self._batch_process_detail(
             account_data,
             user_id=sec_user_id,
             mark=mark,
@@ -824,6 +1134,17 @@ class TikTok:
             info=info,
             return_context=return_context,
         )
+        if not return_outcome:
+            return result
+        if not isinstance(result, dict):
+            return self._account_outcome(
+                ok=False,
+                code="parse_failed",
+                reason=_("账号或作品数据解析失败"),
+                category="parse",
+                retryable=True,
+            )
+        return self._successful_account_outcome(result)
 
     async def _deal_account_detail_tiktok_bridge_only(
         self,
@@ -910,7 +1231,7 @@ class TikTok:
         *args,
         **kwargs,
     ):
-        return await Account(
+        collector = Account(
             self.parameter,
             cookie,
             proxy,
@@ -920,7 +1241,10 @@ class TikTok:
             latest,
             pages,
             **kwargs,
-        ).run()
+        )
+        result = await collector.run()
+        self._account_items_diagnostic = TikTok._api_request_diagnostic(collector)
+        return result
 
     async def _get_account_data_tiktok(
         self,
@@ -934,7 +1258,7 @@ class TikTok:
         *args,
         **kwargs,
     ):
-        data = await AccountTikTok(
+        collector = AccountTikTok(
             self.parameter,
             cookie,
             proxy,
@@ -944,7 +1268,9 @@ class TikTok:
             latest,
             pages,
             **kwargs,
-        ).run() or ([], "", "")
+        )
+        data = await collector.run() or ([], "", "")
+        self._account_items_diagnostic = TikTok._api_request_diagnostic(collector)
         if any(data[0]) or not self._tiktok_bridge_fallback_available():
             return data
         self.logger.info(_("旧版 TikTok 接口获取账号作品失败，尝试兼容桥回退"))
@@ -1002,12 +1328,15 @@ class TikTok:
         proxy: str = None,
         sec_user_id: Union[str, list[str]] = ...,
     ):
-        return await Info(
+        collector = Info(
             self.parameter,
             cookie,
             proxy,
             sec_user_id,
-        ).run()
+        )
+        result = await collector.run()
+        self._account_info_diagnostic = TikTok._api_request_diagnostic(collector)
+        return result
 
     async def _get_info_data_tiktok(
         self,
@@ -1017,13 +1346,15 @@ class TikTok:
         sec_user_id: Union[str] = "",
         url: str = "",
     ):
-        info = await InfoTikTok(
+        collector = InfoTikTok(
             self.parameter,
             cookie,
             proxy,
             unique_id,
             sec_user_id,
-        ).run()
+        )
+        info = await collector.run()
+        self._account_info_diagnostic = TikTok._api_request_diagnostic(collector)
         if info or not self._tiktok_bridge_fallback_available():
             return info
         self.logger.info(_("旧版 TikTok 接口获取账号信息失败，尝试兼容桥回退"))
@@ -1139,7 +1470,7 @@ class TikTok:
             name,
             mark,
         )
-        await self.download_detail_batch(
+        download_summary = await self.download_detail_batch(
             data,
             tiktok=tiktok,
             mode=mode,
@@ -1161,6 +1492,11 @@ class TikTok:
                 "latest_saved_work_at": latest_saved["at"],
                 "latest_saved_work_id": latest_saved["id"],
                 "item_count": len(data),
+                "download": (
+                    download_summary
+                    if isinstance(download_summary, dict)
+                    else {"ok": True}
+                ),
             }
         return True
 
@@ -1194,6 +1530,7 @@ class TikTok:
         try:
             published_at = datetime.fromtimestamp(
                 latest_timestamp,
+                tz=timezone.utc,
             ).astimezone().isoformat(timespec="seconds")
         except (OSError, OverflowError, ValueError):
             published_at = ""
@@ -1262,7 +1599,7 @@ class TikTok:
         collect_id: str = "",
         collect_name: str = "",
     ):
-        await self.downloader.run(
+        return await self.downloader.run(
             data,
             type_,
             tiktok,

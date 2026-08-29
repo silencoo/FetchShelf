@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 
 DEFAULT_TASK_JOURNAL_NAME = "ui_task_runtime.sqlite3"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 ACTIVE_TASK_STATUSES = frozenset(
     {
         "pending",
@@ -94,6 +94,7 @@ class TaskJournal:
                     attempts INTEGER NOT NULL DEFAULT 0,
                     identity_id TEXT NOT NULL DEFAULT '',
                     reason TEXT NOT NULL DEFAULT '',
+                    result_json TEXT NOT NULL DEFAULT '{}',
                     started_at TEXT NOT NULL DEFAULT '',
                     finished_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL,
@@ -129,6 +130,17 @@ class TaskJournal:
                     ON ui_account_activity(platform, last_status, last_checked_at);
                 """
             )
+            account_columns = {
+                str(row[1])
+                for row in self.connection.execute(
+                    "PRAGMA table_info(ui_task_accounts)"
+                ).fetchall()
+            }
+            if "result_json" not in account_columns:
+                self.connection.execute(
+                    "ALTER TABLE ui_task_accounts "
+                    "ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'"
+                )
             self.connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def close(self) -> None:
@@ -253,7 +265,7 @@ class TaskJournal:
             existing = self.connection.execute(
                 """
                 SELECT position, item_json, status, attempts, identity_id,
-                       reason, started_at, finished_at, updated_at
+                       reason, result_json, started_at, finished_at, updated_at
                 FROM ui_task_accounts
                 WHERE task_id = ?
                 ORDER BY position
@@ -266,8 +278,9 @@ class TaskJournal:
                     """
                     INSERT INTO ui_task_accounts (
                         task_id, position, item_json, status, attempts,
-                        identity_id, reason, started_at, finished_at, updated_at
-                    ) VALUES (?, ?, ?, 'pending', 0, '', '', '', '', ?)
+                        identity_id, reason, result_json, started_at,
+                        finished_at, updated_at
+                    ) VALUES (?, ?, ?, 'pending', 0, '', '', '{}', '', '', ?)
                     """,
                     [
                         (task_id, position, _json(dict(item)), now)
@@ -277,7 +290,7 @@ class TaskJournal:
                 existing = self.connection.execute(
                     """
                     SELECT position, item_json, status, attempts, identity_id,
-                           reason, started_at, finished_at, updated_at
+                           reason, result_json, started_at, finished_at, updated_at
                     FROM ui_task_accounts
                     WHERE task_id = ?
                     ORDER BY position
@@ -288,6 +301,7 @@ class TaskJournal:
 
     @staticmethod
     def _account_row(row: Row) -> dict:
+        result = _load_object(row["result_json"], {})
         return {
             "position": int(row["position"]),
             "item": _load_object(row["item_json"], {}),
@@ -295,6 +309,7 @@ class TaskJournal:
             "attempts": int(row["attempts"]),
             "identity_id": str(row["identity_id"]),
             "reason": str(row["reason"]),
+            "result": result,
             "started_at": str(row["started_at"]),
             "finished_at": str(row["finished_at"]),
             "updated_at": str(row["updated_at"]),
@@ -323,7 +338,7 @@ class TaskJournal:
             rows = self.connection.execute(
                 f"""
                 SELECT position, item_json, status, attempts, identity_id,
-                       reason, started_at, finished_at, updated_at
+                       reason, result_json, started_at, finished_at, updated_at
                 FROM ui_task_accounts
                 WHERE {where}
                 ORDER BY position
@@ -346,7 +361,7 @@ class TaskJournal:
                 """
                 UPDATE ui_task_accounts
                 SET status = 'running', attempts = attempts + 1,
-                    identity_id = ?, reason = '', started_at = ?,
+                    identity_id = ?, reason = '', result_json = '{}', started_at = ?,
                     finished_at = '', updated_at = ?
                 WHERE task_id = ? AND position = ?
                 """,
@@ -361,6 +376,7 @@ class TaskJournal:
         status: str,
         identity_id: str = "",
         reason: str = "",
+        result: dict | None = None,
     ) -> None:
         normalized_status = (
             status if status in TERMINAL_ACCOUNT_STATUSES else "failed"
@@ -370,7 +386,7 @@ class TaskJournal:
             self.connection.execute(
                 """
                 UPDATE ui_task_accounts
-                SET status = ?, identity_id = ?, reason = ?,
+                SET status = ?, identity_id = ?, reason = ?, result_json = ?,
                     finished_at = ?, updated_at = ?
                 WHERE task_id = ? AND position = ?
                 """,
@@ -378,6 +394,7 @@ class TaskJournal:
                     normalized_status,
                     identity_id,
                     reason,
+                    _json(result if isinstance(result, dict) else {}),
                     now,
                     now,
                     task_id,

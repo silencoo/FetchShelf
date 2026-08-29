@@ -2,6 +2,7 @@ from time import time
 from typing import TYPE_CHECKING, Callable, Coroutine, Type, Union
 from urllib.parse import quote, urlencode
 
+from curl_cffi.requests import AsyncSession as CurlAsyncSession
 from httpx import AsyncClient
 from rich.progress import (
     BarColumn,
@@ -10,7 +11,8 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from ..custom import PROGRESS, USERAGENT, wait
+from ..custom import IMPERSONATE, PROGRESS, wait
+from ..encrypt import DouYinParams
 from ..tools import (
     DownloaderError,
     FakeProgress,
@@ -40,7 +42,7 @@ class API:
         "channel": "channel_pc_web",
         "update_version_code": "170400",
         "pc_client_type": "1",
-        "pc_libra_divert": "Windows",
+        "pc_libra_divert": "Mac",
         "support_h265": "1",
         "support_dash": "1",
         "version_code": "290100",
@@ -49,14 +51,14 @@ class API:
         "screen_width": "1536",
         "screen_height": "864",
         "browser_language": "zh-CN",
-        "browser_platform": "Win32",
+        "browser_platform": "MacIntel",
         "browser_name": "Chrome",
-        "browser_version": "139.0.0.0",
+        "browser_version": "146.0.0.0",
         "browser_online": "true",
         "engine_name": "Blink",
-        "engine_version": "139.0.0.0",
-        "os_name": "Windows",
-        "os_version": "10",
+        "engine_version": "146.0.0.0",
+        "os_name": "Mac OS",
+        "os_version": "10.15.7",
         "cpu_core_num": "16",
         "device_memory": "8",
         "platform": "PC",
@@ -67,6 +69,17 @@ class API:
         "uifid": "",
         "msToken": "",
     }
+    impersonated_params = {
+        "pc_libra_divert": "Mac",
+        "browser_platform": "MacIntel",
+        "browser_name": "Chrome",
+        "browser_version": "146.0.0.0",
+        "engine_name": "Blink",
+        "engine_version": "146.0.0.0",
+        "os_name": "Mac OS",
+        "os_version": "10.15.7",
+    }
+    transport_impersonate = IMPERSONATE
     progress_object: Callable
 
     def __init__(
@@ -83,6 +96,7 @@ class API:
         # dictionary belonging to another collector identity.
         self.params = type(self).params.copy()
         self.params.update(getattr(params, "api_params", {}) or {})
+        self.params.update(type(self).impersonated_params)
         self.log = params.logger
         self.ab = params.ab
         self.console = params.console
@@ -94,6 +108,13 @@ class API:
         self.cookie = cookie
         self.client: AsyncClient = params.client
         self._client_proxy = getattr(params, "proxy", None)
+        self.last_request_error: Exception | None = None
+        self.last_response_payload: dict | None = None
+        self.douyin_params = (
+            None
+            if "ABogus" in getattr(params, "_external_signers", set())
+            else DouYinParams()
+        )
         self.pages = 99999
         self.cursor = 0
         self.response = []
@@ -180,14 +201,16 @@ class API:
         *args,
         **kwargs,
     ):
-        if data := await self.request_data(
+        data = await self.request_data(
             self.api,
             params=params() or self.__generate_params(),
             data=data() or self.generate_data(),
             method=method,
             headers=headers,
             finished=True,
-        ):
+        )
+        self.last_response_payload = data if isinstance(data, dict) else None
+        if data:
             self.check_response(
                 data, data_key, error_text, cursor, has_more, *args, **kwargs
             )
@@ -336,6 +359,15 @@ class API:
             headers,
             **kwargs,
         )
+        if self.transport_impersonate:
+            response = await self._request_impersonated(
+                "GET",
+                url,
+                params,
+                headers,
+                **kwargs,
+            )
+            return await self.__return_response(response)
         client = self.client
         owned_client = None
         if self.proxy != self._client_proxy:
@@ -369,6 +401,15 @@ class API:
             headers,
             **kwargs,
         )
+        if self.transport_impersonate:
+            response = await self._request_impersonated(
+                "GET",
+                url,
+                params,
+                headers,
+                **kwargs,
+            )
+            return await self.__return_response(response)
         response = await self.client.get(
             f"{url}?{params}",
             headers=headers,
@@ -388,6 +429,16 @@ class API:
             headers,
             **kwargs,
         )
+        if self.transport_impersonate:
+            response = await self._request_impersonated(
+                "POST",
+                url,
+                params,
+                headers,
+                data=data,
+                **kwargs,
+            )
+            return await self.__return_response(response)
         client = self.client
         owned_client = None
         if self.proxy != self._client_proxy:
@@ -417,6 +468,16 @@ class API:
             headers,
             **kwargs,
         )
+        if self.transport_impersonate:
+            response = await self._request_impersonated(
+                "POST",
+                url,
+                params,
+                headers,
+                data=data,
+                **kwargs,
+            )
+            return await self.__return_response(response)
         response = await self.client.post(
             f"{url}?{params}",
             data=data,
@@ -424,6 +485,35 @@ class API:
             **kwargs,
         )
         return await self.__return_response(response)
+
+    async def _request_impersonated(
+        self,
+        method: str,
+        url: str,
+        params: str,
+        headers: dict,
+        data: dict | str | None = None,
+        **kwargs,
+    ):
+        request_headers = {
+            key: value
+            for key, value in headers.items()
+            if key.lower() != "user-agent"
+        }
+        proxy = self.proxy if self.proxy is not None else self._client_proxy
+        async with CurlAsyncSession() as client:
+            return await client.request(
+                method,
+                f"{url}?{params}",
+                data=data,
+                headers=request_headers,
+                proxy=proxy,
+                impersonate=self.transport_impersonate,
+                allow_redirects=True,
+                verify=False,
+                timeout=self.timeout,
+                **kwargs,
+            )
 
     async def __return_response(self, response):
         self.log.info(f"Response URL: {response.url}", False)
@@ -463,16 +553,28 @@ class API:
         **kwargs,
     ) -> str:
         if params:
+            params = params.copy()
+            ms_token = str(
+                params.pop("msToken", "") or self.params.get("msToken", "")
+            )
             params = urlencode(
                 params,
                 safe="=",
                 quote_via=quote,
             )
+            effective_user_agent = user_agent or self.headers.get("User-Agent", "")
+            if (douyin_params := getattr(self, "douyin_params", None)) is not None:
+                return douyin_params.sign_url(
+                    query=params,
+                    data=data,
+                    method=method,
+                    user_agent=effective_user_agent,
+                )
             params += "&a_bogus=" + self.ab.get_value(
                 query=params,
                 data=data,
                 method=method,
-                user_agent=user_agent or self.headers.get("User-Agent", ""),
+                user_agent=effective_user_agent,
             )
             return params
         return ""
@@ -534,6 +636,8 @@ class API:
 
 
 class APITikTok(API):
+    impersonated_params = {}
+    transport_impersonate = IMPERSONATE
     domain = "https://www.tiktok.com/"
     short_domain = ""
     referer = f"{domain}explore"
@@ -583,6 +687,7 @@ class APITikTok(API):
         self.params.update(getattr(params, "api_params_tiktok", {}) or {})
         self.xb = params.xb
         self.xg = params.xg
+        self.tiktok_params = params.tiktok_params
         self.headers = params.headers_tiktok.copy()
         self.cookie = cookie
         self.client: AsyncClient = params.client_tiktok
@@ -622,12 +727,24 @@ class APITikTok(API):
         **kwargs,
     ) -> str:
         if params:
+            ms_token = str(params.get("msToken", "") or self.params.get("msToken", ""))
+            if self.tiktok_params.available:
+                params = params.copy()
+                params.pop("msToken", None)
             params = urlencode(
                 params,
                 safe="=",
                 quote_via=quote,
             )
             effective_user_agent = user_agent or self.headers.get("User-Agent", "")
+            if self.tiktok_params.available:
+                return self.tiktok_params.sign_url(
+                    query=params,
+                    data=data,
+                    method=method,
+                    user_agent=effective_user_agent,
+                    ms_token=ms_token,
+                )
             xb = self.xb.get_x_bogus(
                 query=params,
                 data=data,

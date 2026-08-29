@@ -7,8 +7,13 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from ..encrypt import ABogus, XBogus, XGnarly
 from ..module import TikTokAPIBridge
-from ..tools import cookie_str_to_dict, create_client
-from .models import CollectorCredentials, CollectorIdentity, CollectorPlatform
+from ..tools import cookie_dict_to_str, cookie_str_to_dict, create_client
+from .models import (
+    CollectorAuthMode,
+    CollectorCredentials,
+    CollectorIdentity,
+    CollectorPlatform,
+)
 
 if TYPE_CHECKING:
     from httpx import AsyncClient
@@ -36,6 +41,7 @@ _DOUYIN_PARAM_FIELDS = (
     "engine_version",
     "os_name",
     "os_version",
+    "msToken",
 )
 
 _TIKTOK_PARAM_FIELDS = (
@@ -76,6 +82,36 @@ class CollectorRuntimeContext:
     parameter: "Parameter"
     owned_client: "AsyncClient"
 
+    async def prepare(self) -> None:
+        """Prepare browser-owned anonymous state before constructing a worker."""
+        if not (
+            self.identity.platform == CollectorPlatform.TIKTOK
+            and self.identity.auth_mode == CollectorAuthMode.ANONYMOUS
+        ):
+            return
+        session = await TikTokAPIBridge(
+            self.parameter,
+            proxy=self.credentials.proxy or None,
+        ).bootstrap_anonymous_session()
+        cookies = dict(session["cookies"])
+        cookie_header = cookie_dict_to_str(cookies)
+        self.parameter.cookie_dict_tiktok = cookies
+        self.parameter.cookie_str_tiktok = cookie_header
+        self.parameter.cookie_tiktok_state = True
+        self.parameter.ms_token_tiktok = cookies.get("msToken", "")
+        self.parameter.api_params_tiktok.update(session.get("params") or {})
+        self.parameter.api_params_tiktok["msToken"] = self.parameter.ms_token_tiktok
+        if user_agent := str(session.get("user_agent") or ""):
+            self.parameter.browser_info_tiktok["User-Agent"] = user_agent
+            for name in (
+                "headers_tiktok",
+                "headers_download_tiktok",
+                "headers_params_tiktok",
+            ):
+                getattr(self.parameter, name)["User-Agent"] = user_agent
+        for name in ("headers_tiktok", "headers_download_tiktok"):
+            getattr(self.parameter, name)["Cookie"] = cookie_header
+
     async def close(self) -> None:
         if self.identity.platform == CollectorPlatform.TIKTOK:
             await TikTokAPIBridge.close_for_params(self.parameter)
@@ -104,6 +140,12 @@ def build_collector_runtime(
     """
 
     parameter = copy(base)
+    runtime_credentials = (
+        credentials.model_copy(update={"cookie": ""})
+        if identity.platform == CollectorPlatform.TIKTOK
+        and identity.auth_mode == CollectorAuthMode.ANONYMOUS
+        else credentials
+    )
     for name in _HEADER_FIELDS:
         setattr(parameter, name, dict(getattr(base, name, {}) or {}))
     parameter.browser_info = dict(getattr(base, "browser_info", {}) or {})
@@ -113,14 +155,15 @@ def build_collector_runtime(
     parameter.api_params = {}
     parameter.api_params_tiktok = {}
     parameter.collector_identity_id = identity.identity_id
+    parameter.collector_auth_mode = identity.auth_mode.value
     parameter.request_delay = identity.request_delay
 
-    info = dict(credentials.browser_info)
-    if credentials.user_agent:
-        info["User-Agent"] = credentials.user_agent
-    if credentials.device_id:
-        info["device_id"] = credentials.device_id
-    cookie = credentials.cookie
+    info = dict(runtime_credentials.browser_info)
+    if runtime_credentials.user_agent:
+        info["User-Agent"] = runtime_credentials.user_agent
+    if runtime_credentials.device_id:
+        info["device_id"] = runtime_credentials.device_id
+    cookie = runtime_credentials.cookie
     cookie_dict = cookie_str_to_dict(cookie)
     user_agent = info.get("User-Agent") or (
         parameter.headers_tiktok.get("User-Agent", "")
@@ -130,7 +173,7 @@ def build_collector_runtime(
     owned_client = client_factory(
         user_agent=user_agent,
         timeout=parameter.timeout,
-        proxy=credentials.proxy or None,
+        proxy=runtime_credentials.proxy or None,
     )
 
     if identity.platform == CollectorPlatform.DOUYIN:
@@ -138,7 +181,7 @@ def build_collector_runtime(
         parameter.cookie_dict = cookie_dict
         parameter.cookie_str = cookie
         parameter.cookie_state = bool(cookie)
-        parameter.proxy = credentials.proxy or None
+        parameter.proxy = runtime_credentials.proxy or None
         parameter.client = owned_client
         parameter.api_params = {
             key: info[key]
@@ -146,7 +189,11 @@ def build_collector_runtime(
             if info.get(key) not in (None, "")
         }
         parameter.api_params["uifid"] = cookie_dict.get("UIFID", "")
-        parameter.api_params["msToken"] = cookie_dict.get("msToken", "")
+        # Browser HAR exports usually carry msToken in the query string rather
+        # than in Cookie.  Do not replace the token refreshed at application
+        # startup with an empty identity-scoped value.
+        if ms_token := cookie_dict.get("msToken") or info.get("msToken"):
+            parameter.api_params["msToken"] = ms_token
         for name in (
             "headers",
             "headers_download",
@@ -168,7 +215,7 @@ def build_collector_runtime(
         parameter.cookie_dict_tiktok = cookie_dict
         parameter.cookie_str_tiktok = cookie
         parameter.cookie_tiktok_state = bool(cookie)
-        parameter.proxy_tiktok = credentials.proxy or None
+        parameter.proxy_tiktok = runtime_credentials.proxy or None
         parameter.client_tiktok = owned_client
         parameter.ms_token_tiktok = cookie_dict.get("msToken", "")
         parameter.api_params_tiktok = {
@@ -208,7 +255,7 @@ def build_collector_runtime(
 
     return CollectorRuntimeContext(
         identity=identity,
-        credentials=credentials,
+        credentials=runtime_credentials,
         parameter=parameter,
         owned_client=owned_client,
     )

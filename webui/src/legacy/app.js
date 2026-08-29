@@ -24,6 +24,7 @@ import {
   KeyRound,
   Maximize2,
   Minimize2,
+  MonitorUp,
   PanelLeftClose,
   PanelLeftOpen,
   Pin,
@@ -66,6 +67,7 @@ const LUCIDE_ICONS = {
   KeyRound,
   Maximize2,
   Minimize2,
+  MonitorUp,
   PanelLeftClose,
   PanelLeftOpen,
   Pin,
@@ -124,8 +126,32 @@ const state = {
     mark: "",
   },
   selectedTaskId: "",
+  selectedTaskRenderKey: "",
+  selectedTaskStatus: "",
   taskListLoading: false,
+  taskListItems: [],
+  taskListRenderKey: "",
+  taskLastPollAt: 0,
+  taskFilter: "all",
+  taskSearch: "",
   taskAccountsLoading: false,
+  taskAccounts: {
+    page: 1,
+    pageSize: 50,
+    pages: 1,
+    status: "",
+    category: "",
+  },
+  taskAccountSelected: new Map(),
+  taskAccountVisible: [],
+  taskAccountArchive: {
+    platform: "",
+    items: [],
+    restoreFocus: null,
+    pending: false,
+  },
+  overviewLoading: false,
+  overviewRefreshTimer: null,
   settingsData: {},
   collectorIdentities: [],
   collectMonitorItems: [],
@@ -144,6 +170,15 @@ const state = {
   },
   collectorListLoading: false,
   collectorDialogRestoreFocus: null,
+  collectorLoginBrowser: {
+    identityId: "",
+    sessionId: "",
+    expiresAt: "",
+    rfb: null,
+    countdownTimer: null,
+    restoreFocus: null,
+    connecting: false,
+  },
   accountRows: {
     douyin: [],
     tiktok: [],
@@ -194,6 +229,29 @@ const state = {
     status: "all",
     sort: "configured",
     searchTimer: null,
+    restoreScrollY: null,
+  },
+  accountGallery: {
+    platform: "douyin",
+    url: "",
+    mark: "",
+    folderPath: "",
+    folderFound: false,
+    kind: "all",
+    page: 1,
+    pageSize: 24,
+    pages: 1,
+    total: 0,
+    imageTotal: 0,
+    videoTotal: 0,
+    truncated: false,
+    indexLimit: 10000,
+    items: [],
+    selectedIndex: -1,
+    loading: false,
+    requestId: 0,
+    restoreFocus: null,
+    positions: {},
   },
   accountBoardDirty: true,
   boardAvatarBatchRunning: false,
@@ -208,6 +266,35 @@ const refs = {
   applyTokenBtn: document.getElementById("apply-token-btn"),
   wsStatus: document.getElementById("ws-status"),
   apiStatus: document.getElementById("api-status"),
+  overview: document.getElementById("workbench-overview"),
+  overviewFreshness: document.getElementById("overview-freshness"),
+  overviewRefreshBtn: document.getElementById("overview-refresh-btn"),
+  overviewBackupBtn: document.getElementById("overview-backup-btn"),
+  overviewIntegrityBtn: document.getElementById("overview-integrity-btn"),
+  overviewMediaSize: document.getElementById("overview-media-size"),
+  overviewVideoCount: document.getElementById("overview-video-count"),
+  overviewImageCount: document.getElementById("overview-image-count"),
+  overviewFileCount: document.getElementById("overview-file-count"),
+  overviewMediaMeta: document.getElementById("overview-media-meta"),
+  overviewStoragePercent: document.getElementById("overview-storage-percent"),
+  overviewStorageFree: document.getElementById("overview-storage-free"),
+  overviewIntegrityCount: document.getElementById("overview-integrity-count"),
+  overviewCrawlStatus: document.getElementById("overview-crawl-status"),
+  overviewCrawlProgressBlock: document.getElementById("overview-crawl-progress-block"),
+  overviewCrawlTask: document.getElementById("overview-crawl-task"),
+  overviewCrawlProgressValue: document.getElementById("overview-crawl-progress-value"),
+  overviewCrawlProgress: document.getElementById("overview-crawl-progress"),
+  overviewCrawlStarted: document.getElementById("overview-crawl-started"),
+  overviewCrawlFinished: document.getElementById("overview-crawl-finished"),
+  overviewCrawlMeta: document.getElementById("overview-crawl-meta"),
+  overviewCollectorTotal: document.getElementById("overview-collector-total"),
+  overviewCollectorRoutable: document.getElementById("overview-collector-routable"),
+  overviewCollectorProxy: document.getElementById("overview-collector-proxy"),
+  overviewCollectorLeases: document.getElementById("overview-collector-leases"),
+  overviewCollectorRisk: document.getElementById("overview-collector-risk"),
+  overviewCollectorCooldown: document.getElementById("overview-collector-cooldown"),
+  overviewCollectorMeta: document.getElementById("overview-collector-meta"),
+  overviewIdentityHealth: document.getElementById("overview-identity-health"),
 
   settingsForm: document.getElementById("settings-form"),
   settingsReloadBtn: document.getElementById("settings-reload-btn"),
@@ -321,6 +408,8 @@ const refs = {
   boardDensityLabel: document.getElementById("board-density-label"),
   boardPrevBtn: document.getElementById("board-prev-btn"),
   boardNextBtn: document.getElementById("board-next-btn"),
+  boardPageInput: document.getElementById("board-page-input"),
+  boardPageJumpBtn: document.getElementById("board-page-jump-btn"),
   boardReloadBtn: document.getElementById("board-reload-btn"),
   boardAvatarPageBtn: document.getElementById("board-avatar-page-btn"),
   boardAvatarAllBtn: document.getElementById("board-avatar-all-btn"),
@@ -328,6 +417,28 @@ const refs = {
   boardMeta: document.getElementById("board-meta"),
   boardStatus: document.getElementById("board-status"),
   boardGrid: document.getElementById("board-grid"),
+  accountGalleryDialog: document.getElementById("account-gallery-dialog"),
+  accountGalleryTitle: document.getElementById("account-gallery-title"),
+  accountGalleryMeta: document.getElementById("account-gallery-meta"),
+  accountGalleryAccountLink: document.getElementById("account-gallery-account-link"),
+  accountGalleryCloseBtn: document.getElementById("account-gallery-close-btn"),
+  accountGalleryKind: document.getElementById("account-gallery-kind"),
+  accountGalleryPageSize: document.getElementById("account-gallery-page-size"),
+  accountGalleryReloadBtn: document.getElementById("account-gallery-reload-btn"),
+  accountGalleryCounts: document.getElementById("account-gallery-counts"),
+  accountGalleryStage: document.getElementById("account-gallery-stage"),
+  accountGalleryMediaPrevBtn: document.getElementById("account-gallery-media-prev-btn"),
+  accountGalleryMediaNextBtn: document.getElementById("account-gallery-media-next-btn"),
+  accountGallerySelectionName: document.getElementById("account-gallery-selection-name"),
+  accountGallerySelectionMeta: document.getElementById("account-gallery-selection-meta"),
+  accountGalleryPinBtn: document.getElementById("account-gallery-pin-btn"),
+  accountGalleryOpenLink: document.getElementById("account-gallery-open-link"),
+  accountGalleryGrid: document.getElementById("account-gallery-grid"),
+  accountGalleryPrevBtn: document.getElementById("account-gallery-prev-btn"),
+  accountGalleryNextBtn: document.getElementById("account-gallery-next-btn"),
+  accountGalleryPageInput: document.getElementById("account-gallery-page-input"),
+  accountGalleryPageJumpBtn: document.getElementById("account-gallery-page-jump-btn"),
+  accountGalleryPageMeta: document.getElementById("account-gallery-page-meta"),
 
   logStream: document.getElementById("log-stream"),
   logsAutoscroll: document.getElementById("logs-autoscroll"),
@@ -490,14 +601,31 @@ const refs = {
   collectorIdentityId: document.getElementById("collector-identity-id"),
   collectorIdentityName: document.getElementById("collector-identity-name"),
   collectorIdentityPlatform: document.getElementById("collector-identity-platform"),
+  collectorTikTokAuthFields: document.getElementById("collector-tiktok-auth-fields"),
+  collectorIdentityAuthMode: document.getElementById("collector-identity-auth-mode"),
+  collectorIdentityAuthModeHelp: document.getElementById("collector-identity-auth-mode-help"),
   collectorIdentityWeight: document.getElementById("collector-identity-weight"),
   collectorIdentityDelay: document.getElementById("collector-identity-delay"),
   collectorIdentityConcurrency: document.getElementById("collector-identity-concurrency"),
   collectorIdentityEnabled: document.getElementById("collector-identity-enabled"),
   collectorIdentityCookie: document.getElementById("collector-identity-cookie"),
+  collectorIdentityCookieLabel: document.getElementById("collector-identity-cookie-label"),
+  collectorIdentityCookieHelp: document.getElementById("collector-identity-cookie-help"),
   collectorIdentityProxy: document.getElementById("collector-identity-proxy"),
   collectorIdentityDeviceId: document.getElementById("collector-identity-device-id"),
   collectorIdentityUserAgent: document.getElementById("collector-identity-user-agent"),
+  collectorLoginBrowserDialog: document.getElementById("collector-login-browser-dialog"),
+  collectorLoginBrowserTitle: document.getElementById("collector-login-browser-title"),
+  collectorLoginBrowserIdentity: document.getElementById("collector-login-browser-identity"),
+  collectorLoginBrowserExpiry: document.getElementById("collector-login-browser-expiry"),
+  collectorLoginBrowserViewport: document.getElementById("collector-login-browser-viewport"),
+  collectorLoginBrowserOverlay: document.getElementById("collector-login-browser-overlay"),
+  collectorLoginBrowserStatus: document.getElementById("collector-login-browser-status"),
+  collectorLoginBrowserCloseBtn: document.getElementById("collector-login-browser-close-btn"),
+  collectorLoginBrowserReconnectBtn: document.getElementById("collector-login-browser-reconnect-btn"),
+  collectorLoginBrowserFullscreenBtn: document.getElementById("collector-login-browser-fullscreen-btn"),
+  collectorLoginBrowserStopBtn: document.getElementById("collector-login-browser-stop-btn"),
+  collectorLoginBrowserSaveBtn: document.getElementById("collector-login-browser-save-btn"),
   collectorTikTokCredentialFields: document.getElementById("collector-tiktok-credential-fields"),
 
   taskEndpoint: document.getElementById("task-endpoint"),
@@ -508,6 +636,7 @@ const refs = {
   taskRunBtn: document.getElementById("task-run-btn"),
   taskLabStatus: document.getElementById("task-lab-status"),
   taskCopyBtn: document.getElementById("task-copy-btn"),
+  taskRawResult: document.getElementById("task-raw-result"),
   taskStatus: document.getElementById("task-status"),
   taskSummary: document.getElementById("task-summary"),
   taskProgressBlock: document.getElementById("task-progress-block"),
@@ -519,9 +648,33 @@ const refs = {
   taskAccountSummary: document.getElementById("task-account-summary"),
   taskAccountList: document.getElementById("task-account-list"),
   taskAccountRefreshBtn: document.getElementById("task-account-refresh-btn"),
+  taskAccountStatusFilter: document.getElementById("task-account-status-filter"),
+  taskAccountCategoryFilter: document.getElementById("task-account-category-filter"),
+  taskAccountRetryCategoryBtn: document.getElementById("task-account-retry-category-btn"),
+  taskAccountExportBtn: document.getElementById("task-account-export-btn"),
+  taskAccountSelectionStatus: document.getElementById("task-account-selection-status"),
+  taskAccountSelectPageBtn: document.getElementById("task-account-select-page-btn"),
+  taskAccountClearSelectionBtn: document.getElementById("task-account-clear-selection-btn"),
+  taskAccountOpenSelectedBtn: document.getElementById("task-account-open-selected-btn"),
+  taskAccountArchiveSelectedBtn: document.getElementById("task-account-archive-selected-btn"),
+  taskAccountCategorySummary: document.getElementById("task-account-category-summary"),
+  taskAccountPrevBtn: document.getElementById("task-account-prev-btn"),
+  taskAccountNextBtn: document.getElementById("task-account-next-btn"),
+  taskAccountPageInput: document.getElementById("task-account-page-input"),
+  taskAccountPageJumpBtn: document.getElementById("task-account-page-jump-btn"),
+  taskAccountPageMeta: document.getElementById("task-account-page-meta"),
+  taskAccountArchiveDialog: document.getElementById("task-account-archive-dialog"),
+  taskAccountArchiveTitle: document.getElementById("task-account-archive-title"),
+  taskAccountArchiveSummary: document.getElementById("task-account-archive-summary"),
+  taskAccountArchiveStatus: document.getElementById("task-account-archive-status"),
+  taskAccountArchiveCloseBtn: document.getElementById("task-account-archive-close-btn"),
+  taskAccountArchiveCancelBtn: document.getElementById("task-account-archive-cancel-btn"),
+  taskAccountArchiveConfirmBtn: document.getElementById("task-account-archive-confirm-btn"),
   taskResult: document.getElementById("task-result"),
   taskQueueRefreshBtn: document.getElementById("task-queue-refresh-btn"),
   taskQueueMeta: document.getElementById("task-queue-meta"),
+  taskFilterGroup: document.getElementById("task-filter-group"),
+  taskSearchInput: document.getElementById("task-search-input"),
   taskQueueList: document.getElementById("task-queue-list"),
 };
 
@@ -703,6 +856,8 @@ const ACTIVE_TAB_STORAGE_KEY = "webui.active.tab";
 const LOG_DEBUG_STORAGE_KEY = "webui.logs.debug";
 const BOARD_COLUMNS_STORAGE_KEY = "webui.board.columns";
 const BOARD_VIEW_MODE_STORAGE_KEY = "webui.board.view_mode";
+const BOARD_STATE_STORAGE_KEY = "webui.board.state.v1";
+const GALLERY_STATE_STORAGE_KEY = "webui.gallery.state.v1";
 const TOKEN_STORAGE_KEY = "webui.api.token";
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "webui.sidebar.collapsed";
 
@@ -1069,6 +1224,9 @@ function switchTab(tab) {
   const nextTab = refs.tabButtons.some((button) => button.dataset.tabTarget === tab)
     ? tab
     : fallbackTab;
+  if (state.activeTab === "profiles" && nextTab !== "profiles") {
+    persistAccountBoardState();
+  }
   state.activeTab = nextTab;
   document.querySelectorAll(".tab-panel").forEach((panel) => {
     const isHidden = panel.dataset.tabPanel !== nextTab;
@@ -1093,13 +1251,14 @@ function switchTab(tab) {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, nextTab);
   } catch {}
   if (nextTab === "profiles" && state.accountBoardDirty) {
-    loadAccountBoard(true);
+    loadAccountBoard(false);
   }
   if (nextTab === "files") {
     updateFilesAccountContext();
   }
   if (nextTab === "workbench" && !document.hidden) {
     loadTaskList();
+    loadOverview();
   }
   if (nextTab === "collectors") {
     if (!state.collectorIdentities.length) {
@@ -3311,6 +3470,109 @@ function boardAssetUrl(path, scope = "download") {
   return `/ui/api/file?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path || "")}`;
 }
 
+function persistAccountBoardState() {
+  try {
+    localStorage.setItem(
+      BOARD_STATE_STORAGE_KEY,
+      JSON.stringify({
+        platform: state.accountBoard.platform,
+        page: state.accountBoard.page,
+        pageSize: state.accountBoard.pageSize,
+        columns: state.accountBoard.columns,
+        viewMode: state.accountBoard.viewMode,
+        refreshKind: state.accountBoard.refreshKind,
+        search: state.accountBoard.search,
+        status: state.accountBoard.status,
+        sort: state.accountBoard.sort,
+        scrollY: Math.max(0, Math.round(window.scrollY || 0)),
+      }),
+    );
+  } catch {}
+}
+
+function restoreAccountBoardState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BOARD_STATE_STORAGE_KEY) || "null");
+    if (!saved || typeof saved !== "object") {
+      return;
+    }
+    if (["douyin", "tiktok"].includes(saved.platform)) {
+      state.accountBoard.platform = saved.platform;
+    }
+    state.accountBoard.page = Math.max(1, Number(saved.page || 1));
+    if ([12, 18, 24, 36].includes(Number(saved.pageSize))) {
+      state.accountBoard.pageSize = Number(saved.pageSize);
+    }
+    state.accountBoard.columns = Math.max(1, Math.min(12, Number(saved.columns || 4)));
+    if (["avatar", "media"].includes(saved.viewMode)) {
+      state.accountBoard.viewMode = saved.viewMode;
+    }
+    if (["auto", "video", "image"].includes(saved.refreshKind)) {
+      state.accountBoard.refreshKind = saved.refreshKind;
+    }
+    state.accountBoard.search = String(saved.search || "").slice(0, 500);
+    state.accountBoard.status = String(saved.status || "all");
+    state.accountBoard.sort = String(saved.sort || "configured");
+    state.accountBoard.restoreScrollY = Math.max(0, Number(saved.scrollY || 0));
+  } catch {}
+}
+
+function jumpToValidatedPage(input, pages, onValid, onInvalid) {
+  const requested = Number(input?.value || 0);
+  if (!Number.isInteger(requested) || requested < 1 || requested > pages) {
+    onInvalid?.(`请输入 1 到 ${pages} 之间的页码`);
+    input?.focus();
+    return;
+  }
+  onValid(requested);
+}
+
+function syncNaturalMediaRatio(element, container) {
+  if (!element || !container) {
+    return;
+  }
+  const isVideo = element instanceof HTMLVideoElement;
+  const update = () => {
+    const width = Number(isVideo ? element.videoWidth : element.naturalWidth);
+    const height = Number(isVideo ? element.videoHeight : element.naturalHeight);
+    if (!(width > 0 && height > 0)) {
+      return false;
+    }
+    container.style.setProperty("--media-aspect", `${width} / ${height}`);
+    container.dataset.orientation =
+      width > height ? "landscape" : width < height ? "portrait" : "square";
+    return true;
+  };
+  state.accountBoard.restoreScrollY = Math.max(0, window.scrollY || 0);
+  persistAccountBoardState();
+  if (!update()) {
+    element.addEventListener(isVideo ? "loadedmetadata" : "load", update, { once: true });
+  }
+}
+
+function safeExternalHttpUrl(value) {
+  const input = String(value || "").trim();
+  if (!input) {
+    return "";
+  }
+  try {
+    const parsed = new URL(input);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function conciseAccountUrl(value) {
+  try {
+    const parsed = new URL(value);
+    const path = parsed.pathname.replace(/\/$/, "");
+    return `${parsed.host}${path}`;
+  } catch {
+    return String(value || "").trim();
+  }
+}
+
 function boardColumnsCap() {
   const compactMode = state.accountBoard.viewMode === "avatar";
   const viewportWidth = window.innerWidth || 1280;
@@ -3366,6 +3628,8 @@ function updateBoardMeta() {
   const countText =
     filtered === all ? `共 ${filtered} 账号` : `筛选 ${filtered} / 全部 ${all} 账号`;
   refs.boardMeta.textContent = `第 ${state.accountBoard.page} / ${state.accountBoard.pages} 页 · ${countText}`;
+  refs.boardPageInput.value = String(state.accountBoard.page);
+  refs.boardPageInput.max = String(state.accountBoard.pages);
 }
 
 function setBoardStatus(text) {
@@ -3422,8 +3686,8 @@ function selectedBoardPreview(card) {
   if (forcedMode === "avatar" && hasAvatar) {
     return avatarPreview;
   }
-  if (state.accountBoard.viewMode === "avatar" && hasAvatar) {
-    return avatarPreview;
+  if (state.accountBoard.viewMode === "avatar" && hasMedia) {
+    return mediaPreview;
   }
   if (isPinnedProfile && hasMedia) {
     return mediaPreview;
@@ -3441,6 +3705,8 @@ function selectedBoardPreview(card) {
 
 function renderBoardCardPreview(card) {
   const mediaWrap = card.querySelector(".profile-media-wrap");
+  const galleryButtons = card.querySelectorAll('[data-action="board-open-gallery"]');
+  const filesBtn = card.querySelector('[data-action="board-open-files"]');
   const pinBtn = card.querySelector('[data-action="board-pin-media"]');
   const refreshBtn = card.querySelector('[data-action="board-refresh-media"]');
   const refreshVideoBtn = card.querySelector('[data-action="board-refresh-video"]');
@@ -3509,10 +3775,19 @@ function renderBoardCardPreview(card) {
   if (avatarBtn) {
     avatarBtn.disabled = !card.dataset.mediaPath;
   }
+  for (const galleryBtn of galleryButtons) {
+    galleryBtn.disabled = !card.dataset.folderPath;
+  }
+  if (filesBtn) {
+    filesBtn.disabled = !card.dataset.folderPath;
+  }
   if (!mediaWrap) {
     return;
   }
   mediaWrap.innerHTML = "";
+  mediaWrap.style.removeProperty("--media-aspect");
+  mediaWrap.removeAttribute("data-orientation");
+  mediaWrap.classList.remove("profile-media-wrap-image", "profile-media-wrap-video");
   if (!preview.path || !preview.kind) {
     const empty = document.createElement("div");
     empty.className = "profile-empty";
@@ -3523,21 +3798,25 @@ function renderBoardCardPreview(card) {
     return;
   }
   const src = boardAssetUrl(preview.path, preview.scope || "download");
+  mediaWrap.classList.add(`profile-media-wrap-${preview.kind}`);
   if (preview.kind === "image") {
     const image = document.createElement("img");
     image.src = src;
     image.alt = card.dataset.mark || "profile";
     image.loading = "lazy";
+    image.decoding = "async";
+    syncNaturalMediaRatio(image, mediaWrap);
     mediaWrap.appendChild(image);
     return;
   }
   if (preview.kind === "video") {
     const video = document.createElement("video");
     video.src = src;
-    video.controls = true;
     video.preload = "metadata";
     video.muted = true;
     video.playsInline = true;
+    video.setAttribute("aria-hidden", "true");
+    syncNaturalMediaRatio(video, mediaWrap);
     mediaWrap.appendChild(video);
     return;
   }
@@ -3552,6 +3831,419 @@ function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
   card.dataset.mediaKind = mediaKind || "";
   card.dataset.pinned = pinned ? "1" : "0";
   renderBoardCardPreview(card);
+}
+
+function selectedAccountGalleryItem() {
+  return state.accountGallery.items[state.accountGallery.selectedIndex] || null;
+}
+
+function accountGalleryPositionKey(platform = state.accountGallery.platform, url = state.accountGallery.url) {
+  return `${platform}|${url}`;
+}
+
+function rememberAccountGalleryPosition() {
+  const gallery = state.accountGallery;
+  if (!gallery.url) {
+    return;
+  }
+  gallery.positions[accountGalleryPositionKey()] = {
+    kind: gallery.kind,
+    page: gallery.page,
+    pageSize: gallery.pageSize,
+    selectedIndex: gallery.selectedIndex,
+  };
+}
+
+function stopAccountGalleryMedia() {
+  const video = refs.accountGalleryStage?.querySelector("video");
+  if (video instanceof HTMLVideoElement) {
+    video.pause();
+  }
+}
+
+function setAccountGalleryLink(link, href) {
+  if (!link) {
+    return;
+  }
+  if (href) {
+    link.href = href;
+    link.removeAttribute("aria-disabled");
+    link.tabIndex = 0;
+    return;
+  }
+  link.removeAttribute("href");
+  link.setAttribute("aria-disabled", "true");
+  link.tabIndex = -1;
+}
+
+function setAccountGalleryEmpty(title, detail = "", stateName = "empty") {
+  stopAccountGalleryMedia();
+  refs.accountGalleryStage.innerHTML = "";
+  const empty = document.createElement("div");
+  empty.className = `account-gallery-empty account-gallery-empty-${stateName}`;
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  empty.appendChild(heading);
+  if (detail) {
+    const copy = document.createElement("span");
+    copy.textContent = detail;
+    empty.appendChild(copy);
+  }
+  refs.accountGalleryStage.appendChild(empty);
+}
+
+function updateAccountGalleryControls() {
+  const gallery = state.accountGallery;
+  const item = selectedAccountGalleryItem();
+  const selectedPosition = item
+    ? (gallery.page - 1) * gallery.pageSize + gallery.selectedIndex + 1
+    : 0;
+  refs.accountGalleryCounts.textContent = gallery.loading
+    ? "正在加载媒体…"
+    : `图片 ${gallery.imageTotal} · 视频 ${gallery.videoTotal} · 当前筛选 ${gallery.total}${gallery.truncated ? ` · 已达到 ${gallery.indexLimit} 项索引上限` : ""}`;
+  refs.accountGalleryPageMeta.textContent = `第 ${gallery.page} / ${gallery.pages} 页`;
+  refs.accountGalleryPageInput.value = String(gallery.page);
+  refs.accountGalleryPageInput.max = String(gallery.pages);
+  refs.accountGalleryPrevBtn.disabled = gallery.loading || gallery.page <= 1;
+  refs.accountGalleryNextBtn.disabled = gallery.loading || gallery.page >= gallery.pages;
+  refs.accountGalleryMediaPrevBtn.disabled =
+    gallery.loading || !item || (gallery.page <= 1 && gallery.selectedIndex <= 0);
+  refs.accountGalleryMediaNextBtn.disabled =
+    gallery.loading ||
+    !item ||
+    (gallery.page >= gallery.pages && gallery.selectedIndex >= gallery.items.length - 1);
+  refs.accountGalleryReloadBtn.disabled = gallery.loading;
+  refs.accountGalleryKind.disabled = gallery.loading;
+  refs.accountGalleryPageSize.disabled = gallery.loading;
+  refs.accountGalleryPinBtn.disabled = gallery.loading || !item;
+  refs.accountGallerySelectionName.textContent = item?.name || "尚未选择媒体";
+  refs.accountGallerySelectionMeta.textContent = item
+    ? `${kindLabel(item)} · ${formatFileSize(item.size)} · ${formatFileDate(item.modified_at)} · ${selectedPosition} / ${gallery.total}`
+    : "—";
+  setAccountGalleryLink(
+    refs.accountGalleryOpenLink,
+    item ? boardAssetUrl(item.path, "download") : "",
+  );
+}
+
+function renderAccountGalleryStage() {
+  const gallery = state.accountGallery;
+  const item = selectedAccountGalleryItem();
+  if (!item) {
+    const title = gallery.folderFound ? "当前筛选没有媒体" : "未匹配到账户目录";
+    const detail = gallery.folderFound
+      ? "切换媒体类型或刷新后再试。"
+      : "完成一次账户下载后，Gallery 会自动匹配该账户目录。";
+    setAccountGalleryEmpty(title, detail);
+    updateAccountGalleryControls();
+    return;
+  }
+
+  stopAccountGalleryMedia();
+  refs.accountGalleryStage.innerHTML = "";
+  const mediaUrl = boardAssetUrl(item.path, "download");
+  const mediaFrame = document.createElement("div");
+  mediaFrame.className = `account-gallery-media-frame account-gallery-media-frame-${item.kind}`;
+  if (item.kind === "image") {
+    const image = document.createElement("img");
+    image.src = mediaUrl;
+    image.alt = `${gallery.mark || "账户媒体"} · ${item.name || "图片"}`;
+    image.decoding = "async";
+    syncNaturalMediaRatio(image, mediaFrame);
+    mediaFrame.appendChild(image);
+    refs.accountGalleryStage.appendChild(mediaFrame);
+  } else if (item.kind === "video") {
+    const video = document.createElement("video");
+    video.src = mediaUrl;
+    video.controls = true;
+    video.preload = "metadata";
+    video.playsInline = true;
+    video.setAttribute("aria-label", item.name || "账户视频");
+    syncNaturalMediaRatio(video, mediaFrame);
+    mediaFrame.appendChild(video);
+    refs.accountGalleryStage.appendChild(mediaFrame);
+  } else {
+    setAccountGalleryEmpty("暂不支持预览该媒体", item.name || "");
+  }
+  updateAccountGalleryControls();
+}
+
+function selectAccountGalleryItem(index, { focus = false } = {}) {
+  const gallery = state.accountGallery;
+  if (!gallery.items.length) {
+    gallery.selectedIndex = -1;
+    renderAccountGalleryStage();
+    return;
+  }
+  gallery.selectedIndex = Math.max(0, Math.min(Number(index) || 0, gallery.items.length - 1));
+  for (const [thumbIndex, thumb] of Array.from(
+    refs.accountGalleryGrid.querySelectorAll(".account-gallery-thumb"),
+  ).entries()) {
+    const active = thumbIndex === gallery.selectedIndex;
+    thumb.classList.toggle("active", active);
+    if (active) {
+      thumb.setAttribute("aria-current", "true");
+    } else {
+      thumb.removeAttribute("aria-current");
+    }
+    thumb.tabIndex = active ? 0 : -1;
+    if (active && focus) {
+      thumb.focus();
+      thumb.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }
+  renderAccountGalleryStage();
+}
+
+function renderAccountGalleryGrid() {
+  const gallery = state.accountGallery;
+  refs.accountGalleryGrid.innerHTML = "";
+  if (!gallery.items.length) {
+    const empty = document.createElement("div");
+    empty.className = "account-gallery-list-empty";
+    empty.textContent = gallery.folderFound ? "此筛选暂无媒体" : "账户目录尚未建立";
+    refs.accountGalleryGrid.appendChild(empty);
+    renderAccountGalleryStage();
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  gallery.items.forEach((item, index) => {
+    const thumb = document.createElement("button");
+    thumb.type = "button";
+    thumb.className = "account-gallery-thumb";
+    thumb.setAttribute("aria-label", `${kindLabel(item)} ${item.name || "未命名媒体"}`);
+    thumb.tabIndex = index === gallery.selectedIndex ? 0 : -1;
+    if (index === gallery.selectedIndex) {
+      thumb.classList.add("active");
+      thumb.setAttribute("aria-current", "true");
+    }
+
+    const media = document.createElement("span");
+    media.className = `account-gallery-thumb-media account-gallery-thumb-media-${item.kind}`;
+    const src = boardAssetUrl(item.path, "download");
+    if (item.kind === "image") {
+      const image = document.createElement("img");
+      image.src = src;
+      image.alt = "";
+      image.loading = "lazy";
+      image.decoding = "async";
+      syncNaturalMediaRatio(image, media);
+      media.appendChild(image);
+    } else {
+      const video = document.createElement("video");
+      video.src = src;
+      video.muted = true;
+      video.preload = "metadata";
+      video.playsInline = true;
+      video.setAttribute("aria-hidden", "true");
+      syncNaturalMediaRatio(video, media);
+      media.appendChild(video);
+      const play = document.createElement("span");
+      play.className = "account-gallery-thumb-play";
+      play.innerHTML = '<i data-lucide="play"></i>';
+      media.appendChild(play);
+    }
+    const label = document.createElement("span");
+    label.className = "account-gallery-thumb-label";
+    label.textContent = item.name || "未命名媒体";
+    thumb.appendChild(media);
+    thumb.appendChild(label);
+    thumb.addEventListener("click", () => selectAccountGalleryItem(index));
+    fragment.appendChild(thumb);
+  });
+  refs.accountGalleryGrid.appendChild(fragment);
+  refreshIcons(refs.accountGalleryGrid);
+  renderAccountGalleryStage();
+}
+
+async function loadAccountGallery({ selection = "first" } = {}) {
+  const gallery = state.accountGallery;
+  if (!gallery.url) {
+    return;
+  }
+  const requestId = gallery.requestId + 1;
+  gallery.requestId = requestId;
+  gallery.loading = true;
+  gallery.items = [];
+  gallery.selectedIndex = -1;
+  refs.accountGalleryGrid.innerHTML =
+    '<div class="account-gallery-list-empty loading-state" role="status">正在建立账户媒体索引…</div>';
+  setAccountGalleryEmpty("正在加载媒体", "账户较大时可能需要几秒钟。", "loading");
+  updateAccountGalleryControls();
+  try {
+    const query = new URLSearchParams({
+      platform: gallery.platform,
+      url: gallery.url,
+      page: String(gallery.page),
+      page_size: String(gallery.pageSize),
+      kind: gallery.kind,
+    });
+    const payload = await fetchJson(`/ui/api/accounts/board/gallery?${query.toString()}`, {
+      method: "GET",
+      headers: headerOptions(false),
+    });
+    if (requestId !== gallery.requestId) {
+      return;
+    }
+    gallery.mark = payload.mark || gallery.mark;
+    gallery.folderPath = payload.folder_path || "";
+    gallery.folderFound = Boolean(payload.folder_found);
+    gallery.page = Number(payload.page || 1);
+    gallery.pageSize = Number(payload.page_size || gallery.pageSize);
+    gallery.pages = Number(payload.pages || 1);
+    gallery.total = Number(payload.total || 0);
+    gallery.imageTotal = Number(payload.image_total || 0);
+    gallery.videoTotal = Number(payload.video_total || 0);
+    gallery.truncated = Boolean(payload.truncated);
+    gallery.indexLimit = Number(payload.index_limit || 10000);
+    gallery.items = Array.isArray(payload.items) ? payload.items : [];
+    gallery.selectedIndex = gallery.items.length
+      ? typeof selection === "number"
+        ? Math.max(0, Math.min(gallery.items.length - 1, selection))
+        : selection === "last"
+          ? gallery.items.length - 1
+          : 0
+      : -1;
+    rememberAccountGalleryPosition();
+    refs.accountGalleryTitle.textContent = gallery.mark || "未设置 mark";
+    refs.accountGalleryMeta.textContent = gallery.folderFound
+      ? `${gallery.platform} · ${gallery.folderPath}`
+      : `${gallery.platform} · 尚未匹配下载目录`;
+    refs.accountGalleryKind.value = gallery.kind;
+    refs.accountGalleryPageSize.value = String(gallery.pageSize);
+    renderAccountGalleryGrid();
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    if (requestId !== gallery.requestId) {
+      return;
+    }
+    gallery.items = [];
+    gallery.selectedIndex = -1;
+    refs.accountGalleryGrid.innerHTML = "";
+    const errorState = document.createElement("div");
+    errorState.className = "account-gallery-list-empty error-state";
+    errorState.setAttribute("role", "alert");
+    errorState.textContent = `Gallery 加载失败：${error.message}`;
+    refs.accountGalleryGrid.appendChild(errorState);
+    setAccountGalleryEmpty("媒体加载失败", error.message, "error");
+    setApiStatus(`异常: ${error.message}`, "error");
+  } finally {
+    if (requestId === gallery.requestId) {
+      gallery.loading = false;
+      updateAccountGalleryControls();
+    }
+  }
+}
+
+function openAccountGallery(card, restoreFocus = document.activeElement) {
+  const url = card?.dataset?.url || "";
+  if (!url) {
+    setBoardStatus("当前卡片缺少账号 URL，无法打开 Gallery");
+    return;
+  }
+  const gallery = state.accountGallery;
+  gallery.platform = card.dataset.platform || state.accountBoard.platform;
+  gallery.url = url;
+  gallery.mark = card.dataset.mark || "";
+  gallery.folderPath = card.dataset.folderPath || "";
+  gallery.folderFound = Boolean(gallery.folderPath);
+  const savedPosition = gallery.positions[accountGalleryPositionKey(gallery.platform, url)] || {};
+  gallery.kind = savedPosition.kind || refs.accountGalleryKind?.value || "all";
+  gallery.page = Math.max(1, Number(savedPosition.page || 1));
+  gallery.pageSize = Number(
+    savedPosition.pageSize || refs.accountGalleryPageSize?.value || "24",
+  );
+  gallery.pages = 1;
+  gallery.total = 0;
+  gallery.imageTotal = 0;
+  gallery.videoTotal = 0;
+  gallery.truncated = false;
+  gallery.items = [];
+  gallery.selectedIndex = -1;
+  gallery.restoreFocus = restoreFocus instanceof HTMLElement ? restoreFocus : null;
+  refs.accountGalleryTitle.textContent = gallery.mark || "未设置 mark";
+  refs.accountGalleryMeta.textContent = `${gallery.platform} · 正在加载账户媒体`;
+  setAccountGalleryLink(refs.accountGalleryAccountLink, gallery.url);
+  if (!refs.accountGalleryDialog.open) {
+    refs.accountGalleryDialog.showModal();
+  }
+  refs.accountGalleryCloseBtn.focus();
+  loadAccountGallery({
+    selection: Math.max(0, Number(savedPosition.selectedIndex || 0)),
+  });
+}
+
+function closeAccountGallery({ restoreFocus = true } = {}) {
+  const gallery = state.accountGallery;
+  rememberAccountGalleryPosition();
+  gallery.requestId += 1;
+  gallery.loading = false;
+  stopAccountGalleryMedia();
+  if (refs.accountGalleryDialog?.open) {
+    refs.accountGalleryDialog.close();
+  }
+  const focusTarget = gallery.restoreFocus;
+  gallery.restoreFocus = null;
+  if (restoreFocus && focusTarget?.isConnected) {
+    focusTarget.focus();
+  }
+}
+
+async function moveAccountGallery(direction) {
+  const gallery = state.accountGallery;
+  if (gallery.loading || !gallery.items.length) {
+    return;
+  }
+  const nextIndex = gallery.selectedIndex + direction;
+  if (nextIndex >= 0 && nextIndex < gallery.items.length) {
+    selectAccountGalleryItem(nextIndex, { focus: true });
+    return;
+  }
+  if (direction < 0 && gallery.page > 1) {
+    gallery.page -= 1;
+    await loadAccountGallery({ selection: "last" });
+    refs.accountGalleryGrid.querySelector('[aria-current="true"]')?.focus();
+    return;
+  }
+  if (direction > 0 && gallery.page < gallery.pages) {
+    gallery.page += 1;
+    await loadAccountGallery({ selection: "first" });
+    refs.accountGalleryGrid.querySelector('[aria-current="true"]')?.focus();
+  }
+}
+
+async function pinAccountGalleryMedia() {
+  const gallery = state.accountGallery;
+  const item = selectedAccountGalleryItem();
+  if (!gallery.url || !item?.path) {
+    return;
+  }
+  try {
+    await fetchJson("/ui/api/accounts/board/pin", {
+      method: "POST",
+      headers: headerOptions(true),
+      body: JSON.stringify({
+        platform: gallery.platform,
+        url: gallery.url,
+        path: item.path,
+      }),
+    });
+    const card = collectBoardCards().find(
+      (candidate) =>
+        candidate.dataset.platform === gallery.platform &&
+        candidate.dataset.url === gallery.url,
+    );
+    if (card) {
+      card.dataset.previewMode = "media";
+      setBoardCardMedia(card, item.path, item.kind || "", true);
+    }
+    setBoardStatus(`已将 ${item.name || "当前媒体"} 设为看板媒体`);
+    setApiStatus("就绪", "ok");
+  } catch (error) {
+    setBoardStatus(`固定媒体失败: ${error.message}`);
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
 }
 
 function renderAccountBoard(items) {
@@ -3578,8 +4270,11 @@ function renderAccountBoard(items) {
     card.dataset.lastStatus = item.last_status || "never";
     card.dataset.previewMode = "";
 
-    const mediaWrap = document.createElement("div");
-    mediaWrap.className = "profile-media-wrap";
+    const mediaWrap = document.createElement("button");
+    mediaWrap.type = "button";
+    mediaWrap.className = "profile-media-wrap profile-gallery-trigger";
+    mediaWrap.dataset.action = "board-open-gallery";
+    mediaWrap.setAttribute("aria-label", `打开 ${item.mark || "该账户"} 的媒体 Gallery`);
 
     const body = document.createElement("div");
     body.className = "profile-body";
@@ -3670,8 +4365,8 @@ function renderAccountBoard(items) {
     const actions = document.createElement("div");
     actions.className = "profile-actions";
     actions.innerHTML = `
-      <button class="btn ghost profile-action-primary" type="button" data-action="board-open-files">
-        <i data-lucide="folder-open" aria-hidden="true"></i><span>文件</span>
+      <button class="btn ghost profile-action-primary" type="button" data-action="board-open-gallery">
+        <i data-lucide="eye" aria-hidden="true"></i><span>Gallery</span>
       </button>
       <button class="btn ghost profile-action-primary" type="button" data-action="board-refresh-media">
         <i data-lucide="refresh-cw" aria-hidden="true"></i><span>更新</span>
@@ -3681,6 +4376,9 @@ function renderAccountBoard(items) {
           <i data-lucide="ellipsis" aria-hidden="true"></i>
         </summary>
         <div class="profile-actions-popover" role="menu">
+          <button class="profile-menu-item" type="button" role="menuitem" data-action="board-open-files">
+            <i data-lucide="folder-open" aria-hidden="true"></i><span>浏览原始目录</span>
+          </button>
           <button class="profile-menu-item" type="button" role="menuitem" data-action="board-open-account">
             <i data-lucide="external-link" aria-hidden="true"></i><span>打开主页</span>
           </button>
@@ -3754,6 +4452,12 @@ async function loadAccountBoard(resetPage = false) {
       `已加载 ${state.accountBoard.platform} · 第 ${state.accountBoard.page}/${state.accountBoard.pages} 页`,
     );
     state.accountBoardDirty = false;
+    persistAccountBoardState();
+    if (state.accountBoard.restoreScrollY !== null) {
+      const targetScroll = state.accountBoard.restoreScrollY;
+      state.accountBoard.restoreScrollY = null;
+      window.requestAnimationFrame(() => window.scrollTo({ top: targetScroll }));
+    }
     setApiStatus("就绪", "ok");
   } catch (error) {
     refs.boardGrid.innerHTML = "";
@@ -4072,11 +4776,21 @@ function normalizeCollectorIdentity(item) {
   const platform = String(identity.platform || "douyin").toLowerCase() === "tiktok"
     ? "tiktok"
     : "douyin";
+  const requestedAuthMode = String(identity.auth_mode || "authenticated").toLowerCase();
+  const authMode = platform === "tiktok" && [
+    "anonymous",
+    "authenticated",
+    "adult_authenticated",
+  ].includes(requestedAuthMode)
+    ? requestedAuthMode
+    : "authenticated";
   const status = String(identity.status || identity.validation_status || "unknown").toLowerCase();
+  const cookieConfigured = parseBooleanValue(identity.cookie_configured, false);
   return {
     identity_id: collectorIdentityId(identity),
     name: String(identity.name || identity.label || collectorIdentityId(identity) || "未命名身份"),
     platform,
+    auth_mode: authMode,
     enabled: parseBooleanValue(identity.enabled, true),
     weight: Math.max(1, Number(identity.weight || 1)),
     request_delay: Math.max(0, Number(identity.request_delay ?? 6)),
@@ -4086,13 +4800,15 @@ function normalizeCollectorIdentity(item) {
       identity.credential_configured,
       parseBooleanValue(identity.cookie_configured, false),
     ),
-    cookie_configured: parseBooleanValue(
-      identity.cookie_configured,
-      false,
-    ),
+    cookie_configured: cookieConfigured,
     proxy_configured: parseBooleanValue(identity.proxy_configured, false),
     user_agent_configured: parseBooleanValue(identity.user_agent_configured, false),
     device_id_configured: parseBooleanValue(identity.device_id_configured, false),
+    login_browser_active: parseBooleanValue(identity.login_browser_active, false),
+    route_configured: parseBooleanValue(
+      identity.route_configured,
+      authMode === "anonymous" || cookieConfigured,
+    ),
     active_leases: Math.max(0, Number(identity.active_leases || 0)),
     cooldown_until: String(identity.cooldown_until || ""),
     last_validated_at: String(identity.last_validated_at || ""),
@@ -4126,6 +4842,14 @@ function collectorPlatformLabel(platform) {
   return platform === "tiktok" ? "TikTok" : "抖音";
 }
 
+function collectorAuthModeLabel(authMode) {
+  return {
+    anonymous: "匿名",
+    authenticated: "登录",
+    adult_authenticated: "18+ 登录",
+  }[authMode] || "登录";
+}
+
 function isFutureTimestamp(value) {
   if (!value) {
     return false;
@@ -4135,13 +4859,16 @@ function isFutureTimestamp(value) {
 }
 
 function collectorIdentityState(identity) {
+  if (identity.login_browser_active) {
+    return "login";
+  }
   if (!identity.enabled) {
     return "disabled";
   }
   if (isFutureTimestamp(identity.cooldown_until) || identity.status === "cooldown") {
     return "cooldown";
   }
-  if (!identity.cookie_configured) {
+  if (!identity.route_configured) {
     return "unconfigured";
   }
   if (["ready", "valid", "healthy", "available", "idle"].includes(identity.status)) {
@@ -4156,6 +4883,7 @@ function collectorIdentityState(identity) {
 function collectorStateLabel(value) {
   return {
     ready: "可用",
+    login: "登录中",
     disabled: "已停用",
     cooldown: "冷却中",
     unconfigured: "待配置",
@@ -4197,7 +4925,9 @@ function updateCollectorOverview() {
   const identities = state.collectorIdentities;
   const ready = identities.filter((item) => collectorIdentityState(item) === "ready").length;
   const attention = identities.filter((item) =>
-    ["cooldown", "unconfigured", "error", "unknown"].includes(collectorIdentityState(item)),
+    ["cooldown", "unconfigured", "error", "unknown", "login"].includes(
+      collectorIdentityState(item),
+    ),
   ).length;
   const leases = identities.reduce(
     (total, item) => total + Math.max(0, Number(item.active_leases || 0)),
@@ -4242,7 +4972,7 @@ function renderCollectorIdentities() {
       <div class="empty-state collector-empty-state">
         <div>
           <strong>还没有采集身份</strong>
-          <p>先为抖音或 TikTok 创建一个登录身份，再配置自动路由。</p>
+          <p>先创建抖音登录身份或 TikTok 匿名／登录身份，再配置自动路由。</p>
           <button type="button" class="btn primary" data-collector-action="create">创建第一个身份</button>
         </div>
       </div>
@@ -4275,6 +5005,19 @@ function renderCollectorIdentities() {
           identity.user_agent_configured,
         )}`
       : "";
+    const loginBrowserChip = identity.login_browser_active
+      ? collectorCredentialChip("登录浏览器运行中", true)
+      : "";
+    const loginBrowserAction = identity.auth_mode === "anonymous"
+      ? ""
+      : `<button type="button" class="btn ${
+          identity.login_browser_active ? "primary" : "ghost"
+        }" data-collector-action="login-browser">${
+          identity.login_browser_active ? "继续登录" : "登录浏览器"
+        }</button>`;
+    const authModeBadge = identity.platform === "tiktok"
+      ? `<span class="badge">${escapeHtml(collectorAuthModeLabel(identity.auth_mode))}</span>`
+      : "";
     const issue = identity.last_error_code
       ? `<p class="collector-identity-error">最近异常：${escapeHtml(identity.last_error_code)}</p>`
       : "";
@@ -4286,6 +5029,7 @@ function renderCollectorIdentities() {
         <div>
           <div class="collector-identity-badges">
             <span class="badge">${escapeHtml(collectorPlatformLabel(identity.platform))}</span>
+            ${authModeBadge}
             <span class="task-status ${collectorStateClass(visualState)}">${escapeHtml(
               collectorStateLabel(visualState),
             )}</span>
@@ -4301,9 +5045,12 @@ function renderCollectorIdentities() {
         <div><dt>最大并发</dt><dd>${identity.max_concurrency}</dd></div>
       </dl>
       <div class="collector-credential-list" aria-label="凭据配置状态">
-        ${collectorCredentialChip("Cookie", identity.cookie_configured || identity.credential_configured)}
+        ${identity.auth_mode === "anonymous"
+          ? collectorCredentialChip("Cloak 会话", true)
+          : collectorCredentialChip("Cookie", identity.cookie_configured)}
         ${collectorCredentialChip("代理", identity.proxy_configured)}
         ${tiktokChips}
+        ${loginBrowserChip}
       </div>
       <div class="collector-identity-timeline">
         <span>上次验证 ${escapeHtml(collectorTimeLabel(identity.last_validated_at))}</span>
@@ -4311,6 +5058,7 @@ function renderCollectorIdentities() {
       </div>
       ${issue}
       <div class="collector-identity-actions">
+        ${loginBrowserAction}
         <button type="button" class="btn ghost" data-collector-action="edit">编辑</button>
         <button type="button" class="btn ghost" data-collector-action="validate">验证</button>
         <button type="button" class="btn ghost" data-collector-action="proxy-test" ${
@@ -4329,11 +5077,14 @@ function renderCollectorIdentities() {
 }
 
 function collectorOptionLabel(identity) {
-  return `${identity.name} · ${collectorStateLabel(collectorIdentityState(identity))}`;
+  const authMode = identity.platform === "tiktok"
+    ? ` · ${collectorAuthModeLabel(identity.auth_mode)}`
+    : "";
+  return `${identity.name}${authMode} · ${collectorStateLabel(collectorIdentityState(identity))}`;
 }
 
 function collectorIdentityIsRoutable(identity) {
-  if (!identity?.enabled || !identity.cookie_configured) {
+  if (!identity?.enabled || !identity.route_configured || identity.login_browser_active) {
     return false;
   }
   if (isFutureTimestamp(identity.cooldown_until)) {
@@ -4509,9 +5260,31 @@ function setCollectorStatus(element, message, stateValue = "") {
 
 function syncCollectorCredentialFields() {
   const isTikTok = refs.collectorIdentityPlatform.value === "tiktok";
+  const authMode = isTikTok ? refs.collectorIdentityAuthMode.value : "authenticated";
+  const isAnonymous = authMode === "anonymous";
+  refs.collectorTikTokAuthFields.hidden = !isTikTok;
+  refs.collectorIdentityAuthMode.disabled = !isTikTok;
   refs.collectorTikTokCredentialFields.hidden = !isTikTok;
   refs.collectorIdentityDeviceId.disabled = !isTikTok;
   refs.collectorIdentityUserAgent.disabled = !isTikTok;
+  refs.collectorIdentityCookie.disabled = isAnonymous;
+  refs.collectorIdentityCookieLabel.textContent = isAnonymous
+    ? "完整 Cookie（匿名模式不使用）"
+    : "完整 Cookie（手动备用）";
+  refs.collectorIdentityCookieHelp.textContent = isAnonymous
+    ? "匿名身份会忽略已保存的登录 Cookie，由独立 Cloak profile 自动建立和复用会话。"
+    : authMode === "adult_authenticated"
+      ? "请使用已经完成年龄确认且可访问 18+ 内容的 TikTok Web Cookie。"
+      : "保存身份后可从身份卡片打开登录浏览器；也可以在这里手动粘贴 Cookie。";
+  refs.collectorIdentityAuthModeHelp.textContent = isAnonymous
+    ? "匿名身份无需 Cookie；临时会话不写入凭据库，每个身份使用独立 Cloak profile。"
+    : authMode === "adult_authenticated"
+      ? "用于可能存在年龄门槛的公开内容；平台实际权限仍以该账号状态和地区为准。"
+      : "普通登录身份可补充匿名访客不可见的公开内容，但不绕过作品隐私设置。";
+  if (isAnonymous) {
+    refs.collectorIdentityConcurrency.value = "1";
+  }
+  refs.collectorIdentityConcurrency.disabled = isAnonymous;
 }
 
 function clearCollectorCredentialInputs() {
@@ -4528,6 +5301,7 @@ function openCollectorIdentityDialog(identityId = "", trigger = document.activeE
   refs.collectorIdentityId.value = identity?.identity_id || "";
   refs.collectorIdentityName.value = identity?.name || "";
   refs.collectorIdentityPlatform.value = identity?.platform || "douyin";
+  refs.collectorIdentityAuthMode.value = identity?.auth_mode || "anonymous";
   refs.collectorIdentityPlatform.disabled = Boolean(identity);
   refs.collectorIdentityWeight.value = String(identity?.weight || 1);
   refs.collectorIdentityDelay.value = String(identity?.request_delay ?? 6);
@@ -4568,6 +5342,369 @@ function closeCollectorIdentityDialog(identityId = "") {
   }
 }
 
+function collectorLoginBrowserBaseUrl(identityId, sessionId = "") {
+  const base = `/ui/api/collector-identities/${encodeURIComponent(identityId)}/login-browser`;
+  return sessionId ? `${base}/${encodeURIComponent(sessionId)}` : base;
+}
+
+function setCollectorLoginBrowserOverlay(message, detail = "", stateValue = "loading") {
+  const overlay = refs.collectorLoginBrowserOverlay;
+  if (!overlay) {
+    return;
+  }
+  overlay.hidden = !message;
+  overlay.dataset.state = stateValue;
+  const title = overlay.querySelector("strong");
+  const description = overlay.querySelector("strong + span");
+  if (title) {
+    title.textContent = message;
+  }
+  if (description) {
+    description.textContent = detail;
+  }
+}
+
+function clearCollectorLoginBrowserCountdown() {
+  if (state.collectorLoginBrowser.countdownTimer) {
+    window.clearInterval(state.collectorLoginBrowser.countdownTimer);
+    state.collectorLoginBrowser.countdownTimer = null;
+  }
+}
+
+function updateCollectorLoginBrowserCountdown() {
+  const expiresAt = Date.parse(state.collectorLoginBrowser.expiresAt || "");
+  if (!Number.isFinite(expiresAt)) {
+    refs.collectorLoginBrowserExpiry.textContent = "20 分钟后自动停止";
+    return;
+  }
+  const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining % 60;
+  refs.collectorLoginBrowserExpiry.textContent = remaining
+    ? `剩余 ${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : "会话已到期";
+  if (!remaining) {
+    clearCollectorLoginBrowserCountdown();
+    disconnectCollectorLoginBrowserViewer();
+    refs.collectorLoginBrowserSaveBtn.disabled = true;
+    refs.collectorLoginBrowserReconnectBtn.hidden = true;
+    setCollectorLoginBrowserOverlay(
+      "登录会话已到期",
+      "返回身份卡片可以重新启动登录浏览器。",
+      "error",
+    );
+    setCollectorStatus(
+      refs.collectorLoginBrowserStatus,
+      "会话已自动回收，尚未保存新的 Cookie",
+      "error",
+    );
+  }
+}
+
+function startCollectorLoginBrowserCountdown() {
+  clearCollectorLoginBrowserCountdown();
+  updateCollectorLoginBrowserCountdown();
+  state.collectorLoginBrowser.countdownTimer = window.setInterval(
+    updateCollectorLoginBrowserCountdown,
+    1000,
+  );
+}
+
+function disconnectCollectorLoginBrowserViewer() {
+  const rfb = state.collectorLoginBrowser.rfb;
+  state.collectorLoginBrowser.rfb = null;
+  state.collectorLoginBrowser.connecting = false;
+  if (rfb) {
+    try {
+      rfb.disconnect();
+    } catch (error) {
+      console.debug("[collector-login-browser] viewer cleanup failed", error);
+    }
+  }
+  refs.collectorLoginBrowserViewport.replaceChildren();
+}
+
+async function connectCollectorLoginBrowserViewer(viewerTicket, protocolPrefix) {
+  if (!viewerTicket || !state.collectorLoginBrowser.sessionId) {
+    throw new Error("服务端未返回浏览器查看凭证");
+  }
+  disconnectCollectorLoginBrowserViewer();
+  state.collectorLoginBrowser.connecting = true;
+  refs.collectorLoginBrowserReconnectBtn.hidden = true;
+  refs.collectorLoginBrowserSaveBtn.disabled = false;
+  setCollectorLoginBrowserOverlay(
+    "正在连接身份浏览器…",
+    "浏览器画面将在连接完成后显示",
+  );
+  setCollectorStatus(refs.collectorLoginBrowserStatus, "正在建立安全查看通道…");
+
+  const { default: RFB } = await import("@novnc/novnc");
+  const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const identityId = encodeURIComponent(state.collectorLoginBrowser.identityId);
+  const sessionId = encodeURIComponent(state.collectorLoginBrowser.sessionId);
+  const wsUrl = `${scheme}//${window.location.host}/ui/ws/collector-identities/${identityId}/login-browser/${sessionId}`;
+  const rfb = new RFB(refs.collectorLoginBrowserViewport, wsUrl, {
+    wsProtocols: ["binary", `${protocolPrefix}${viewerTicket}`],
+  });
+  state.collectorLoginBrowser.rfb = rfb;
+  rfb.scaleViewport = true;
+  rfb.resizeSession = false;
+  rfb.clipViewport = false;
+  rfb.showDotCursor = true;
+  rfb.viewOnly = false;
+
+  rfb.addEventListener("connect", () => {
+    if (state.collectorLoginBrowser.rfb !== rfb) {
+      return;
+    }
+    state.collectorLoginBrowser.connecting = false;
+    setCollectorLoginBrowserOverlay("");
+    setCollectorStatus(
+      refs.collectorLoginBrowserStatus,
+      "浏览器已连接，请在画面中完成平台登录",
+      "success",
+    );
+    refs.collectorLoginBrowserViewport.focus();
+  });
+  rfb.addEventListener("disconnect", (event) => {
+    if (state.collectorLoginBrowser.rfb !== rfb) {
+      return;
+    }
+    state.collectorLoginBrowser.rfb = null;
+    state.collectorLoginBrowser.connecting = false;
+    refs.collectorLoginBrowserReconnectBtn.hidden = false;
+    setCollectorLoginBrowserOverlay(
+      "浏览器画面已断开",
+      event.detail?.clean ? "可以重新连接继续操作。" : "连接异常，可以尝试重新连接。",
+      event.detail?.clean ? "idle" : "error",
+    );
+    setCollectorStatus(
+      refs.collectorLoginBrowserStatus,
+      event.detail?.clean ? "查看通道已断开" : "浏览器连接异常",
+      event.detail?.clean ? "" : "error",
+    );
+  });
+  rfb.addEventListener("securityfailure", (event) => {
+    if (state.collectorLoginBrowser.rfb !== rfb) {
+      return;
+    }
+    setCollectorLoginBrowserOverlay(
+      "无法验证浏览器查看通道",
+      String(event.detail?.reason || "请刷新查看凭证后重试。"),
+      "error",
+    );
+  });
+}
+
+async function requestCollectorLoginBrowserTicket() {
+  const { identityId, sessionId } = state.collectorLoginBrowser;
+  if (!identityId || !sessionId) {
+    throw new Error("登录浏览器会话不存在");
+  }
+  return fetchJson(
+    `${collectorLoginBrowserBaseUrl(identityId, sessionId)}/viewer-ticket`,
+    {
+      method: "POST",
+      headers: headerOptions(false),
+    },
+  );
+}
+
+async function reconnectCollectorLoginBrowser() {
+  setCollectorLoginBrowserOverlay("正在重新连接…", "正在申请新的临时查看凭证");
+  try {
+    const payload = await requestCollectorLoginBrowserTicket();
+    await connectCollectorLoginBrowserViewer(
+      payload.viewer_ticket,
+      payload.viewer_protocol_prefix || "fetchshelf-login.",
+    );
+  } catch (error) {
+    refs.collectorLoginBrowserReconnectBtn.hidden = false;
+    setCollectorLoginBrowserOverlay(
+      "重新连接失败",
+      error.message,
+      "error",
+    );
+    setCollectorStatus(
+      refs.collectorLoginBrowserStatus,
+      `重新连接失败：${error.message}`,
+      "error",
+    );
+  }
+}
+
+async function openCollectorLoginBrowser(identity, trigger = document.activeElement) {
+  if (!identity || identity.auth_mode === "anonymous") {
+    setCollectorStatus(
+      refs.collectorListStatus,
+      "匿名身份会自动维护 Cloak 会话，不需要登录浏览器",
+      "error",
+    );
+    return;
+  }
+  state.collectorLoginBrowser.restoreFocus = trigger instanceof HTMLElement ? trigger : null;
+  state.collectorLoginBrowser.identityId = identity.identity_id;
+  state.collectorLoginBrowser.sessionId = "";
+  state.collectorLoginBrowser.expiresAt = "";
+  refs.collectorLoginBrowserTitle.textContent = "身份登录浏览器";
+  refs.collectorLoginBrowserIdentity.textContent = `${identity.name} · ${collectorPlatformLabel(
+    identity.platform,
+  )}`;
+  refs.collectorLoginBrowserExpiry.textContent = "会话准备中";
+  refs.collectorLoginBrowserSaveBtn.disabled = true;
+  refs.collectorLoginBrowserReconnectBtn.hidden = true;
+  setCollectorStatus(refs.collectorLoginBrowserStatus, "正在启动隔离浏览器…");
+  setCollectorLoginBrowserOverlay(
+    "正在启动隔离浏览器…",
+    identity.proxy_configured ? "将使用该采集身份配置的代理" : "该身份未配置代理",
+  );
+  if (!refs.collectorLoginBrowserDialog.open) {
+    refs.collectorLoginBrowserDialog.showModal();
+  }
+  try {
+    const payload = await fetchJson(
+      collectorLoginBrowserBaseUrl(identity.identity_id),
+      {
+        method: "POST",
+        headers: headerOptions(false),
+      },
+    );
+    const session = payload.session || {};
+    if (!session.session_id) {
+      throw new Error("服务端未返回登录浏览器会话");
+    }
+    state.collectorLoginBrowser.sessionId = session.session_id;
+    state.collectorLoginBrowser.expiresAt = session.expires_at || "";
+    startCollectorLoginBrowserCountdown();
+    if (session.startup_warning) {
+      setCollectorStatus(
+        refs.collectorLoginBrowserStatus,
+        session.startup_warning,
+        "error",
+      );
+    }
+    await connectCollectorLoginBrowserViewer(
+      payload.viewer_ticket,
+      payload.viewer_protocol_prefix || "fetchshelf-login.",
+    );
+    await loadCollectorIdentities({ silent: true });
+  } catch (error) {
+    refs.collectorLoginBrowserSaveBtn.disabled = true;
+    refs.collectorLoginBrowserReconnectBtn.hidden = true;
+    setCollectorLoginBrowserOverlay(
+      "身份浏览器启动失败",
+      error.message,
+      "error",
+    );
+    setCollectorStatus(
+      refs.collectorLoginBrowserStatus,
+      `启动失败：${error.message}`,
+      "error",
+    );
+  }
+}
+
+function closeCollectorLoginBrowserDialog() {
+  clearCollectorLoginBrowserCountdown();
+  disconnectCollectorLoginBrowserViewer();
+  if (refs.collectorLoginBrowserDialog.open) {
+    refs.collectorLoginBrowserDialog.close();
+  }
+  const restoreTarget = state.collectorLoginBrowser.restoreFocus;
+  state.collectorLoginBrowser.identityId = "";
+  state.collectorLoginBrowser.sessionId = "";
+  state.collectorLoginBrowser.expiresAt = "";
+  state.collectorLoginBrowser.restoreFocus = null;
+  if (restoreTarget?.isConnected) {
+    window.setTimeout(() => restoreTarget.focus(), 0);
+  } else if (refs.collectorCreateBtn?.isConnected) {
+    window.setTimeout(() => refs.collectorCreateBtn.focus(), 0);
+  }
+}
+
+async function stopCollectorLoginBrowser() {
+  const { identityId, sessionId } = state.collectorLoginBrowser;
+  if (!identityId || !sessionId) {
+    closeCollectorLoginBrowserDialog();
+    return;
+  }
+  setCollectorStatus(refs.collectorLoginBrowserStatus, "正在停止身份浏览器…");
+  try {
+    await fetchJson(collectorLoginBrowserBaseUrl(identityId, sessionId), {
+      method: "DELETE",
+      headers: headerOptions(false),
+    });
+    closeCollectorLoginBrowserDialog();
+    await loadCollectorIdentities();
+    setCollectorStatus(refs.collectorListStatus, "身份登录浏览器已停止", "success");
+  } catch (error) {
+    setCollectorStatus(
+      refs.collectorLoginBrowserStatus,
+      `停止失败：${error.message}`,
+      "error",
+    );
+  }
+}
+
+async function captureCollectorLoginBrowserCredentials() {
+  const { identityId, sessionId } = state.collectorLoginBrowser;
+  if (!identityId || !sessionId) {
+    setCollectorStatus(refs.collectorLoginBrowserStatus, "登录浏览器会话不存在", "error");
+    return;
+  }
+  setCollectorStatus(refs.collectorLoginBrowserStatus, "正在检测登录状态并加密保存 Cookie…");
+  try {
+    const payload = await fetchJson(
+      `${collectorLoginBrowserBaseUrl(identityId, sessionId)}/capture`,
+      {
+        method: "POST",
+        headers: headerOptions(false),
+      },
+    );
+    const cookieCount = Math.max(0, Number(payload.cookie_count || 0));
+    closeCollectorLoginBrowserDialog();
+    await loadCollectorIdentities();
+    setCollectorStatus(
+      refs.collectorListStatus,
+      `${payload.message || "登录 Cookie 已保存"}（${cookieCount} 项）`,
+      "success",
+    );
+    setApiStatus("身份登录凭据已更新", "ok");
+  } catch (error) {
+    setCollectorStatus(
+      refs.collectorLoginBrowserStatus,
+      `尚未保存：${error.message}`,
+      "error",
+    );
+    setCollectorLoginBrowserOverlay(
+      "还没有检测到完整登录状态",
+      "请继续完成登录，然后再次点击“完成登录并保存”。",
+      "error",
+    );
+    window.setTimeout(() => setCollectorLoginBrowserOverlay(""), 2600);
+  }
+}
+
+async function toggleCollectorLoginBrowserFullscreen() {
+  const frame = refs.collectorLoginBrowserViewport.closest(".collector-login-browser-frame");
+  if (!frame) {
+    return;
+  }
+  try {
+    if (document.fullscreenElement === frame) {
+      await document.exitFullscreen();
+    } else {
+      await frame.requestFullscreen();
+    }
+  } catch (error) {
+    setCollectorStatus(
+      refs.collectorLoginBrowserStatus,
+      `无法切换全屏：${error.message}`,
+      "error",
+    );
+  }
+}
+
 function collectorIdentityFromPayload(payload) {
   const candidate =
     payload?.identity || payload?.item || payload?.data?.identity || payload?.data?.item || payload?.data || payload;
@@ -4593,6 +5730,9 @@ function collectorMetadataFromForm() {
   return {
     name,
     platform: refs.collectorIdentityPlatform.value,
+    auth_mode: refs.collectorIdentityPlatform.value === "tiktok"
+      ? refs.collectorIdentityAuthMode.value
+      : "authenticated",
     enabled: refs.collectorIdentityEnabled.checked,
     weight: Math.max(1, Number(refs.collectorIdentityWeight.value || 1)),
     request_delay: Math.max(0, Number(refs.collectorIdentityDelay.value || 0)),
@@ -4694,6 +5834,10 @@ async function runCollectorIdentityAction(action, identityId, button) {
   }
   if (action === "edit") {
     openCollectorIdentityDialog(identityId, button);
+    return;
+  }
+  if (action === "login-browser") {
+    await openCollectorLoginBrowser(identity, button);
     return;
   }
   if (action === "delete") {
@@ -5579,11 +6723,17 @@ function renderScheduleList(items) {
       item.identity_failure_action === "pause"
         ? `身份连续失败 ${Number(item.identity_failure_threshold || 3)} 次时暂停`
         : "身份异常时继续";
+    const barkConfigured = Boolean(String(item.bark_url || "").trim());
+    const notificationLabel = barkConfigured
+      ? parseBooleanValue(item.notify_on_identity_failure, true)
+        ? "Bark：任务结束通知 + 身份异常即时通知"
+        : "Bark：每次任务结束通知"
+      : "Bark：未配置";
     const row = document.createElement("div");
     row.className = "task-row";
     row.innerHTML = `
-      <span class="task-status ${isEnabled ? "success" : "canceled"}">${
-      isEnabled ? "enabled" : "disabled"
+      <span class="task-state-text ${isEnabled ? "is-active" : "is-muted"}">${
+      isEnabled ? "已启用" : "已停用"
     }</span>
       <div class="task-main">
         <span class="task-id">${escapeHtml(scheduleId || "-")}</span>
@@ -5599,23 +6749,32 @@ function renderScheduleList(items) {
     )} · 最近任务 ${escapeHtml(item.last_task_id || "-")} · 下次 ${escapeHtml(
       item.next_run_at || "-",
     )}</span>
+        <span class="task-time task-notification ${barkConfigured ? "is-configured" : ""}">
+          ${escapeHtml(notificationLabel)}
+        </span>
       </div>
       <div class="task-actions">
-        <button class="btn ghost" type="button" data-action="run">立即执行</button>
-        <button class="btn ghost" type="button" data-action="toggle">${
+        <button class="btn ghost" type="button" data-action="run" aria-label="立即执行 ${escapeAttr(
+          item.name || scheduleId,
+        )}">立即执行</button>
+        <button class="btn ghost" type="button" data-action="toggle" aria-label="${
+          isEnabled ? "停用" : "启用"
+        } ${escapeAttr(item.name || scheduleId)}">${
           isEnabled ? "停用" : "启用"
         }</button>
-        <button class="btn ghost danger" type="button" data-action="delete">删除</button>
+        <button class="btn ghost danger" type="button" data-action="delete" aria-label="删除 ${escapeAttr(
+          item.name || scheduleId,
+        )}">删除</button>
       </div>
     `;
-    row.querySelector('[data-action="run"]')?.addEventListener("click", () => {
-      runScheduleNow(scheduleId);
+    row.querySelector('[data-action="run"]')?.addEventListener("click", (event) => {
+      withBusyButton(event.currentTarget, "执行中", () => runScheduleNow(scheduleId));
     });
-    row.querySelector('[data-action="toggle"]')?.addEventListener("click", () => {
-      toggleSchedule(scheduleId, !isEnabled);
+    row.querySelector('[data-action="toggle"]')?.addEventListener("click", (event) => {
+      withBusyButton(event.currentTarget, "更新中", () => toggleSchedule(scheduleId, !isEnabled));
     });
-    row.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
-      deleteSchedule(scheduleId);
+    row.querySelector('[data-action="delete"]')?.addEventListener("click", (event) => {
+      withBusyButton(event.currentTarget, "删除中", () => deleteSchedule(scheduleId));
     });
     fragment.appendChild(row);
   });
@@ -5670,33 +6829,44 @@ async function toggleSchedule(scheduleId, enabled) {
       body: JSON.stringify({ enabled }),
     });
     await loadSchedules();
-    refs.scheduleStatus.textContent = "定时任务状态已更新";
+    setCollectorStatus(refs.scheduleStatus, "定时任务状态已更新", "success");
   } catch (error) {
-    refs.scheduleStatus.textContent = `更新失败: ${error.message}`;
+    setCollectorStatus(refs.scheduleStatus, `更新失败: ${error.message}`, "error");
   }
 }
 
 async function runScheduleNow(scheduleId) {
+  setCollectorStatus(refs.scheduleStatus, "正在创建下载任务…");
   try {
     const result = await fetchJson(`/ui/api/schedules/${encodeURIComponent(scheduleId)}/run`, {
       method: "POST",
       headers: headerOptions(false),
     });
     if (result.overlap_action === "enqueue") {
-      refs.scheduleStatus.textContent = `已触发执行: ${result.task?.task_id || scheduleId}`;
+      setCollectorStatus(
+        refs.scheduleStatus,
+        `已触发执行: ${result.task?.task_id || scheduleId}`,
+        "success",
+      );
     } else if (result.overlap_action === "skip") {
-      refs.scheduleStatus.textContent = `已有任务 ${result.task?.task_id || "-"}，本次已跳过`;
+      setCollectorStatus(
+        refs.scheduleStatus,
+        `已有任务 ${result.task?.task_id || "-"}，本次已跳过`,
+        "warn",
+      );
     } else {
-      refs.scheduleStatus.textContent = `已有任务 ${
-        result.task?.task_id || "-"
-      }，未创建重复任务`;
+      setCollectorStatus(
+        refs.scheduleStatus,
+        `已有任务 ${result.task?.task_id || "-"}，未创建重复任务`,
+        "warn",
+      );
     }
     if (result?.task) {
       renderTaskResult(result.task);
       await loadTaskList();
     }
   } catch (error) {
-    refs.scheduleStatus.textContent = `触发失败: ${error.message}`;
+    setCollectorStatus(refs.scheduleStatus, `触发失败: ${error.message}`, "error");
   }
 }
 
@@ -5706,10 +6876,10 @@ async function deleteSchedule(scheduleId) {
       method: "DELETE",
       headers: headerOptions(false),
     });
-    refs.scheduleStatus.textContent = "定时任务已删除";
+    setCollectorStatus(refs.scheduleStatus, "定时任务已删除", "success");
     await loadSchedules();
   } catch (error) {
-    refs.scheduleStatus.textContent = `删除失败: ${error.message}`;
+    setCollectorStatus(refs.scheduleStatus, `删除失败: ${error.message}`, "error");
   }
 }
 
@@ -5749,11 +6919,27 @@ function renderCollectMonitorList(items) {
     const lastResult = item?.last_result && typeof item.last_result === "object" ? item.last_result : {};
     const isEnabled = parseBooleanValue(item.enabled, false);
     const scheduleId = String(item.schedule_id || "");
-    const statusTag = isEnabled ? "enabled" : "disabled";
+    const hasLastResult = Object.keys(lastResult).length > 0;
+    const lastRunOk = hasLastResult ? parseBooleanValue(lastResult.ok, false) : null;
+    const barkConfigured = Boolean(String(item.bark_url || "").trim());
+    let statusClass = "is-pending";
+    let statusLabel = "等待首次运行";
+    if (!isEnabled) {
+      statusClass = "is-muted";
+      statusLabel = "已停用";
+    } else if (lastRunOk === true) {
+      statusClass = "is-success";
+      statusLabel = "上次运行正常";
+    } else if (lastRunOk === false) {
+      statusClass = "is-error";
+      statusLabel = "上次运行失败";
+    }
+    const lastError = String(lastResult.error || "").trim();
+    const lastErrorCode = String(lastResult.error_code || "").trim();
     const row = document.createElement("div");
     row.className = "task-row";
     row.innerHTML = `
-      <span class="task-status ${isEnabled ? "success" : "canceled"}">${statusTag}</span>
+      <span class="task-state-text ${statusClass}">${escapeHtml(statusLabel)}</span>
       <div class="task-main">
         <span class="task-id">${escapeHtml(scheduleId || "-")}</span>
         <span class="task-endpoint">${escapeHtml(item.name || "-")} · collect_id=${escapeHtml(
@@ -5765,28 +6951,48 @@ function renderCollectMonitorList(items) {
     )} · 下次 ${escapeHtml(item.next_run_at || "-")}
         </span>
         <span class="task-time">
-          上次 ${escapeHtml(item.last_run_at || "-")} · 新增 ${escapeHtml(
+          上次 ${escapeHtml(item.last_run_at || "-")} · 作品 ${escapeHtml(
+      lastResult.fetched_aweme || 0,
+    )} · 新增 ${escapeHtml(
       lastResult.added_accounts || 0,
     )} · 去重 ${escapeHtml(lastResult.duplicate_accounts || 0)}
         </span>
+        ${
+          lastRunOk === false
+            ? `<span class="task-time task-result-error">${escapeHtml(
+                [lastErrorCode, lastError].filter(Boolean).join(" · ") || "本轮执行失败",
+              )}</span>`
+            : ""
+        }
         <span class="task-time">身份 ${escapeHtml(
           collectorIdentityReferenceLabel(item.identity_id),
         )}</span>
+        <span class="task-time task-notification ${barkConfigured ? "is-configured" : ""}">
+          ${barkConfigured ? "Bark：异常或发现新增账号时通知" : "Bark：未配置"}
+        </span>
       </div>
       <div class="task-actions">
-        <button class="btn ghost" type="button" data-action="run">立即执行</button>
-        <button class="btn ghost" type="button" data-action="toggle">${isEnabled ? "停用" : "启用"}</button>
-        <button class="btn ghost danger" type="button" data-action="delete">删除</button>
+        <button class="btn ghost" type="button" data-action="run" aria-label="立即执行 ${escapeAttr(
+          item.name || scheduleId,
+        )}">立即执行</button>
+        <button class="btn ghost" type="button" data-action="toggle" aria-label="${
+          isEnabled ? "停用" : "启用"
+        } ${escapeAttr(item.name || scheduleId)}">${isEnabled ? "停用" : "启用"}</button>
+        <button class="btn ghost danger" type="button" data-action="delete" aria-label="删除 ${escapeAttr(
+          item.name || scheduleId,
+        )}">删除</button>
       </div>
     `;
-    row.querySelector('[data-action="run"]')?.addEventListener("click", () => {
-      runCollectMonitorNow(scheduleId);
+    row.querySelector('[data-action="run"]')?.addEventListener("click", (event) => {
+      withBusyButton(event.currentTarget, "执行中", () => runCollectMonitorNow(scheduleId));
     });
-    row.querySelector('[data-action="toggle"]')?.addEventListener("click", () => {
-      toggleCollectMonitor(scheduleId, !isEnabled);
+    row.querySelector('[data-action="toggle"]')?.addEventListener("click", (event) => {
+      withBusyButton(event.currentTarget, "更新中", () =>
+        toggleCollectMonitor(scheduleId, !isEnabled),
+      );
     });
-    row.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
-      deleteCollectMonitor(scheduleId);
+    row.querySelector('[data-action="delete"]')?.addEventListener("click", (event) => {
+      withBusyButton(event.currentTarget, "删除中", () => deleteCollectMonitor(scheduleId));
     });
     fragment.appendChild(row);
   });
@@ -5836,14 +7042,15 @@ async function toggleCollectMonitor(scheduleId, enabled) {
       headers: headerOptions(true),
       body: JSON.stringify({ enabled }),
     });
-    refs.monitorStatus.textContent = "监控状态已更新";
+    setCollectorStatus(refs.monitorStatus, "监控状态已更新", "success");
     await loadCollectMonitors();
   } catch (error) {
-    refs.monitorStatus.textContent = `更新失败: ${error.message}`;
+    setCollectorStatus(refs.monitorStatus, `更新失败: ${error.message}`, "error");
   }
 }
 
 async function runCollectMonitorNow(scheduleId) {
+  setCollectorStatus(refs.monitorStatus, "正在抓取收藏夹并处理新增账号…");
   try {
     const payload = await fetchJson(`/ui/api/collect-monitors/${encodeURIComponent(scheduleId)}/run`, {
       method: "POST",
@@ -5851,16 +7058,24 @@ async function runCollectMonitorNow(scheduleId) {
     });
     const result = payload?.result || {};
     if (result.ok) {
-      refs.monitorStatus.textContent = `执行完成: 新增 ${result.added_accounts || 0} · 去重 ${result.duplicate_accounts || 0}`;
+      setCollectorStatus(
+        refs.monitorStatus,
+        `执行完成: 新增 ${result.added_accounts || 0} · 去重 ${result.duplicate_accounts || 0}`,
+        "success",
+      );
     } else {
-      refs.monitorStatus.textContent = `执行失败: ${result.error || "unknown"}`;
+      setCollectorStatus(
+        refs.monitorStatus,
+        `执行失败: ${result.error || "unknown"}`,
+        "error",
+      );
     }
     await loadCollectMonitors();
     if (payload?.result?.immediate_result) {
       refs.workflowAccountSummary.textContent = `监控触发下载: ${payload.result.immediate_result.message || "-"}`;
     }
   } catch (error) {
-    refs.monitorStatus.textContent = `触发失败: ${error.message}`;
+    setCollectorStatus(refs.monitorStatus, `触发失败: ${error.message}`, "error");
   }
 }
 
@@ -5870,10 +7085,10 @@ async function deleteCollectMonitor(scheduleId) {
       method: "DELETE",
       headers: headerOptions(false),
     });
-    refs.monitorStatus.textContent = "监控已删除";
+    setCollectorStatus(refs.monitorStatus, "监控已删除", "success");
     await loadCollectMonitors();
   } catch (error) {
-    refs.monitorStatus.textContent = `删除失败: ${error.message}`;
+    setCollectorStatus(refs.monitorStatus, `删除失败: ${error.message}`, "error");
   }
 }
 
@@ -5920,12 +7135,85 @@ const TASK_STATUS_LABELS = {
   canceling: "取消中",
   canceled: "已取消",
   success: "成功",
+  partial_success: "部分成功",
   failed: "失败",
 };
 
 function taskStatusLabel(status) {
   const normalized = String(status || "");
   return TASK_STATUS_LABELS[normalized] || normalized || "未知";
+}
+
+const TASK_ENDPOINT_LABELS = {
+  "/workflow/douyin/account_batch": "抖音账号批量采集",
+  "/workflow/tiktok/account_batch": "TikTok 账号批量采集",
+  "/workflow/douyin/detail_batch": "抖音作品批量下载",
+  "/workflow/tiktok/detail_batch": "TikTok 作品批量下载",
+  "/workflow/accounts/avatar_batch": "账户头像批量更新",
+};
+
+const ACTIVE_TASK_STATUSES = new Set([
+  "pending",
+  "running",
+  "pausing",
+  "paused",
+  "canceling",
+]);
+const TASK_POLL_ACTIVE_MS = 2000;
+const TASK_POLL_IDLE_MS = 15000;
+
+function taskEndpointLabel(endpoint) {
+  const normalized = String(endpoint || "");
+  return TASK_ENDPOINT_LABELS[normalized] || normalized || "未知任务";
+}
+
+function taskStateClass(status) {
+  const normalized = String(status || "");
+  if (["pending", "running", "pausing", "canceling"].includes(normalized)) {
+    return "is-active";
+  }
+  if (normalized === "paused") {
+    return "is-pending";
+  }
+  if (normalized === "success") {
+    return "is-success";
+  }
+  if (["partial_success", "failed", "canceled"].includes(normalized)) {
+    return "is-error";
+  }
+  return "is-muted";
+}
+
+function taskMatchesFilter(task, filter) {
+  const status = String(task?.status || "");
+  if (filter === "active") {
+    return ACTIVE_TASK_STATUSES.has(status);
+  }
+  if (filter === "attention") {
+    return (
+      ["partial_success", "failed", "canceled"].includes(status) ||
+      Number(task?.account_summary?.failed || 0) > 0
+    );
+  }
+  if (filter === "complete") {
+    return status === "success" && Number(task?.account_summary?.failed || 0) === 0;
+  }
+  return true;
+}
+
+function taskMatchesSearch(task, search) {
+  const normalized = String(search || "").trim().toLocaleLowerCase("zh-CN");
+  if (!normalized) {
+    return true;
+  }
+  return [
+    task?.task_id,
+    task?.endpoint,
+    taskEndpointLabel(task?.endpoint),
+    taskStatusLabel(task?.status),
+    task?.message,
+    task?.error,
+  ].some((value) => String(value || "").toLocaleLowerCase("zh-CN").includes(normalized));
 }
 
 function normalizeTaskProgress(task) {
@@ -5944,6 +7232,288 @@ function normalizeTaskProgress(task) {
     skipped: Math.max(0, Number(progress.skipped || 0)),
     label: String(progress.label || ""),
   };
+}
+
+function taskRenderKey(task) {
+  const progress = normalizeTaskProgress(task);
+  const summary =
+    task?.account_summary && typeof task.account_summary === "object"
+      ? task.account_summary
+      : {};
+  return [
+    task?.task_id,
+    task?.endpoint,
+    task?.status,
+    task?.updated_at,
+    task?.message,
+    task?.error,
+    task?.pause_supported,
+    task?.recovered_after_restart,
+    progress.current,
+    progress.total,
+    progress.percent,
+    progress.success,
+    progress.failed,
+    progress.skipped,
+    progress.label,
+    summary.total,
+    summary.success,
+    summary.failed,
+    summary.skipped,
+    summary.pending,
+  ]
+    .map((value) => String(value ?? ""))
+    .join("\u001f");
+}
+
+function taskListRenderKey(items) {
+  return items.map((task) => taskRenderKey(task)).join("\u001e");
+}
+
+function formatOverviewCount(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return "—";
+  }
+  return new Intl.NumberFormat("zh-CN", {
+    maximumFractionDigits: 0,
+  }).format(number);
+}
+
+function formatOverviewDate(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "—";
+  }
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)
+    ? text.replace(" ", "T")
+    : text;
+  return formatFileDate(normalized);
+}
+
+function scheduleOverviewRefresh(mediaStatus) {
+  if (state.overviewRefreshTimer) {
+    window.clearTimeout(state.overviewRefreshTimer);
+    state.overviewRefreshTimer = null;
+  }
+  if (!["scanning", "refreshing"].includes(mediaStatus)) {
+    return;
+  }
+  state.overviewRefreshTimer = window.setTimeout(() => {
+    state.overviewRefreshTimer = null;
+    if (!document.hidden && state.activeTab === "workbench") {
+      loadOverview();
+    }
+  }, mediaStatus === "scanning" ? 4000 : 8000);
+}
+
+function renderOverview(payload) {
+  const media = payload?.media && typeof payload.media === "object" ? payload.media : {};
+  const crawl = payload?.crawl && typeof payload.crawl === "object" ? payload.crawl : {};
+  const collectors =
+    payload?.collectors && typeof payload.collectors === "object" ? payload.collectors : {};
+  const maintenance =
+    payload?.maintenance && typeof payload.maintenance === "object" ? payload.maintenance : {};
+  const storage = media?.storage && typeof media.storage === "object" ? media.storage : {};
+  const integrity = media?.integrity && typeof media.integrity === "object" ? media.integrity : {};
+  const hasMediaStats = Number.isFinite(Number(media.size));
+
+  refs.overviewMediaSize.textContent = hasMediaStats ? formatFileSize(media.size) : "—";
+  refs.overviewVideoCount.textContent = hasMediaStats
+    ? formatOverviewCount(media.videos)
+    : "—";
+  refs.overviewImageCount.textContent = hasMediaStats
+    ? formatOverviewCount(media.images)
+    : "—";
+  refs.overviewFileCount.textContent = hasMediaStats
+    ? formatOverviewCount(media.files)
+    : "—";
+  refs.overviewStoragePercent.textContent = Number.isFinite(Number(storage.used_percent))
+    ? `${Number(storage.used_percent).toFixed(1)}%`
+    : "—";
+  refs.overviewStorageFree.textContent = Number.isFinite(Number(storage.free))
+    ? formatFileSize(storage.free)
+    : "—";
+  const integrityCount =
+    Number(integrity.zero_byte_files || 0) +
+    Number(integrity.temporary_files || 0) +
+    Number(integrity.scan_errors || 0);
+  refs.overviewIntegrityCount.textContent = hasMediaStats
+    ? formatOverviewCount(integrityCount)
+    : "—";
+  refs.overviewStoragePercent.dataset.state = Number(storage.alert_level || 0) >= 85
+    ? "error"
+    : Number(storage.alert_level || 0) >= 75
+      ? "warning"
+      : "ok";
+
+  const mediaMeta = [];
+  if (media.status === "scanning") {
+    mediaMeta.push("正在后台统计大型下载目录");
+  } else if (media.status === "refreshing") {
+    mediaMeta.push("正在后台刷新，当前显示上次统计");
+  } else if (media.status === "error") {
+    mediaMeta.push(media.error || "媒体目录统计失败");
+  }
+  if (hasMediaStats) {
+    mediaMeta.push(`文件夹 ${formatOverviewCount(media.folders)}`);
+    mediaMeta.push(`其他文件 ${formatOverviewCount(media.other_files)}`);
+    mediaMeta.push(`零字节 ${formatOverviewCount(integrity.zero_byte_files || 0)}`);
+    mediaMeta.push(`临时残留 ${formatOverviewCount(integrity.temporary_files || 0)}`);
+  }
+  if (media.latest_updated_at) {
+    mediaMeta.push(`最新媒体 ${formatOverviewDate(media.latest_updated_at)}`);
+  } else if (media.refreshed_at) {
+    mediaMeta.push(`统计于 ${formatOverviewDate(media.refreshed_at)}`);
+  }
+  refs.overviewMediaMeta.textContent = mediaMeta.join(" · ") || "等待首次后台统计";
+  if (media.status === "error") {
+    refs.overviewMediaMeta.dataset.state = "error";
+  } else {
+    delete refs.overviewMediaMeta.dataset.state;
+  }
+
+  const currentTask = crawl.current || null;
+  const displayTask = currentTask || crawl.latest || null;
+  const latestEnded = crawl.latest_ended || null;
+  const latestSuccess = crawl.latest_success || null;
+  const taskStatus = String(displayTask?.status || "");
+  refs.overviewCrawlStatus.textContent = displayTask
+    ? `${taskStatusLabel(taskStatus)}${displayTask.recovered_after_restart ? " · 已恢复" : ""}`
+    : "暂无任务";
+  if (["pending", "running", "pausing", "paused", "canceling"].includes(taskStatus)) {
+    refs.overviewCrawlStatus.dataset.state = "running";
+  } else if (taskStatus === "partial_success") {
+    refs.overviewCrawlStatus.dataset.state = "warning";
+  } else if (["failed", "canceled"].includes(taskStatus)) {
+    refs.overviewCrawlStatus.dataset.state = "failed";
+  } else {
+    delete refs.overviewCrawlStatus.dataset.state;
+  }
+
+  const progress = normalizeTaskProgress(displayTask);
+  refs.overviewCrawlProgressBlock.hidden = !displayTask || progress.total <= 0;
+  refs.overviewCrawlTask.textContent = displayTask?.task_id || "—";
+  refs.overviewCrawlProgressValue.textContent = `${formatOverviewCount(
+    progress.current,
+  )} / ${formatOverviewCount(progress.total)}`;
+  refs.overviewCrawlProgress.value = progress.percent;
+  refs.overviewCrawlProgress.textContent = `${progress.percent}%`;
+  refs.overviewCrawlStarted.textContent = formatOverviewDate(
+    (currentTask || displayTask)?.started_at || (currentTask || displayTask)?.created_at,
+  );
+  refs.overviewCrawlFinished.textContent = formatOverviewDate(
+    latestEnded?.finished_at || (!currentTask ? displayTask?.finished_at : ""),
+  );
+
+  const crawlMeta = [];
+  if (displayTask && progress.total > 0) {
+    crawlMeta.push(`成功 ${formatOverviewCount(progress.success)}`);
+    crawlMeta.push(`失败 ${formatOverviewCount(progress.failed)}`);
+    if (Number(displayTask.throughput_per_minute || 0) > 0) {
+      crawlMeta.push(`速度 ${Number(displayTask.throughput_per_minute).toFixed(1)} 账号/分钟`);
+    }
+    if (displayTask.eta_at) {
+      crawlMeta.push(`预计完成 ${formatOverviewDate(displayTask.eta_at)}`);
+    }
+  }
+  if (latestSuccess?.finished_at) {
+    crawlMeta.push(`最近完整成功 ${formatOverviewDate(latestSuccess.finished_at)}`);
+  } else if (displayTask?.updated_at) {
+    crawlMeta.push(`状态更新 ${formatOverviewDate(displayTask.updated_at)}`);
+  }
+  refs.overviewCrawlMeta.textContent = crawlMeta.join(" · ") || "等待任务记录";
+
+  refs.overviewCollectorTotal.textContent = formatOverviewCount(collectors.total);
+  refs.overviewCollectorRoutable.textContent = formatOverviewCount(collectors.routable);
+  refs.overviewCollectorProxy.textContent = formatOverviewCount(collectors.proxy_configured);
+  refs.overviewCollectorLeases.textContent = formatOverviewCount(collectors.active_leases);
+  refs.overviewCollectorRisk.textContent = formatOverviewCount(collectors.risk_failures);
+  refs.overviewCollectorCooldown.textContent = formatOverviewCount(collectors.cooldown);
+  const platforms = collectors.platforms || {};
+  refs.overviewCollectorMeta.textContent = [
+    `抖音 ${formatOverviewCount(platforms.douyin)}`,
+    `TikTok ${formatOverviewCount(platforms.tiktok)}`,
+    `匿名 ${formatOverviewCount(collectors.anonymous)}`,
+    `Cookie ${formatOverviewCount(collectors.cookie_configured)}`,
+    `路由身份 + 代理 ${formatOverviewCount(collectors.route_and_proxy)}`,
+    `需处理 ${formatOverviewCount(collectors.attention)}`,
+  ].join(" · ");
+  const identityRows = Array.isArray(collectors.identities) ? collectors.identities : [];
+  refs.overviewIdentityHealth.innerHTML = identityRows.length
+    ? identityRows
+        .map((identity) => {
+          const successRate = Number.isFinite(Number(identity.success_rate))
+            ? `${Number(identity.success_rate).toFixed(1)}%`
+            : "暂无样本";
+          const cooldown = identity.cooldown_until
+            ? ` · 冷却至 ${escapeHtml(formatOverviewDate(identity.cooldown_until))}`
+            : "";
+          const authMode = identity.platform === "tiktok"
+            ? ` · ${escapeHtml(collectorAuthModeLabel(identity.auth_mode))}`
+            : "";
+          return `<div class="overview-identity-row">
+            <strong>${escapeHtml(identity.name || identity.identity_id || "未命名身份")}</strong>
+            <span>${escapeHtml(identity.platform || "-")}${authMode} · 成功率 ${successRate} · 403/风控 ${formatOverviewCount(identity.risk_failures)}${cooldown}</span>
+          </div>`;
+        })
+        .join("")
+    : '<span class="overview-identity-empty">暂无采集身份</span>';
+
+  const generatedAt = formatOverviewDate(payload?.generated_at);
+  const freshnessParts = [`概览更新 ${generatedAt}`];
+  if (["scanning", "refreshing"].includes(media.status)) {
+    freshnessParts.push("媒体统计进行中");
+  } else if (media.refreshed_at) {
+    freshnessParts.push(`媒体统计 ${formatOverviewDate(media.refreshed_at)}`);
+  }
+  if (maintenance.latest_snapshot?.created_at) {
+    freshnessParts.push(`最近备份 ${formatOverviewDate(maintenance.latest_snapshot.created_at)}`);
+  }
+  refs.overviewFreshness.textContent = freshnessParts.join(" · ");
+  delete refs.overviewFreshness.dataset.state;
+  refs.overview.setAttribute("aria-busy", "false");
+  scheduleOverviewRefresh(media.status);
+}
+
+async function createOverviewSnapshot() {
+  const payload = await fetchJson("/ui/api/maintenance/snapshot", {
+    method: "POST",
+    headers: headerOptions(false),
+  });
+  refs.overviewFreshness.textContent = `${payload.message || "备份完成"} · ${payload.snapshot?.name || ""}`;
+  await loadOverview();
+}
+
+async function startOverviewIntegrityScan() {
+  const payload = await fetchJson("/ui/api/maintenance/integrity-scan", {
+    method: "POST",
+    headers: headerOptions(false),
+  });
+  refs.overviewFreshness.textContent = payload.message || "媒体完整性扫描已启动";
+  scheduleOverviewRefresh(payload.media?.status || "scanning");
+}
+
+async function loadOverview({ refreshMedia = false } = {}) {
+  if (state.overviewLoading || !refs.overview) {
+    return;
+  }
+  state.overviewLoading = true;
+  refs.overview.setAttribute("aria-busy", "true");
+  try {
+    const query = refreshMedia ? "?refresh_media=true" : "";
+    const payload = await fetchJson(`/ui/api/overview${query}`, {
+      method: "GET",
+      headers: headerOptions(false),
+    });
+    renderOverview(payload);
+  } catch (error) {
+    refs.overviewFreshness.textContent = `概览暂时不可用：${error.message}`;
+    refs.overviewFreshness.dataset.state = "error";
+    refs.overview.setAttribute("aria-busy", "false");
+  } finally {
+    state.overviewLoading = false;
+  }
 }
 
 function renderTaskProgress(task) {
@@ -5968,6 +7538,41 @@ const TASK_ACCOUNT_STATUS_LABELS = {
   skipped: "跳过",
 };
 
+const TASK_ACCOUNT_CATEGORY_LABELS = {
+  identity: "身份 / 风控",
+  visibility: "私密 / 可见性",
+  account_unavailable: "账号不可用",
+  network: "网络 / 代理",
+  download: "下载 / 保存",
+  parse: "解析失败",
+  other: "其他",
+};
+
+const TASK_ACCOUNT_OUTCOME_LABELS = {
+  success: "采集完成",
+  no_matching_items: "没有符合范围的新作品",
+  no_works: "账号暂无作品",
+  account_deleted: "账号已注销或不可访问",
+  invalid_account_url: "账号链接无效",
+  private_followed_empty: "已关注的私密账号未返回作品",
+  private_not_visible: "私密账号对当前身份不可见",
+  works_not_visible: "资料有作品但列表不可见",
+  profile_unavailable: "账号资料不可用",
+  account_items_empty: "作品列表异常为空",
+  identity_forbidden: "身份或访问权限失效",
+  rate_limited: "身份触发频率限制",
+  risk_control: "平台风控或验证",
+  api_rejected: "平台接口拒绝请求",
+  request_timeout: "采集请求超时",
+  network_error: "采集网络失败",
+  upstream_unavailable: "平台接口暂不可用",
+  parse_failed: "账号数据解析失败",
+  download_failed: "作品文件下载失败",
+  identity_runtime_unavailable: "身份运行环境不可用",
+  legacy_empty_result: "旧版采集器未返回原因",
+  runtime_error: "账号处理异常",
+};
+
 function renderTaskAccountSummary(task) {
   const isAccountBatch = String(task?.endpoint || "").endsWith("/account_batch");
   refs.taskAccountCheckpoints.hidden = !isAccountBatch;
@@ -5983,16 +7588,213 @@ function renderTaskAccountSummary(task) {
   refs.taskAccountSummary.textContent = total
     ? `共 ${total} · 成功 ${Number(summary.success || 0)} · 失败 ${Number(
         summary.failed || 0,
-      )} · 等待 ${Number(summary.pending || 0)}`
+      )} · 无需下载 ${Number(summary.skipped || 0)} · 等待 ${Number(summary.pending || 0)}`
     : "任务开始后生成账号快照";
+}
+
+function syncAccountTablesFromPayload(payload) {
+  if (Array.isArray(payload?.accounts_urls)) {
+    setAccountRows("douyin", payload.accounts_urls);
+  }
+  if (Array.isArray(payload?.accounts_urls_tiktok)) {
+    setAccountRows("tiktok", payload.accounts_urls_tiktok);
+  }
+  if (Array.isArray(payload?.deleted_accounts)) {
+    setDeletedRows("douyin", payload.deleted_accounts);
+  }
+  if (Array.isArray(payload?.deleted_accounts_tiktok)) {
+    setDeletedRows("tiktok", payload.deleted_accounts_tiktok);
+  }
+}
+
+function taskAccountSelectionKey(platform, url) {
+  const normalizedPlatform = platform === "tiktok" ? "tiktok" : "douyin";
+  return `${normalizedPlatform}:${normalizeUrl(url)}`;
+}
+
+function selectedTaskAccountItems() {
+  return Array.from(state.taskAccountSelected.values());
+}
+
+function updateTaskAccountBulkToolbar() {
+  const selectedCount = state.taskAccountSelected.size;
+  const visibleItems = state.taskAccountVisible;
+  const selectedVisibleCount = visibleItems.filter((item) =>
+    state.taskAccountSelected.has(item.key),
+  ).length;
+  refs.taskAccountSelectionStatus.textContent = `已选 ${selectedCount}（跨页累计） · 本页可选 ${visibleItems.length}`;
+  refs.taskAccountSelectPageBtn.disabled =
+    !visibleItems.length || selectedVisibleCount === visibleItems.length;
+  refs.taskAccountClearSelectionBtn.disabled = !selectedCount;
+  refs.taskAccountOpenSelectedBtn.disabled = !selectedCount;
+  refs.taskAccountArchiveSelectedBtn.disabled = !selectedCount;
+}
+
+function selectVisibleTaskAccounts() {
+  state.taskAccountVisible.forEach((item) => {
+    state.taskAccountSelected.set(item.key, item);
+  });
+  renderTaskAccounts(state.taskAccounts.payload || { items: [] });
+}
+
+function clearTaskAccountSelection() {
+  state.taskAccountSelected.clear();
+  renderTaskAccounts(state.taskAccounts.payload || { items: [] });
+}
+
+function closeTaskAccountArchiveDialog({ restoreFocus = true } = {}) {
+  if (state.taskAccountArchive.pending) {
+    return;
+  }
+  if (refs.taskAccountArchiveDialog?.open) {
+    refs.taskAccountArchiveDialog.close();
+  }
+  const focusTarget = state.taskAccountArchive.restoreFocus;
+  state.taskAccountArchive = {
+    platform: "",
+    items: [],
+    restoreFocus: null,
+    pending: false,
+  };
+  if (restoreFocus && focusTarget instanceof HTMLElement && focusTarget.isConnected) {
+    focusTarget.focus();
+  }
+}
+
+function openTaskAccountArchiveDialog({ platform, url, mark, items, trigger }) {
+  if (!refs.taskAccountArchiveDialog) {
+    return;
+  }
+  const candidates = Array.isArray(items) ? items : [{ platform, url, mark }];
+  const normalizedItems = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const candidateUrl = safeExternalHttpUrl(candidate?.url);
+    if (!candidateUrl) {
+      continue;
+    }
+    const candidatePlatform = candidate?.platform === "tiktok" ? "tiktok" : "douyin";
+    const key = taskAccountSelectionKey(candidatePlatform, candidateUrl);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalizedItems.push({
+      platform: candidatePlatform,
+      url: candidateUrl,
+      mark: String(candidate?.mark || conciseAccountUrl(candidateUrl) || candidateUrl),
+      key,
+    });
+  }
+  if (!normalizedItems.length) {
+    return;
+  }
+  const normalizedPlatform = normalizedItems[0].platform;
+  const samePlatformItems = normalizedItems.filter(
+    (candidate) => candidate.platform === normalizedPlatform,
+  );
+  const count = samePlatformItems.length;
+  const platformLabel = normalizedPlatform === "tiktok" ? "TikTok" : "抖音";
+  state.taskAccountArchive = {
+    platform: normalizedPlatform,
+    items: samePlatformItems,
+    restoreFocus: trigger instanceof HTMLElement ? trigger : null,
+    pending: false,
+  };
+  refs.taskAccountArchiveTitle.textContent =
+    count === 1
+      ? `将账号移出 ${platformLabel} 采集名单`
+      : `批量移出 ${platformLabel} 采集账号`;
+  refs.taskAccountArchiveSummary.textContent =
+    count === 1 ? samePlatformItems[0].mark : `已选择 ${count} 个账号`;
+  refs.taskAccountArchiveSummary.title =
+    count === 1 ? samePlatformItems[0].url : "";
+  refs.taskAccountArchiveStatus.textContent =
+    count === 1
+      ? "该账号会移入删除区；任务历史和已经下载的媒体不会被删除。"
+      : `这 ${count} 个账号会一次性移入删除区；任务历史和媒体文件不会被删除。`;
+  refs.taskAccountArchiveConfirmBtn.textContent =
+    count === 1 ? "移入删除区" : `移出 ${count} 个账号`;
+  refs.taskAccountArchiveCloseBtn.disabled = false;
+  refs.taskAccountArchiveCancelBtn.disabled = false;
+  refs.taskAccountArchiveConfirmBtn.disabled = false;
+  refs.taskAccountArchiveDialog.showModal();
+  refreshIcons(refs.taskAccountArchiveDialog);
+  refs.taskAccountArchiveCancelBtn.focus();
+}
+
+async function confirmTaskAccountArchive() {
+  const { platform, items } = state.taskAccountArchive;
+  if (!platform || !items.length || state.taskAccountArchive.pending) {
+    return;
+  }
+  const archivedItems = [...items];
+  const isBatch = archivedItems.length > 1;
+  state.taskAccountArchive.pending = true;
+  refs.taskAccountArchiveStatus.textContent = isBatch
+    ? `正在备份配置并移出 ${archivedItems.length} 个账号…`
+    : "正在备份配置并移入删除区…";
+  refs.taskAccountArchiveCloseBtn.disabled = true;
+  refs.taskAccountArchiveCancelBtn.disabled = true;
+  refs.taskAccountArchiveConfirmBtn.disabled = true;
+  try {
+    const result = await fetchJson(
+      isBatch ? "/ui/api/accounts/archive-batch" : "/ui/api/accounts/archive",
+      {
+        method: "POST",
+        headers: headerOptions(true),
+        body: JSON.stringify({
+          platform,
+          ...(isBatch
+            ? { urls: archivedItems.map((item) => item.url) }
+            : { url: archivedItems[0].url }),
+          reason: `任务 ${state.selectedTaskId || "-"} 失败后人工确认：账号不活跃或已注销`,
+        }),
+      },
+    );
+    syncAccountTablesFromPayload(result);
+    archivedItems.forEach((item) => state.taskAccountSelected.delete(item.key));
+    updateTaskAccountBulkToolbar();
+    state.taskAccountArchive.pending = false;
+    closeTaskAccountArchiveDialog({ restoreFocus: false });
+    await loadTaskAccounts();
+    refs.taskAccountList.focus({ preventScroll: true });
+    const archivedCount = Number(result.archived_count || 0);
+    if (isBatch) {
+      setApiStatus(
+        archivedCount
+          ? `已将 ${archivedCount} 个账号移入删除区`
+          : "所选账号已不在采集名单中",
+        "ok",
+      );
+    } else {
+      setApiStatus(
+        result.archived
+          ? `已将 ${archivedItems[0].mark} 移入删除区`
+          : `${archivedItems[0].mark} 已不在采集名单中`,
+        "ok",
+      );
+    }
+  } catch (error) {
+    state.taskAccountArchive.pending = false;
+    refs.taskAccountArchiveStatus.textContent = `移出失败：${error.message}`;
+    refs.taskAccountArchiveCloseBtn.disabled = false;
+    refs.taskAccountArchiveCancelBtn.disabled = false;
+    refs.taskAccountArchiveConfirmBtn.disabled = false;
+    refs.taskAccountArchiveConfirmBtn.focus();
+    setApiStatus(`异常: ${error.message}`, "error");
+  }
 }
 
 function renderTaskAccounts(payload) {
   const items = Array.isArray(payload?.items) ? payload.items : [];
+  state.taskAccounts.payload = payload;
+  state.taskAccountVisible = [];
   refs.taskAccountList.innerHTML = "";
   if (!items.length) {
     refs.taskAccountList.innerHTML =
       '<div class="empty-state">当前任务还没有账号检查点。</div>';
+    updateTaskAccountBulkToolbar();
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -6000,20 +7802,231 @@ function renderTaskAccounts(payload) {
     const row = document.createElement("div");
     const status = String(account.status || "pending");
     const item = account.item && typeof account.item === "object" ? account.item : {};
+    const category = String(account.failure_category || "");
+    const accountUrl = safeExternalHttpUrl(item.url);
+    const accountUrlLabel = conciseAccountUrl(accountUrl || item.url);
+    const accountName = String(item.mark || accountUrlLabel || "未命名账号");
+    const selectedTask = state.taskListItems.find(
+      (task) => task.task_id === state.selectedTaskId,
+    );
+    const platform =
+      String(account.platform || "").toLowerCase() === "tiktok" ||
+      String(selectedTask?.endpoint || "").toLowerCase().includes("/tiktok/")
+        ? "tiktok"
+        : "douyin";
+    const configured = account.configured !== false;
+    const selectionKey = accountUrl
+      ? taskAccountSelectionKey(platform, accountUrl)
+      : "";
+    const selectable = status === "failed" && configured && Boolean(accountUrl);
+    const selectionItem = selectable
+      ? {
+          platform,
+          url: accountUrl,
+          mark: accountName,
+          key: selectionKey,
+        }
+      : null;
+    if (!configured && selectionKey) {
+      state.taskAccountSelected.delete(selectionKey);
+    }
+    if (selectionItem) {
+      state.taskAccountVisible.push(selectionItem);
+    }
+    const position = Number(account.position || 0);
+    const outcomeCode = String(account.outcome_code || "");
+    const outcomeLabel = TASK_ACCOUNT_OUTCOME_LABELS[outcomeCode] || outcomeCode;
+    const attempts = Array.isArray(account.attempted_identities)
+      ? account.attempted_identities.filter((attempt) => attempt && typeof attempt === "object")
+      : [];
+    const attemptedIdentityIds = attempts
+      .map((attempt) => String(attempt.identity_id || "").trim())
+      .filter(Boolean);
+    const reason = String(account.reason || "").trim();
     row.className = "task-account-row";
-    row.innerHTML = `
-      <span class="task-status ${escapeHtml(status)}">${escapeHtml(
-        TASK_ACCOUNT_STATUS_LABELS[status] || status,
-      )}</span>
-      <span class="task-account-position">#${Number(account.position || 0)}</span>
-      <span class="task-account-name">${escapeHtml(item.mark || item.url || "未命名账号")}</span>
-      <span class="task-account-reason">${escapeHtml(
-        account.reason || account.identity_id || "",
-      )}</span>
-    `;
+
+    const selectionControl = document.createElement(selectable ? "label" : "span");
+    selectionControl.className = selectable
+      ? "task-account-select"
+      : "task-account-select-spacer";
+    if (selectable) {
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = state.taskAccountSelected.has(selectionKey);
+      checkbox.setAttribute("aria-label", `选择账号：${accountName}`);
+      row.classList.toggle("selected", checkbox.checked);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          state.taskAccountSelected.set(selectionKey, selectionItem);
+        } else {
+          state.taskAccountSelected.delete(selectionKey);
+        }
+        row.classList.toggle("selected", checkbox.checked);
+        updateTaskAccountBulkToolbar();
+      });
+      selectionControl.appendChild(checkbox);
+    }
+
+    const statusNode = document.createElement("span");
+    statusNode.className = `task-state-text ${taskStateClass(status)}`;
+    statusNode.textContent = TASK_ACCOUNT_STATUS_LABELS[status] || status;
+
+    const main = document.createElement("div");
+    main.className = "task-account-main";
+    const heading = document.createElement("div");
+    heading.className = "task-account-heading";
+    const nameNode = accountUrl ? document.createElement("a") : document.createElement("span");
+    nameNode.className = accountUrl ? "task-account-name task-account-link" : "task-account-name";
+    if (accountUrl) {
+      nameNode.href = accountUrl;
+      nameNode.target = "_blank";
+      nameNode.rel = "noopener noreferrer";
+      nameNode.setAttribute("aria-label", `打开账号：${accountName}`);
+    }
+    const nameLabel = document.createElement("span");
+    nameLabel.className = "task-account-name-label";
+    nameLabel.textContent = accountName;
+    nameNode.appendChild(nameLabel);
+    if (accountUrl) {
+      const nameIcon = document.createElement("i");
+      nameIcon.dataset.lucide = "external-link";
+      nameNode.appendChild(nameIcon);
+    }
+    heading.appendChild(nameNode);
+
+    const meta = document.createElement("span");
+    meta.className = "task-account-meta";
+    meta.textContent = [`#${position}`, item.mark ? accountUrlLabel : "未设置标记"]
+      .filter(Boolean)
+      .join(" · ");
+    if (accountUrlLabel) {
+      meta.title = accountUrlLabel;
+      meta.setAttribute("aria-label", `账号链接 ${accountUrlLabel}`);
+    }
+
+    const reasonNode = document.createElement("span");
+    reasonNode.className = "task-account-reason";
+    reasonNode.textContent =
+      reason ||
+      (status === "success"
+        ? "账号采集及下载流程完成"
+        : status === "skipped"
+          ? "该账号当前无需下载"
+          : status === "failed"
+            ? "采集器未提供具体失败原因"
+            : "等待账号处理结果");
+
+    const diagnostics = document.createElement("dl");
+    diagnostics.className = "task-account-diagnostic-grid";
+    const context = account.context && typeof account.context === "object" ? account.context : {};
+    const diagnosticItems = [
+      ["结果", outcomeLabel],
+      ["分类", TASK_ACCOUNT_CATEGORY_LABELS[category]],
+      [
+        "身份",
+        attemptedIdentityIds.length
+          ? attemptedIdentityIds.join(" → ")
+          : String(account.identity_id || ""),
+      ],
+      [
+        "路由",
+        account.recovered_by_identity
+          ? `已自动切换并固定 ${account.recovered_by_identity}`
+          : "",
+      ],
+      [
+        "重试",
+        typeof account.retryable === "boolean" && status === "failed"
+          ? account.retryable
+            ? "可重试"
+            : "无需重试"
+          : "",
+      ],
+      [
+        "作品",
+        Number.isFinite(Number(context.item_count))
+          ? `本轮 ${Number(context.item_count)} 条`
+          : "",
+      ],
+    ].filter(([, value]) => value);
+    for (const [label, value] of diagnosticItems) {
+      const diagnosticItem = document.createElement("div");
+      const term = document.createElement("dt");
+      const description = document.createElement("dd");
+      term.textContent = label;
+      description.textContent = value;
+      diagnosticItem.append(term, description);
+      diagnostics.appendChild(diagnosticItem);
+    }
+    if (attempts.length) {
+      diagnostics.setAttribute(
+        "aria-label",
+        attempts
+          .map((attempt) => {
+            const identityId = String(attempt.identity_id || "未命名身份");
+            const label =
+              TASK_ACCOUNT_OUTCOME_LABELS[String(attempt.outcome_code || "")] ||
+              String(attempt.outcome_code || "未知结果");
+            return `${identityId}：${label}`;
+          })
+          .join("；"),
+      );
+    }
+    main.append(heading, meta, reasonNode);
+    if (diagnosticItems.length) {
+      main.appendChild(diagnostics);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "task-account-actions";
+    const action = accountUrl ? document.createElement("a") : document.createElement("span");
+    action.className = "btn ghost task-account-open";
+    if (accountUrl) {
+      action.href = accountUrl;
+      action.target = "_blank";
+      action.rel = "noopener noreferrer";
+      action.setAttribute("aria-label", `在新标签页打开账号：${accountName}`);
+      const actionIcon = document.createElement("i");
+      actionIcon.dataset.lucide = "external-link";
+      action.append(actionIcon, document.createTextNode("打开账号"));
+    } else {
+      action.setAttribute("aria-disabled", "true");
+      action.textContent = "无可用链接";
+    }
+
+    actions.appendChild(action);
+    if (status === "failed" && accountUrl) {
+      if (configured) {
+        const archiveAction = document.createElement("button");
+        archiveAction.type = "button";
+        archiveAction.className = "btn ghost danger task-account-archive";
+        archiveAction.setAttribute("aria-label", `将账号移出采集名单：${accountName}`);
+        const archiveIcon = document.createElement("i");
+        archiveIcon.dataset.lucide = "trash-2";
+        archiveAction.append(archiveIcon, document.createTextNode("移出名单"));
+        archiveAction.addEventListener("click", () => {
+          openTaskAccountArchiveDialog({
+            platform,
+            url: accountUrl,
+            mark: accountName,
+            trigger: archiveAction,
+          });
+        });
+        actions.appendChild(archiveAction);
+      } else {
+        const archivedState = document.createElement("span");
+        archivedState.className = "task-account-archived";
+        archivedState.textContent = "已移出名单";
+        actions.appendChild(archivedState);
+      }
+    }
+
+    row.append(selectionControl, statusNode, main, actions);
     fragment.appendChild(row);
   }
   refs.taskAccountList.appendChild(fragment);
+  updateTaskAccountBulkToolbar();
+  refreshIcons(refs.taskAccountList);
 }
 
 async function loadTaskAccounts(taskId = state.selectedTaskId) {
@@ -6021,11 +8034,19 @@ async function loadTaskAccounts(taskId = state.selectedTaskId) {
     return;
   }
   state.taskAccountsLoading = true;
+  state.taskAccountVisible = [];
+  updateTaskAccountBulkToolbar();
   refs.taskAccountList.setAttribute("aria-busy", "true");
   refs.taskAccountList.innerHTML = '<div class="loading-state">正在加载账号检查点…</div>';
   try {
+    const query = new URLSearchParams({
+      page: String(state.taskAccounts.page),
+      page_size: String(state.taskAccounts.pageSize),
+      status: state.taskAccounts.status,
+      category: state.taskAccounts.category,
+    });
     const payload = await fetchJson(
-      `/ui/api/tasks/${encodeURIComponent(taskId)}/accounts?limit=100`,
+      `/ui/api/tasks/${encodeURIComponent(taskId)}/accounts?${query.toString()}`,
       {
         method: "GET",
         headers: headerOptions(false),
@@ -6035,12 +8056,25 @@ async function loadTaskAccounts(taskId = state.selectedTaskId) {
       return;
     }
     renderTaskAccounts(payload);
+    state.taskAccounts.page = Number(payload.page || 1);
+    state.taskAccounts.pages = Number(payload.pages || 1);
+    refs.taskAccountPageInput.value = String(state.taskAccounts.page);
+    refs.taskAccountPageInput.max = String(state.taskAccounts.pages);
+    refs.taskAccountPageMeta.textContent = `第 ${state.taskAccounts.page} / ${state.taskAccounts.pages} 页 · ${Number(payload.filtered_total || 0)} 条`;
+    refs.taskAccountPrevBtn.disabled = state.taskAccounts.page <= 1;
+    refs.taskAccountNextBtn.disabled = state.taskAccounts.page >= state.taskAccounts.pages;
+    const categoryCounts = payload?.category_counts || {};
+    refs.taskAccountCategorySummary.textContent = Object.entries(
+      TASK_ACCOUNT_CATEGORY_LABELS,
+    )
+      .map(([key, label]) => `${label} ${Number(categoryCounts[key] || 0)}`)
+      .join(" · ");
     const summary = payload?.summary || {};
     refs.taskAccountSummary.textContent = `共 ${Number(
       summary.total || 0,
     )} · 成功 ${Number(summary.success || 0)} · 失败 ${Number(
       summary.failed || 0,
-    )} · 等待 ${Number(summary.pending || 0)}`;
+    )} · 无需下载 ${Number(summary.skipped || 0)} · 等待 ${Number(summary.pending || 0)}`;
   } catch (error) {
     refs.taskAccountList.innerHTML = `<div class="error-state">检查点加载失败：${escapeHtml(
       error.message,
@@ -6049,6 +8083,47 @@ async function loadTaskAccounts(taskId = state.selectedTaskId) {
     state.taskAccountsLoading = false;
     refs.taskAccountList.setAttribute("aria-busy", "false");
   }
+}
+
+async function retryTaskAccountCategory() {
+  const category = state.taskAccounts.category;
+  if (!state.selectedTaskId) {
+    return;
+  }
+  const query = category ? `?category=${encodeURIComponent(category)}` : "";
+  const result = await fetchJson(
+    `/ui/api/tasks/${encodeURIComponent(state.selectedTaskId)}/retry-failed${query}`,
+    { method: "POST", headers: headerOptions(false) },
+  );
+  if (result?.task) {
+    renderTaskResult(result.task);
+  }
+  await loadTaskList();
+}
+
+async function exportTaskAccountUrls() {
+  if (!state.selectedTaskId) {
+    return;
+  }
+  const category = state.taskAccounts.category;
+  const query = category ? `?category=${encodeURIComponent(category)}` : "";
+  const payload = await fetchJson(
+    `/ui/api/tasks/${encodeURIComponent(state.selectedTaskId)}/accounts/export${query}`,
+    { method: "GET", headers: headerOptions(false) },
+  );
+  const urls = Array.isArray(payload.urls) ? payload.urls : [];
+  const blob = new Blob([`${urls.join("\n")}${urls.length ? "\n" : ""}`], {
+    type: "text/plain;charset=utf-8",
+  });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = `${state.selectedTaskId}_${category || "all-failed"}_urls.txt`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+  refs.taskAccountCategorySummary.textContent = `已导出 ${urls.length} 条失败账号 URL`;
 }
 
 function syncSelectedTaskRow() {
@@ -6066,18 +8141,52 @@ function renderTaskResult(task) {
   if (!task) {
     return;
   }
-  state.selectedTaskId = task.task_id || "";
+  const nextTaskId = task.task_id || "";
+  const taskChanged = state.selectedTaskId !== nextTaskId;
+  const previousStatus = state.selectedTaskStatus;
+  state.selectedTaskId = nextTaskId;
+  if (taskChanged) {
+    state.taskAccounts.page = 1;
+    state.taskAccounts.status = Number(task?.account_summary?.failed || 0) > 0 ? "failed" : "";
+    state.taskAccounts.category = "";
+    state.taskAccountSelected.clear();
+    state.taskAccountVisible = [];
+    delete state.taskAccounts.payload;
+    updateTaskAccountBulkToolbar();
+    refs.taskAccountStatusFilter.value = state.taskAccounts.status;
+    refs.taskAccountCategoryFilter.value = "";
+  }
   const status = String(task.status || "");
-  refs.taskSummary.textContent = `${task.task_id || "-"} · ${taskStatusLabel(status)} · ${
-    task.endpoint || "-"
-  }`;
+  const endpoint = String(task.endpoint || "");
+  const isAccountBatch = endpoint.endsWith("/account_batch");
+  const taskFinishedWhileSelected =
+    !taskChanged && ACTIVE_TASK_STATUSES.has(previousStatus) && !ACTIVE_TASK_STATUSES.has(status);
+  state.selectedTaskStatus = status;
+  state.selectedTaskRenderKey = taskRenderKey(task);
+  refs.taskSummary.textContent = `${task.task_id || "-"} · ${taskStatusLabel(
+    status,
+  )} · ${taskEndpointLabel(endpoint)}`;
+  refs.taskSummary.title = endpoint;
   refs.taskStatus.textContent =
     task.message || task.error || `任务状态：${taskStatusLabel(status)}`;
   renderTaskProgress(task);
   renderTaskAccountSummary(task);
+  if (taskChanged) {
+    refs.taskRawResult.open = !isAccountBatch;
+    if (isAccountBatch && !refs.taskAccountCheckpoints.hidden) {
+      refs.taskAccountCheckpoints.open = true;
+    }
+  }
+  if (
+    (taskChanged || taskFinishedWhileSelected) &&
+    refs.taskAccountCheckpoints.open &&
+    !refs.taskAccountCheckpoints.hidden
+  ) {
+    window.queueMicrotask(() => loadTaskAccounts(nextTaskId));
+  }
   if (["failed", "canceled"].includes(status)) {
     refs.taskStatus.dataset.state = "error";
-  } else if (status === "success") {
+  } else if (["success", "partial_success"].includes(status)) {
     refs.taskStatus.dataset.state = "success";
   } else {
     delete refs.taskStatus.dataset.state;
@@ -6133,7 +8242,7 @@ async function taskControl(taskId, action) {
   }
 }
 
-function renderTaskList(items) {
+function renderTaskList(items, emptyMessage = "还没有任务。粘贴作品链接后，任务会显示在这里。") {
   const previousScrollTop = refs.taskQueueList.scrollTop;
   const activeElement = document.activeElement;
   const focusedRow = activeElement?.closest?.(".task-row[data-task-id]");
@@ -6143,21 +8252,20 @@ function renderTaskList(items) {
   if (!Array.isArray(items) || !items.length) {
     const emptyState = document.createElement("div");
     emptyState.className = "empty-state";
-    emptyState.textContent = "还没有任务。粘贴作品链接后，任务会显示在这里。";
+    emptyState.textContent = emptyMessage;
     refs.taskQueueList.appendChild(emptyState);
     return;
   }
   const fragment = document.createDocumentFragment();
   for (const task of items) {
     const taskStatus = String(task.status || "");
-    const taskStatusClass = taskStatus.replace(/[^a-z0-9_-]/gi, "");
     const row = document.createElement("div");
     row.className = "task-row";
     row.dataset.taskId = task.task_id || "";
     row.classList.toggle("active", row.dataset.taskId === state.selectedTaskId);
 
     const status = document.createElement("span");
-    status.className = `task-status ${taskStatusClass}`;
+    status.className = `task-state-text ${taskStateClass(taskStatus)}`;
     status.textContent = taskStatusLabel(taskStatus);
 
     const main = document.createElement("button");
@@ -6174,13 +8282,18 @@ function renderTaskList(items) {
     );
     main.innerHTML = `
       <span class="task-id">${escapeHtml(task.task_id || "-")}</span>
-      <span class="task-endpoint">${escapeHtml(task.endpoint || "-")}</span>
+      <span class="task-endpoint">${escapeHtml(taskEndpointLabel(task.endpoint))}</span>
       <span class="task-time">${escapeHtml(task.updated_at || task.created_at || "")}</span>
     `;
+    main.title = String(task.endpoint || "");
     const progress = normalizeTaskProgress(task);
     if (progress.total > 0) {
       const progressRow = document.createElement("span");
       progressRow.className = "task-row-progress";
+      progressRow.setAttribute(
+        "aria-label",
+        `进度 ${progress.current} / ${progress.total}，${progress.percent}%`,
+      );
       progressRow.innerHTML = `
         <span class="task-row-progress-track" aria-hidden="true">
           <span style="width: ${progress.percent}%"></span>
@@ -6195,16 +8308,6 @@ function renderTaskList(items) {
 
     const actions = document.createElement("div");
     actions.className = "task-actions";
-
-    const viewBtn = document.createElement("button");
-    viewBtn.type = "button";
-    viewBtn.className = "btn ghost";
-    viewBtn.dataset.taskAction = "view";
-    viewBtn.textContent = "查看";
-    viewBtn.addEventListener("click", () => {
-      renderTaskResult(task);
-    });
-    actions.appendChild(viewBtn);
 
     if (taskStatus === "running" && task.pause_supported) {
       const pauseBtn = document.createElement("button");
@@ -6300,6 +8403,37 @@ function renderTaskList(items) {
   }
 }
 
+function renderFilteredTaskList() {
+  const items = Array.isArray(state.taskListItems) ? state.taskListItems : [];
+  const counts = {
+    all: items.length,
+    active: items.filter((task) => taskMatchesFilter(task, "active")).length,
+    attention: items.filter((task) => taskMatchesFilter(task, "attention")).length,
+    complete: items.filter((task) => taskMatchesFilter(task, "complete")).length,
+  };
+  const visibleItems = items.filter(
+    (task) =>
+      taskMatchesFilter(task, state.taskFilter) && taskMatchesSearch(task, state.taskSearch),
+  );
+  refs.taskFilterGroup.querySelectorAll("[data-task-filter]").forEach((button) => {
+    const filter = button.dataset.taskFilter || "all";
+    button.setAttribute("aria-pressed", filter === state.taskFilter ? "true" : "false");
+    const countNode = button.querySelector("[data-task-filter-count]");
+    if (countNode) {
+      countNode.textContent = String(counts[filter] || 0);
+    }
+  });
+  refs.taskQueueMeta.textContent = `显示 ${visibleItems.length} / ${items.length} · 进行中 ${
+    counts.active
+  } · 需处理 ${counts.attention} · 已完成 ${counts.complete}`;
+  renderTaskList(
+    visibleItems,
+    items.length
+      ? "没有符合当前筛选条件的任务。可以切换状态或清空搜索。"
+      : "还没有任务。粘贴作品链接后，任务会显示在这里。",
+  );
+}
+
 function renderTaskListError(message) {
   refs.taskQueueList.innerHTML = "";
   const errorState = document.createElement("div");
@@ -6323,46 +8457,41 @@ async function loadTaskList() {
     return;
   }
   state.taskListLoading = true;
-  refs.taskQueueList.setAttribute("aria-busy", "true");
+  state.taskLastPollAt = Date.now();
+  const isInitialLoad = !state.taskListRenderKey;
+  if (isInitialLoad) {
+    refs.taskQueueList.setAttribute("aria-busy", "true");
+  }
   try {
     const payload = await fetchJson("/ui/api/tasks?limit=120", {
       method: "GET",
       headers: headerOptions(false),
     });
     const items = payload?.items || [];
-    renderTaskList(items);
-    const counts = items.reduce(
-      (summary, task) => {
-        const status = String(task.status || "");
-        if (["pending", "running", "pausing", "canceling"].includes(status)) {
-          summary.active += 1;
-        } else if (status === "paused") {
-          summary.paused += 1;
-        } else if (status === "success") {
-          summary.success += 1;
-        } else if (["failed", "canceled"].includes(status)) {
-          summary.failed += 1;
-        }
-        return summary;
-      },
-      { active: 0, paused: 0, success: 0, failed: 0 },
-    );
-    refs.taskQueueMeta.textContent = `任务: ${payload?.count ?? items.length} · 进行中 ${
-      counts.active
-    } · 已暂停 ${counts.paused} · 成功 ${counts.success} · 失败/取消 ${counts.failed}`;
+    const nextListRenderKey = taskListRenderKey(items);
+    const listChanged = nextListRenderKey !== state.taskListRenderKey;
+    state.taskListItems = items;
+    if (listChanged) {
+      state.taskListRenderKey = nextListRenderKey;
+      renderFilteredTaskList();
+    }
     if (state.selectedTaskId) {
       const selected = items.find((item) => item.task_id === state.selectedTaskId);
-      if (selected) {
+      if (selected && taskRenderKey(selected) !== state.selectedTaskRenderKey) {
         renderTaskResult(selected);
       }
     }
   } catch (error) {
-    refs.taskQueueMeta.textContent = "任务: 0 · 队列暂时无法加载";
-    renderTaskListError(error.message);
+    if (isInitialLoad) {
+      refs.taskQueueMeta.textContent = "任务: 0 · 队列暂时无法加载";
+      renderTaskListError(error.message);
+    }
     setApiStatus(`异常: ${error.message}`, "error");
   } finally {
     state.taskListLoading = false;
-    refs.taskQueueList.setAttribute("aria-busy", "false");
+    if (isInitialLoad) {
+      refs.taskQueueList.setAttribute("aria-busy", "false");
+    }
   }
 }
 
@@ -6436,6 +8565,7 @@ function bindEvents() {
         "ok",
       );
       await Promise.allSettled([
+        loadOverview(),
         loadSettings(),
         loadRawSettings(),
         loadFiles(),
@@ -6937,6 +9067,24 @@ function bindEvents() {
     loadAccountBoard(false);
   });
 
+  const jumpBoardPage = () =>
+    jumpToValidatedPage(
+      refs.boardPageInput,
+      state.accountBoard.pages,
+      (page) => {
+        state.accountBoard.page = page;
+        loadAccountBoard(false);
+      },
+      setBoardStatus,
+    );
+  refs.boardPageJumpBtn.addEventListener("click", jumpBoardPage);
+  refs.boardPageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      jumpBoardPage();
+    }
+  });
+
   refs.boardReloadBtn.addEventListener("click", () => {
     withBusyButton(refs.boardReloadBtn, "刷新中", () => loadAccountBoard(false));
   });
@@ -6970,6 +9118,10 @@ function bindEvents() {
     actionButton.closest(".profile-actions-menu")?.removeAttribute("open");
     if (action === "board-open-account") {
       openUrls([card.dataset.url || ""]);
+      return;
+    }
+    if (action === "board-open-gallery") {
+      openAccountGallery(card, actionButton);
       return;
     }
     if (action === "board-open-files") {
@@ -7014,8 +9166,111 @@ function bindEvents() {
     }
   });
 
+  refs.accountGalleryCloseBtn.addEventListener("click", () => {
+    closeAccountGallery();
+  });
+
+  refs.accountGalleryReloadBtn.addEventListener("click", () => {
+    loadAccountGallery();
+  });
+
+  refs.accountGalleryKind.addEventListener("change", () => {
+    state.accountGallery.kind = refs.accountGalleryKind.value || "all";
+    state.accountGallery.page = 1;
+    loadAccountGallery();
+  });
+
+  refs.accountGalleryPageSize.addEventListener("change", () => {
+    state.accountGallery.pageSize = Number(refs.accountGalleryPageSize.value || "24");
+    state.accountGallery.page = 1;
+    loadAccountGallery();
+  });
+
+  refs.accountGalleryPrevBtn.addEventListener("click", () => {
+    if (state.accountGallery.page <= 1 || state.accountGallery.loading) {
+      return;
+    }
+    state.accountGallery.page -= 1;
+    loadAccountGallery();
+  });
+
+  refs.accountGalleryNextBtn.addEventListener("click", () => {
+    if (
+      state.accountGallery.page >= state.accountGallery.pages ||
+      state.accountGallery.loading
+    ) {
+      return;
+    }
+    state.accountGallery.page += 1;
+    loadAccountGallery();
+  });
+
+  const jumpGalleryPage = () =>
+    jumpToValidatedPage(
+      refs.accountGalleryPageInput,
+      state.accountGallery.pages,
+      (page) => {
+        rememberAccountGalleryPosition();
+        state.accountGallery.page = page;
+        loadAccountGallery();
+      },
+      (message) => {
+        refs.accountGalleryCounts.textContent = message;
+      },
+    );
+  refs.accountGalleryPageJumpBtn.addEventListener("click", jumpGalleryPage);
+  refs.accountGalleryPageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      jumpGalleryPage();
+    }
+  });
+
+  refs.accountGalleryMediaPrevBtn.addEventListener("click", () => {
+    moveAccountGallery(-1);
+  });
+
+  refs.accountGalleryMediaNextBtn.addEventListener("click", () => {
+    moveAccountGallery(1);
+  });
+
+  refs.accountGalleryPinBtn.addEventListener("click", () => {
+    withBusyButton(refs.accountGalleryPinBtn, "设置中", pinAccountGalleryMedia);
+  });
+
+  refs.accountGalleryDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeAccountGallery();
+  });
+
+  refs.accountGalleryDialog.addEventListener("click", (event) => {
+    if (event.target === refs.accountGalleryDialog) {
+      closeAccountGallery();
+    }
+  });
+
+  refs.accountGalleryDialog.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    if (!target.closest(".account-gallery-viewer, .account-gallery-thumb")) {
+      return;
+    }
+    event.preventDefault();
+    moveAccountGallery(event.key === "ArrowLeft" ? -1 : 1);
+  });
+
   refs.filesBackToBoardBtn.addEventListener("click", () => {
     switchTab("profiles");
+    const targetScroll = state.accountBoard.restoreScrollY;
+    if (targetScroll !== null) {
+      state.accountBoard.restoreScrollY = null;
+      window.requestAnimationFrame(() => window.scrollTo({ top: targetScroll }));
+    }
   });
 
   refs.filesPinProfileBtn.addEventListener("click", () => {
@@ -7250,6 +9505,56 @@ function bindEvents() {
     }
   });
   refs.collectorIdentityPlatform.addEventListener("change", syncCollectorCredentialFields);
+  refs.collectorIdentityAuthMode.addEventListener("change", syncCollectorCredentialFields);
+
+  refs.collectorLoginBrowserCloseBtn.addEventListener(
+    "click",
+    closeCollectorLoginBrowserDialog,
+  );
+  refs.collectorLoginBrowserDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeCollectorLoginBrowserDialog();
+  });
+  refs.collectorLoginBrowserDialog.addEventListener("click", (event) => {
+    if (event.target === refs.collectorLoginBrowserDialog) {
+      closeCollectorLoginBrowserDialog();
+    }
+  });
+  refs.collectorLoginBrowserReconnectBtn.addEventListener("click", () => {
+    withBusyButton(
+      refs.collectorLoginBrowserReconnectBtn,
+      "连接中",
+      reconnectCollectorLoginBrowser,
+    );
+  });
+  refs.collectorLoginBrowserFullscreenBtn.addEventListener(
+    "click",
+    toggleCollectorLoginBrowserFullscreen,
+  );
+  refs.collectorLoginBrowserStopBtn.addEventListener("click", () => {
+    withBusyButton(
+      refs.collectorLoginBrowserStopBtn,
+      "停止中",
+      stopCollectorLoginBrowser,
+    );
+  });
+  refs.collectorLoginBrowserSaveBtn.addEventListener("click", () => {
+    withBusyButton(
+      refs.collectorLoginBrowserSaveBtn,
+      "检测并保存中",
+      captureCollectorLoginBrowserCredentials,
+    );
+  });
+  document.addEventListener("fullscreenchange", () => {
+    const frame = refs.collectorLoginBrowserViewport.closest(
+      ".collector-login-browser-frame",
+    );
+    const fullscreen = document.fullscreenElement === frame;
+    refs.collectorLoginBrowserFullscreenBtn.innerHTML = fullscreen
+      ? '<i data-lucide="minimize-2" aria-hidden="true"></i><span>退出全屏</span>'
+      : '<i data-lucide="maximize-2" aria-hidden="true"></i><span>全屏</span>';
+    refreshIcons(refs.collectorLoginBrowserFullscreenBtn);
+  });
 
   refs.collectorPolicyPlatform.addEventListener("change", () => {
     loadCollectorPolicy(refs.collectorPolicyPlatform.value);
@@ -7386,6 +9691,34 @@ function bindEvents() {
     withBusyButton(refs.taskQueueRefreshBtn, "刷新中", loadTaskList);
   });
 
+  refs.taskFilterGroup.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-task-filter]");
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    state.taskFilter = button.dataset.taskFilter || "all";
+    renderFilteredTaskList();
+  });
+
+  refs.taskSearchInput.addEventListener("input", () => {
+    state.taskSearch = refs.taskSearchInput.value || "";
+    renderFilteredTaskList();
+  });
+
+  refs.overviewRefreshBtn.addEventListener("click", () => {
+    withBusyButton(refs.overviewRefreshBtn, "刷新中", () =>
+      loadOverview({ refreshMedia: true }),
+    );
+  });
+
+  refs.overviewBackupBtn.addEventListener("click", () => {
+    withBusyButton(refs.overviewBackupBtn, "备份中", createOverviewSnapshot);
+  });
+
+  refs.overviewIntegrityBtn.addEventListener("click", () => {
+    withBusyButton(refs.overviewIntegrityBtn, "扫描中", startOverviewIntegrityScan);
+  });
+
   refs.taskAccountCheckpoints.addEventListener("toggle", () => {
     if (refs.taskAccountCheckpoints.open) {
       loadTaskAccounts();
@@ -7396,9 +9729,109 @@ function bindEvents() {
     withBusyButton(refs.taskAccountRefreshBtn, "刷新中", () => loadTaskAccounts());
   });
 
+  refs.taskAccountStatusFilter.addEventListener("change", () => {
+    state.taskAccounts.status = refs.taskAccountStatusFilter.value || "";
+    if (state.taskAccounts.status && state.taskAccounts.status !== "failed") {
+      state.taskAccounts.category = "";
+      refs.taskAccountCategoryFilter.value = "";
+    }
+    state.taskAccounts.page = 1;
+    loadTaskAccounts();
+  });
+
+  refs.taskAccountCategoryFilter.addEventListener("change", () => {
+    state.taskAccounts.category = refs.taskAccountCategoryFilter.value || "";
+    if (state.taskAccounts.category) {
+      state.taskAccounts.status = "failed";
+      refs.taskAccountStatusFilter.value = "failed";
+    }
+    state.taskAccounts.page = 1;
+    loadTaskAccounts();
+  });
+
+  refs.taskAccountRetryCategoryBtn.addEventListener("click", () => {
+    withBusyButton(refs.taskAccountRetryCategoryBtn, "创建中", retryTaskAccountCategory);
+  });
+
+  refs.taskAccountExportBtn.addEventListener("click", () => {
+    withBusyButton(refs.taskAccountExportBtn, "导出中", exportTaskAccountUrls);
+  });
+
+  refs.taskAccountSelectPageBtn.addEventListener("click", () => {
+    selectVisibleTaskAccounts();
+  });
+
+  refs.taskAccountClearSelectionBtn.addEventListener("click", () => {
+    clearTaskAccountSelection();
+  });
+
+  refs.taskAccountOpenSelectedBtn.addEventListener("click", () => {
+    openUrls(selectedTaskAccountItems().map((item) => item.url));
+  });
+
+  refs.taskAccountArchiveSelectedBtn.addEventListener("click", () => {
+    openTaskAccountArchiveDialog({
+      items: selectedTaskAccountItems(),
+      trigger: refs.taskAccountArchiveSelectedBtn,
+    });
+  });
+
+  refs.taskAccountPrevBtn.addEventListener("click", () => {
+    state.taskAccounts.page = Math.max(1, state.taskAccounts.page - 1);
+    loadTaskAccounts();
+  });
+
+  refs.taskAccountNextBtn.addEventListener("click", () => {
+    state.taskAccounts.page = Math.min(
+      state.taskAccounts.pages,
+      state.taskAccounts.page + 1,
+    );
+    loadTaskAccounts();
+  });
+
+  const jumpTaskAccountPage = () =>
+    jumpToValidatedPage(
+      refs.taskAccountPageInput,
+      state.taskAccounts.pages,
+      (page) => {
+        state.taskAccounts.page = page;
+        loadTaskAccounts();
+      },
+      (message) => {
+        refs.taskAccountCategorySummary.textContent = message;
+      },
+    );
+  refs.taskAccountPageJumpBtn.addEventListener("click", jumpTaskAccountPage);
+  refs.taskAccountPageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      jumpTaskAccountPage();
+    }
+  });
+
+  refs.taskAccountArchiveCloseBtn.addEventListener("click", () => {
+    closeTaskAccountArchiveDialog();
+  });
+  refs.taskAccountArchiveCancelBtn.addEventListener("click", () => {
+    closeTaskAccountArchiveDialog();
+  });
+  refs.taskAccountArchiveConfirmBtn.addEventListener("click", () => {
+    confirmTaskAccountArchive();
+  });
+  refs.taskAccountArchiveDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeTaskAccountArchiveDialog();
+  });
+  refs.taskAccountArchiveDialog.addEventListener("click", (event) => {
+    if (event.target === refs.taskAccountArchiveDialog) {
+      closeTaskAccountArchiveDialog();
+    }
+  });
+
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && state.activeTab === "workbench") {
       loadTaskList();
+      loadOverview();
     }
   });
 
@@ -7406,6 +9839,12 @@ function bindEvents() {
     applyBoardColumns(false);
     scheduleFileMasonryLayout();
     syncTabOrientation();
+  });
+
+  window.addEventListener("pagehide", () => {
+    if (state.activeTab === "profiles") {
+      persistAccountBoardState();
+    }
   });
 }
 
@@ -7425,10 +9864,23 @@ function startLogFallbackPolling() {
 
 function startTaskPolling() {
   setInterval(() => {
-    if (!document.hidden && state.activeTab === "workbench") {
+    const hasActiveTasks = state.taskListItems.some((task) =>
+      ACTIVE_TASK_STATUSES.has(String(task?.status || "")),
+    );
+    const pollInterval = hasActiveTasks ? TASK_POLL_ACTIVE_MS : TASK_POLL_IDLE_MS;
+    const pollDue = Date.now() - state.taskLastPollAt >= pollInterval;
+    if (!document.hidden && state.activeTab === "workbench" && pollDue) {
       loadTaskList();
     }
-  }, 2000);
+  }, TASK_POLL_ACTIVE_MS);
+}
+
+function startOverviewPolling() {
+  setInterval(() => {
+    if (!document.hidden && state.activeTab === "workbench") {
+      loadOverview();
+    }
+  }, 10000);
 }
 
 async function bootstrap() {
@@ -7450,6 +9902,7 @@ async function bootstrap() {
   state.accountBoard.search = refs.boardSearch?.value.trim() || "";
   state.accountBoard.status = refs.boardStatusFilter?.value || "all";
   state.accountBoard.sort = refs.boardSort?.value || "configured";
+  restoreAccountBoardState();
   try {
     state.accountBoard.columns = Number(localStorage.getItem(BOARD_COLUMNS_STORAGE_KEY) || "4");
   } catch {
@@ -7464,6 +9917,13 @@ async function bootstrap() {
   if (refs.boardViewMode) {
     refs.boardViewMode.value = state.accountBoard.viewMode;
   }
+  refs.boardPlatform.value = state.accountBoard.platform;
+  refs.boardPageSize.value = String(state.accountBoard.pageSize);
+  refs.boardRefreshKind.value = state.accountBoard.refreshKind;
+  refs.boardSearch.value = state.accountBoard.search;
+  refs.boardStatusFilter.value = state.accountBoard.status;
+  refs.boardSort.value = state.accountBoard.sort;
+  refs.boardDensity.value = String(state.accountBoard.columns);
   applyBoardColumns(false);
   state.currentScope = refs.filesScope.value;
   state.currentPath = refs.filesPath.value.trim();
@@ -7507,7 +9967,9 @@ async function bootstrap() {
   connectLogSocket();
   startLogFallbackPolling();
   startTaskPolling();
+  startOverviewPolling();
   pollLogs();
+  loadOverview();
   loadSettings();
   loadRawSettings();
   loadFiles();

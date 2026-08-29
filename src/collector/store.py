@@ -10,6 +10,7 @@ from typing import Iterable
 
 from .models import (
     CollectorAssignment,
+    CollectorAuthMode,
     CollectorCredentials,
     CollectorIdentity,
     CollectorIdentityPublic,
@@ -30,7 +31,7 @@ from .secrets import (
 
 
 DEFAULT_STORE_NAME = "collector_pool.sqlite3"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 
 class CollectorStoreError(RuntimeError):
@@ -109,6 +110,8 @@ class CollectorStore:
                     identity_id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     platform TEXT NOT NULL CHECK(platform IN ('douyin', 'tiktok')),
+                    auth_mode TEXT NOT NULL DEFAULT 'authenticated'
+                        CHECK(auth_mode IN ('authenticated', 'adult_authenticated', 'anonymous')),
                     enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
                     weight REAL NOT NULL CHECK(weight > 0),
                     request_delay REAL NOT NULL CHECK(request_delay >= 0),
@@ -137,6 +140,7 @@ class CollectorStore:
                     consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK(consecutive_failures >= 0),
                     total_successes INTEGER NOT NULL DEFAULT 0 CHECK(total_successes >= 0),
                     total_failures INTEGER NOT NULL DEFAULT 0 CHECK(total_failures >= 0),
+                    risk_failures INTEGER NOT NULL DEFAULT 0 CHECK(risk_failures >= 0),
                     cooldown_until TEXT NOT NULL DEFAULT '',
                     last_validated_at TEXT NOT NULL DEFAULT '',
                     last_success_at TEXT NOT NULL DEFAULT '',
@@ -175,6 +179,31 @@ class CollectorStore:
                     ON collector_assignments(identity_id);
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in self.connection.execute(
+                    "PRAGMA table_info(collector_runtime)"
+                ).fetchall()
+            }
+            if "risk_failures" not in columns:
+                self.connection.execute(
+                    "ALTER TABLE collector_runtime "
+                    "ADD COLUMN risk_failures INTEGER NOT NULL DEFAULT 0 "
+                    "CHECK(risk_failures >= 0)"
+                )
+            identity_columns = {
+                str(row["name"])
+                for row in self.connection.execute(
+                    "PRAGMA table_info(collector_identities)"
+                ).fetchall()
+            }
+            if "auth_mode" not in identity_columns:
+                self.connection.execute(
+                    "ALTER TABLE collector_identities "
+                    "ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'authenticated' "
+                    "CHECK(auth_mode IN "
+                    "('authenticated', 'adult_authenticated', 'anonymous'))"
+                )
             self.connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             # A lease belongs to a process lifetime. Never resurrect a stale count.
             self.connection.execute(
@@ -217,11 +246,12 @@ class CollectorStore:
         self.connection.execute(
             """
             INSERT INTO collector_identities (
-                identity_id, name, platform, enabled, weight, request_delay,
-                max_concurrency, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                identity_id, name, platform, auth_mode, enabled, weight,
+                request_delay, max_concurrency, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(identity_id) DO UPDATE SET
                 name = excluded.name,
+                auth_mode = excluded.auth_mode,
                 enabled = excluded.enabled,
                 weight = excluded.weight,
                 request_delay = excluded.request_delay,
@@ -232,6 +262,7 @@ class CollectorStore:
                 identity.identity_id,
                 identity.name,
                 identity.platform.value,
+                identity.auth_mode.value,
                 int(identity.enabled),
                 identity.weight,
                 identity.request_delay,
@@ -311,6 +342,7 @@ class CollectorStore:
                 identity_id=row["identity_id"],
                 name=row["name"],
                 platform=row["platform"],
+                auth_mode=row["auth_mode"],
                 enabled=bool(row["enabled"]),
                 weight=row["weight"],
                 request_delay=row["request_delay"],
@@ -493,6 +525,7 @@ class CollectorStore:
                 consecutive_failures=row["consecutive_failures"],
                 total_successes=row["total_successes"],
                 total_failures=row["total_failures"],
+                risk_failures=row["risk_failures"],
                 cooldown_until=row["cooldown_until"],
                 last_validated_at=row["last_validated_at"],
                 last_success_at=row["last_success_at"],
@@ -511,7 +544,8 @@ class CollectorStore:
                 """
                 UPDATE collector_runtime SET
                     status = ?, active_leases = ?, consecutive_failures = ?,
-                    total_successes = ?, total_failures = ?, cooldown_until = ?,
+                    total_successes = ?, total_failures = ?, risk_failures = ?,
+                    cooldown_until = ?,
                     last_validated_at = ?, last_success_at = ?, last_failure_at = ?,
                     last_error_code = ?, updated_at = ?
                 WHERE identity_id = ?
@@ -522,6 +556,7 @@ class CollectorStore:
                     state.consecutive_failures,
                     state.total_successes,
                     state.total_failures,
+                    state.risk_failures,
                     state.cooldown_until,
                     state.last_validated_at,
                     state.last_success_at,
@@ -537,8 +572,10 @@ class CollectorStore:
         platform: CollectorPlatform | None = None,
     ) -> list[CollectorIdentityPublic]:
         query = """
-            SELECT i.*, r.status, r.active_leases, r.cooldown_until,
-                   r.last_validated_at, r.last_error_code
+            SELECT i.*, r.status, r.active_leases, r.consecutive_failures,
+                   r.total_successes, r.total_failures, r.risk_failures,
+                   r.cooldown_until, r.last_validated_at, r.last_success_at,
+                   r.last_failure_at, r.last_error_code
             FROM collector_identities AS i
             JOIN collector_runtime AS r ON r.identity_id = i.identity_id
         """
@@ -554,6 +591,7 @@ class CollectorStore:
                     identity_id=row["identity_id"],
                     name=row["name"],
                     platform=row["platform"],
+                    auth_mode=row["auth_mode"],
                     enabled=bool(row["enabled"]),
                     weight=row["weight"],
                     request_delay=row["request_delay"],
@@ -563,14 +601,25 @@ class CollectorStore:
                     proxy_configured=bool(row["proxy_configured"]),
                     user_agent_configured=bool(row["user_agent_configured"]),
                     device_id_configured=bool(row["device_id_configured"]),
+                    route_configured=(
+                        row["platform"] == CollectorPlatform.TIKTOK.value
+                        and row["auth_mode"] == CollectorAuthMode.ANONYMOUS.value
+                    )
+                    or bool(row["cookie_configured"]),
                     status=(
                         IdentityStatus.DISABLED
                         if not row["enabled"]
                         else row["status"]
                     ),
                     active_leases=row["active_leases"],
+                    consecutive_failures=row["consecutive_failures"],
+                    total_successes=row["total_successes"],
+                    total_failures=row["total_failures"],
+                    risk_failures=row["risk_failures"],
                     cooldown_until=row["cooldown_until"],
                     last_validated_at=row["last_validated_at"],
+                    last_success_at=row["last_success_at"],
+                    last_failure_at=row["last_failure_at"],
                     last_error_code=row["last_error_code"],
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],

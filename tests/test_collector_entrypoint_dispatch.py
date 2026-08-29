@@ -308,6 +308,88 @@ async def test_collect_monitor_without_pool_or_global_cookie_returns_clean_failu
 
 
 @pytest.mark.asyncio
+async def test_collect_monitor_propagates_request_failure(tmp_path, monkeypatch):
+    server = _server(tmp_path)
+
+    class FailedCollector:
+        cursor = 0
+        finished = True
+        last_request_error = RuntimeError("403 Forbidden")
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run(self, **kwargs):
+            return []
+
+    monkeypatch.setattr(main_server_module, "CollectsDetail", FailedCollector)
+
+    async def failed_browser_fetch(**kwargs):
+        raise RuntimeError("browser failed")
+
+    monkeypatch.setattr(
+        main_server_module,
+        "fetch_douyin_collection_via_browser",
+        failed_browser_fetch,
+    )
+
+    with pytest.raises(RuntimeError, match="direct and browser paths"):
+        await server._collect_monitor_fetch_aweme_items(
+            collect_id="123",
+            cookie="sessionid=secret",
+            proxy=None,
+            limit=1,
+        )
+
+    server.collector_store.close()
+
+
+@pytest.mark.asyncio
+async def test_collect_monitor_falls_back_to_browser(tmp_path, monkeypatch):
+    server = _server(tmp_path)
+
+    class FailedCollector:
+        cursor = 0
+        finished = True
+        last_request_error = RuntimeError("403 Forbidden")
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run(self, **kwargs):
+            return []
+
+    captured = {}
+
+    async def browser_fetch(**kwargs):
+        captured.update(kwargs)
+        return [{"aweme_id": "browser-1"}]
+
+    monkeypatch.setattr(main_server_module, "CollectsDetail", FailedCollector)
+    monkeypatch.setattr(
+        main_server_module,
+        "fetch_douyin_collection_via_browser",
+        browser_fetch,
+    )
+
+    result = await server._collect_monitor_fetch_aweme_items(
+        collect_id="123",
+        cookie="sessionid=secret",
+        proxy="http://proxy:8080",
+        limit=1,
+    )
+
+    assert result == [{"aweme_id": "browser-1"}]
+    assert captured == {
+        "collect_id": "123",
+        "cookie": "sessionid=secret",
+        "proxy": "http://proxy:8080",
+        "limit": 1,
+    }
+    server.collector_store.close()
+
+
+@pytest.mark.asyncio
 async def test_runtime_close_failures_are_counted_and_enter_policy_cooldown(
     tmp_path,
     monkeypatch,
