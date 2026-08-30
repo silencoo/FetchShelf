@@ -59,3 +59,4 @@ async def test_notify_collect_monitor_sends_on_failure_even_without_new_accounts
     await APIServer._notify_collect_monitor(server, schedule, False, summary, "boom")
 
     assert len(calls) == 1
+    assert "错误=boom" in calls[0][1]["body"]

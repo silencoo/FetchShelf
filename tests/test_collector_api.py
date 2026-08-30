@@ -9,6 +9,7 @@ from src.collector import (
     CapturedLoginCredentials,
     CollectorPlatform,
     CollectorStore,
+    DouyinBrowserCollectionError,
     IdentityLeaseManager,
 )
 
@@ -443,6 +444,52 @@ def test_identity_referenced_by_schedule_cannot_be_deleted(tmp_path, monkeypatch
     )
     assert rejected.status_code == 409
     server.collector_leases.lease(identity_id)
+    server.collector_store.close()
+
+
+def test_collect_monitor_auth_failure_returns_actionable_identity(
+    tmp_path,
+    monkeypatch,
+):
+    server, client = _collector_test_client(tmp_path, monkeypatch)
+    headers = {"token": "collector-test-token"}
+    server.ui_schedules["S000001"] = {
+        "schedule_id": "S000001",
+        "schedule_type": server.COLLECT_MONITOR_SCHEDULE,
+        "name": "Monitor",
+        "collect_id": "123",
+        "enabled": False,
+        "interval_minutes": 30,
+        "identity_id": "",
+    }
+
+    async def fail_monitor(schedule):
+        error = DouyinBrowserCollectionError(
+            "抖音登录状态已失效或需要验证，请重新登录。",
+            error_code="douyin_auth_required",
+        )
+        error.identity_id = "dy-main"
+        raise error
+
+    async def ignore_notification(**kwargs):
+        return None
+
+    server._run_collect_monitor_once = fail_monitor
+    server._notify_collect_monitor = ignore_notification
+    server._persist_ui_schedules = lambda: None
+
+    response = client.post(
+        "/ui/api/collect-monitors/S000001/run",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result["error_code"] == "douyin_auth_required"
+    assert result["error"] == "抖音登录状态已失效或需要验证，请重新登录。"
+    assert result["selected_identity_id"] == "dy-main"
+    assert result["requires_login"] is True
+    assert result["action"] == "reauthenticate_identity"
     server.collector_store.close()
 
 

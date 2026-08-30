@@ -10,6 +10,7 @@ from src.collector import (
     AESGCMSecretCodec,
     CollectorAssignment,
     CollectorCredentials,
+    DouyinBrowserCollectionError,
     CollectorIdentity,
     CollectorPlatform,
     CollectorPolicy,
@@ -76,6 +77,7 @@ def _save_identity(
     *,
     cookie: str | None = None,
     proxy: str = "",
+    user_agent: str = "",
 ):
     server.collector_store.save_identity(
         CollectorIdentity(
@@ -87,6 +89,7 @@ def _save_identity(
         credentials=CollectorCredentials(
             cookie=cookie or f"sessionid={identity_id}",
             proxy=proxy,
+            user_agent=user_agent,
         ),
     )
 
@@ -238,6 +241,7 @@ async def test_collect_monitor_uses_identity_runtime_and_only_forces_explicit_cr
         CollectorPlatform.DOUYIN,
         cookie="sessionid=monitor",
         proxy="http://monitor-proxy:8080",
+        user_agent="monitor-agent",
     )
     server.parameter.get_settings_data = lambda: {}
     server._account_rows = lambda *args, **kwargs: []
@@ -245,8 +249,12 @@ async def test_collect_monitor_uses_identity_runtime_and_only_forces_explicit_cr
     captured_fetches = []
     captured_batches = []
 
-    async def fetch(*, collect_id, cookie, proxy, limit, parameter=None):
-        captured_fetches.append((cookie, proxy, parameter.collector_identity_id))
+    async def fetch(
+        *, collect_id, cookie, proxy, limit, parameter=None, user_agent=""
+    ):
+        captured_fetches.append(
+            (cookie, proxy, parameter.collector_identity_id, user_agent)
+        )
         return [
             {
                 "aweme_id": f"aweme-{len(captured_fetches)}",
@@ -284,8 +292,18 @@ async def test_collect_monitor_uses_identity_runtime_and_only_forces_explicit_cr
     )
 
     assert captured_fetches == [
-        ("sessionid=monitor", "http://monitor-proxy:8080", "dy-monitor"),
-        ("sessionid=monitor", "http://monitor-proxy:8080", "dy-monitor"),
+        (
+            "sessionid=monitor",
+            "http://monitor-proxy:8080",
+            "dy-monitor",
+            "monitor-agent",
+        ),
+        (
+            "sessionid=monitor",
+            "http://monitor-proxy:8080",
+            "dy-monitor",
+            "monitor-agent",
+        ),
     ]
     assert explicit["selected_identity_id"] == "dy-monitor"
     assert automatic["selected_identity_id"] == "dy-monitor"
@@ -333,13 +351,16 @@ async def test_collect_monitor_propagates_request_failure(tmp_path, monkeypatch)
         failed_browser_fetch,
     )
 
-    with pytest.raises(RuntimeError, match="direct and browser paths"):
+    with pytest.raises(DouyinBrowserCollectionError) as raised:
         await server._collect_monitor_fetch_aweme_items(
             collect_id="123",
             cookie="sessionid=secret",
             proxy=None,
             limit=1,
         )
+
+    assert raised.value.error_code == "douyin_browser_runtime_failed"
+    assert isinstance(raised.value.__cause__, RuntimeError)
 
     server.collector_store.close()
 
@@ -377,6 +398,7 @@ async def test_collect_monitor_falls_back_to_browser(tmp_path, monkeypatch):
         cookie="sessionid=secret",
         proxy="http://proxy:8080",
         limit=1,
+        user_agent="identity-agent",
     )
 
     assert result == [{"aweme_id": "browser-1"}]
@@ -385,6 +407,7 @@ async def test_collect_monitor_falls_back_to_browser(tmp_path, monkeypatch):
         "cookie": "sessionid=secret",
         "proxy": "http://proxy:8080",
         "limit": 1,
+        "user_agent": "identity-agent",
     }
     server.collector_store.close()
 

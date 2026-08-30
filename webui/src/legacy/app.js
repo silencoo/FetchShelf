@@ -6904,6 +6904,33 @@ function collectMonitorPayloadFromForm() {
   };
 }
 
+async function repairCollectMonitorIdentity(identityId) {
+  switchTab("collectors");
+  refs.collectorPlatformFilter.value = "douyin";
+  refs.collectorStatusFilter.value = "all";
+  if (!state.collectorIdentities.length) {
+    await loadCollectorIdentities();
+  } else {
+    renderCollectorIdentities();
+  }
+  const identity = collectorIdentityById(identityId);
+  if (!identity) {
+    setCollectorStatus(
+      refs.collectorListStatus,
+      "未找到本次失败使用的身份，请选择抖音身份并打开登录浏览器。",
+      "error",
+    );
+    refs.collectorIdentityList.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  const card = Array.from(
+    refs.collectorIdentityList.querySelectorAll("[data-identity-id]"),
+  ).find((item) => item.dataset.identityId === identity.identity_id);
+  const loginButton = card?.querySelector('[data-collector-action="login-browser"]');
+  card?.scrollIntoView({ behavior: "smooth", block: "center" });
+  await openCollectorLoginBrowser(identity, loginButton || refs.collectorCreateBtn);
+}
+
 function renderCollectMonitorList(items) {
   if (!refs.monitorList) {
     return;
@@ -6936,6 +6963,13 @@ function renderCollectMonitorList(items) {
     }
     const lastError = String(lastResult.error || "").trim();
     const lastErrorCode = String(lastResult.error_code || "").trim();
+    const requiresLogin =
+      parseBooleanValue(lastResult.requires_login, false) ||
+      lastResult.action === "reauthenticate_identity" ||
+      lastErrorCode === "douyin_auth_required";
+    const failedIdentityId = String(
+      lastResult.selected_identity_id || item.identity_id || "",
+    ).trim();
     const row = document.createElement("div");
     row.className = "task-row";
     row.innerHTML = `
@@ -6972,6 +7006,13 @@ function renderCollectMonitorList(items) {
         </span>
       </div>
       <div class="task-actions">
+        ${
+          requiresLogin
+            ? `<button class="btn primary" type="button" data-action="reauthenticate" aria-label="重新登录 ${escapeAttr(
+                item.name || scheduleId,
+              )} 使用的采集身份">重新登录身份</button>`
+            : ""
+        }
         <button class="btn ghost" type="button" data-action="run" aria-label="立即执行 ${escapeAttr(
           item.name || scheduleId,
         )}">立即执行</button>
@@ -6985,6 +7026,11 @@ function renderCollectMonitorList(items) {
     `;
     row.querySelector('[data-action="run"]')?.addEventListener("click", (event) => {
       withBusyButton(event.currentTarget, "执行中", () => runCollectMonitorNow(scheduleId));
+    });
+    row.querySelector('[data-action="reauthenticate"]')?.addEventListener("click", (event) => {
+      withBusyButton(event.currentTarget, "正在打开", () =>
+        repairCollectMonitorIdentity(failedIdentityId),
+      );
     });
     row.querySelector('[data-action="toggle"]')?.addEventListener("click", (event) => {
       withBusyButton(event.currentTarget, "更新中", () =>
@@ -7066,7 +7112,7 @@ async function runCollectMonitorNow(scheduleId) {
     } else {
       setCollectorStatus(
         refs.monitorStatus,
-        `执行失败: ${result.error || "unknown"}`,
+        `执行失败: ${[result.error_code, result.error].filter(Boolean).join(" · ") || "unknown"}`,
         "error",
       );
     }

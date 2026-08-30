@@ -19,6 +19,16 @@ __all__ = [
 class DouyinBrowserCollectionError(RuntimeError):
     """Raised when Douyin's browser-only collection flow cannot be completed."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: str = "douyin_browser_collection_failed",
+    ) -> None:
+        super().__init__(message)
+        self.error_code = str(error_code or "douyin_browser_collection_failed")
+        self.identity_id = ""
+
 
 def cookie_header_to_playwright(cookie: str) -> list[dict[str, Any]]:
     """Convert a Cookie header value into cookies scoped only to Douyin."""
@@ -109,11 +119,30 @@ async def _wait_for(
     return predicate()
 
 
-async def _open_context(browser) -> BrowserContext:
-    return await browser.new_context(
-        locale="zh-CN",
-        viewport={"width": 1536, "height": 864},
-    )
+async def _open_context(browser, user_agent: str = "") -> BrowserContext:
+    options: dict[str, Any] = {
+        "locale": "zh-CN",
+        "viewport": {"width": 1536, "height": 864},
+    }
+    if value := str(user_agent or "").strip():
+        options["user_agent"] = value
+    return await browser.new_context(**options)
+
+
+async def _douyin_login_prompt_visible(page: Page) -> bool:
+    """Return whether the self page is presenting an interactive login panel."""
+
+    for label in ("验证码登录", "扫码登录"):
+        locator = page.get_by_text(label, exact=True)
+        try:
+            for index in range(await locator.count()):
+                if await locator.nth(index).is_visible():
+                    return True
+        except Exception:
+            # Hydration can replace the login panel while it is being checked.
+            # A later check after the collection-tab lookup will retry it.
+            continue
+    return False
 
 
 def _collection_trace(event: str, **data: Any) -> None:
@@ -174,6 +203,7 @@ async def fetch_douyin_collection_via_browser(
     cookie: str,
     proxy: str | None,
     limit: int,
+    user_agent: str = "",
 ) -> list[dict]:
     """Fetch one private Douyin collection through its signed browser flow.
 
@@ -188,7 +218,8 @@ async def fetch_douyin_collection_via_browser(
     cookies = cookie_header_to_playwright(cookie)
     if not target_id or not cookies:
         raise DouyinBrowserCollectionError(
-            "Douyin collection browser fallback requires an id and cookies."
+            "抖音收藏夹浏览器请求缺少收藏夹 ID 或 Cookie。",
+            error_code="douyin_cookie_missing",
         )
 
     items: list[dict] = []
@@ -212,7 +243,7 @@ async def fetch_douyin_collection_via_browser(
 
         browser = await playwright.chromium.launch(**launch_options)
         try:
-            context = await _open_context(browser)
+            context = await _open_context(browser, user_agent=user_agent)
             await context.add_cookies(cookies)
             page: Page = await context.new_page()
 
@@ -355,16 +386,28 @@ async def fetch_douyin_collection_via_browser(
             )
             if navigation is not None and navigation.status >= 400:
                 raise DouyinBrowserCollectionError(
-                    "Douyin collection page navigation failed."
+                    "抖音收藏夹页面访问失败，请检查网络或代理。",
+                    error_code="douyin_navigation_failed",
                 )
 
             # The self page is a hydrated SPA. Its navigation completes well
             # before the collection sub-tabs and request hooks are ready.
             await page.wait_for_timeout(20000)
+            if await _douyin_login_prompt_visible(page):
+                raise DouyinBrowserCollectionError(
+                    "抖音登录状态已失效或需要验证，请打开对应采集身份的登录浏览器重新登录。",
+                    error_code="douyin_auth_required",
+                )
             tab = page.get_by_text("收藏夹", exact=True)
             if not await _click_first_visible(tab, 30):
+                if await _douyin_login_prompt_visible(page):
+                    raise DouyinBrowserCollectionError(
+                        "抖音登录状态已失效或需要验证，请打开对应采集身份的登录浏览器重新登录。",
+                        error_code="douyin_auth_required",
+                    )
                 raise DouyinBrowserCollectionError(
-                    "Douyin collection tab was not available."
+                    "抖音页面未显示收藏夹入口，页面结构可能已变化，请稍后重试。",
+                    error_code="douyin_collection_tab_missing",
                 )
 
             await _wait_for(lambda: bool(target_title), 12)
@@ -375,11 +418,18 @@ async def fetch_douyin_collection_via_browser(
                 await asyncio.sleep(0.75)
             if not target_title:
                 message = (
-                    "Douyin collection was not found in the browser session."
+                    "当前登录账号中未找到指定抖音收藏夹。"
                     if folder_list_seen
-                    else "Douyin collection list did not load in the browser session."
+                    else "抖音收藏夹列表未能加载，请重新登录后重试。"
                 )
-                raise DouyinBrowserCollectionError(message)
+                raise DouyinBrowserCollectionError(
+                    message,
+                    error_code=(
+                        "douyin_collection_not_found"
+                        if folder_list_seen
+                        else "douyin_collection_list_unavailable"
+                    ),
+                )
 
             target_link = page.locator(f'[href*="{target_id}"]')
             clicked = await _click_first_visible(target_link, 2)
@@ -390,7 +440,8 @@ async def fetch_douyin_collection_via_browser(
                 )
             if not clicked:
                 raise DouyinBrowserCollectionError(
-                    "Douyin collection entry could not be opened."
+                    "指定抖音收藏夹无法打开，页面结构可能已变化。",
+                    error_code="douyin_collection_entry_unavailable",
                 )
 
             # Folder cards may prefetch a one-item preview. Give the opened
@@ -399,11 +450,13 @@ async def fetch_douyin_collection_via_browser(
             await _wait_for(lambda: target_response_seen, 25)
             if not target_response_seen:
                 raise DouyinBrowserCollectionError(
-                    "Douyin collection response was not observed."
+                    "打开收藏夹后未检测到作品接口响应。",
+                    error_code="douyin_collection_response_missing",
                 )
             if response_failed and not items:
                 raise DouyinBrowserCollectionError(
-                    "Douyin collection browser request failed."
+                    "抖音收藏夹浏览器接口返回异常。",
+                    error_code="douyin_collection_response_failed",
                 )
 
             screenshot_path = os.environ.get(

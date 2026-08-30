@@ -61,6 +61,7 @@ from ..collector import (
     CollectorAuthMode,
     CollectorAssignment,
     CollectorCredentials,
+    DouyinBrowserCollectionError,
     CollectorIdentity,
     CollectorLoginBrowserManager,
     CollectorPlatform,
@@ -4051,6 +4052,7 @@ class APIServer(TikTok):
         limit: int,
         *,
         parameter=None,
+        user_agent: str = "",
     ) -> list[dict]:
         runtime_parameter = parameter or self.parameter
         target = self._normalize_collect_limit(limit, default=10)
@@ -4118,10 +4120,14 @@ class APIServer(TikTok):
                     cookie=cookie,
                     proxy=proxy,
                     limit=target,
+                    user_agent=user_agent,
                 )
+            except DouyinBrowserCollectionError:
+                raise
             except Exception as error:
-                raise RuntimeError(
-                    "Douyin collection request failed via direct and browser paths."
+                raise DouyinBrowserCollectionError(
+                    "抖音收藏夹浏览器请求执行失败，请稍后重试。",
+                    error_code="douyin_browser_runtime_failed",
                 ) from error
 
         return aweme_items[:target]
@@ -4247,6 +4253,7 @@ class APIServer(TikTok):
                 proxy=credentials.proxy or None,
                 limit=count,
                 parameter=worker.parameter,
+                user_agent=credentials.user_agent,
             )
             sec_uids = self._extract_collect_monitor_sec_uids(aweme_items)
 
@@ -4381,6 +4388,68 @@ class APIServer(TikTok):
             )
         return summary
 
+    @staticmethod
+    def _find_douyin_browser_error(
+        error: BaseException,
+    ) -> DouyinBrowserCollectionError | None:
+        current: BaseException | None = error
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, DouyinBrowserCollectionError):
+                return current
+            current = current.__cause__ or current.__context__
+        return None
+
+    def _collect_monitor_failure_result(
+        self,
+        schedule: dict,
+        error: Exception,
+    ) -> dict:
+        browser_error = self._find_douyin_browser_error(error)
+        exception_chain = []
+        current: BaseException | None = error
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            exception_chain.append(
+                f"{type(current).__name__}: {redact_webui_value(str(current))}"
+            )
+            current = current.__cause__ or current.__context__
+        logger = getattr(self, "logger", None)
+        if callable(getattr(logger, "error", None)):
+            logger.error(
+                _("收藏夹监控执行异常: collect_id={collect} {error}").format(
+                    collect=self._normalize_string(schedule.get("collect_id")),
+                    error=" <- ".join(exception_chain),
+                )
+            )
+
+        if browser_error is None:
+            return {
+                "ok": False,
+                "error_code": "monitor_execution_failed",
+                "error": _("收藏夹监控执行失败"),
+            }
+
+        error_code = self._normalize_string(browser_error.error_code)
+        result = {
+            "ok": False,
+            "error_code": error_code or "douyin_browser_collection_failed",
+            "error": self._normalize_string(browser_error),
+            "selected_identity_id": self._normalize_string(
+                browser_error.identity_id
+            ),
+        }
+        if error_code == "douyin_auth_required":
+            result.update(
+                {
+                    "requires_login": True,
+                    "action": "reauthenticate_identity",
+                }
+            )
+        return result
+
     def _start_single_schedule_runner(self, schedule_id: str) -> None:
         if schedule_id in self.ui_schedule_tasks:
             return
@@ -4494,12 +4563,8 @@ class APIServer(TikTok):
             if schedule_type == self.COLLECT_MONITOR_SCHEDULE:
                 try:
                     result = await self._run_collect_monitor_once(schedule)
-                except Exception:  # noqa: BLE001
-                    result = {
-                        "ok": False,
-                        "error_code": "monitor_execution_failed",
-                        "error": _("收藏夹监控执行失败"),
-                    }
+                except Exception as error:  # noqa: BLE001
+                    result = self._collect_monitor_failure_result(schedule, error)
                 schedule["last_result"] = result
                 if result.get("ok", False):
                     await self._notify_collect_monitor(
@@ -4842,6 +4907,8 @@ class APIServer(TikTok):
 
     @staticmethod
     def _collector_failure_error_code(error: Exception, fallback: str) -> str:
+        if error_code := str(getattr(error, "error_code", "") or "").strip():
+            return error_code
         response = getattr(error, "response", None)
         status_code = getattr(response, "status_code", None)
         if status_code is None:
@@ -4966,6 +5033,8 @@ class APIServer(TikTok):
                             error,
                             failure_error_code,
                         )
+                        if isinstance(error, DouyinBrowserCollectionError):
+                            error.identity_id = identity_id
                         raise
                     finally:
                         if runtime is not None:
@@ -9213,12 +9282,8 @@ class APIServer(TikTok):
                 raise HTTPException(status_code=404, detail="Monitor not found.")
             try:
                 result = await self._run_collect_monitor_once(schedule)
-            except Exception:  # noqa: BLE001
-                result = {
-                    "ok": False,
-                    "error_code": "monitor_execution_failed",
-                    "error": _("收藏夹监控执行失败"),
-                }
+            except Exception as error:  # noqa: BLE001
+                result = self._collect_monitor_failure_result(schedule, error)
             schedule["last_result"] = result
             schedule["last_run_at"] = self._now_text()
             schedule["updated_at"] = self._now_text()
