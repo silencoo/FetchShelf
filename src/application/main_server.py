@@ -195,6 +195,13 @@ class APIServer(TikTok):
     IDENTITY_FAILURE_ACTIONS = frozenset({"continue", "pause"})
     COLLECT_MONITOR_PAGE_COUNT = 20
     COLLECT_MONITOR_MAX_PAGES = 30
+    # A scheduled Douyin account crawl may contain thousands of accounts.  Do
+    # not retain the only identity/platform lease for the entire run: releasing
+    # it between bounded chunks lets a queued collection monitor run without
+    # increasing cookie concurrency.  TikTok batches keep one runtime because
+    # anonymous runtime preparation launches a browser session and Douyin is
+    # currently the only platform with a collection-monitor schedule.
+    DOUYIN_ACCOUNT_LEASE_CHUNK_SIZE = 10
     OVERVIEW_MEDIA_CACHE_TTL_SECONDS = 300
     STORAGE_ALERT_THRESHOLDS = (75, 85, 95)
     CONFIGURATION_SNAPSHOT_RETENTION = 14
@@ -5465,9 +5472,15 @@ class APIServer(TikTok):
             identity_cookie: str | None = None,
             identity_proxy: str | None = None,
             track_progress: bool = True,
+            identity_failure_state: dict[str, int] | None = None,
+            pause_after_last: bool = False,
         ) -> list[dict]:
             results = []
-            identity_failure_streak = 0
+            identity_failure_streak = (
+                max(0, int(identity_failure_state.get("streak", 0)))
+                if identity_failure_state is not None
+                else 0
+            )
             for entry_offset, (
                 index,
                 item,
@@ -5577,7 +5590,10 @@ class APIServer(TikTok):
                     identity_failure_streak += 1
                     if (
                         identity_failure_streak >= identity_failure_threshold
-                        and entry_offset + 1 < len(entries)
+                        and (
+                            entry_offset + 1 < len(entries)
+                            or pause_after_last
+                        )
                         and callable(identity_failure)
                     ):
                         paused = await identity_failure(
@@ -5592,6 +5608,8 @@ class APIServer(TikTok):
                             await wait_for_resume()
                 elif not identity_request_failed:
                     identity_failure_streak = 0
+                if identity_failure_state is not None:
+                    identity_failure_state["streak"] = identity_failure_streak
             return results
 
         async def run_identity_group(
@@ -5600,91 +5618,116 @@ class APIServer(TikTok):
             *,
             track_progress: bool = True,
         ) -> list[dict]:
-            async def operation(worker, credentials, selected_identity_id):
-                group_results = await run_entries(
-                    worker,
-                    entries,
-                    identity_id=selected_identity_id,
-                    identity_cookie=credentials.cookie or None,
-                    identity_proxy=credentials.proxy or None,
-                    track_progress=track_progress,
-                )
-                group_success = sum(
-                    1
-                    for result in group_results
-                    if not result.get("affects_identity_health")
-                )
-                group_failures = sum(
-                    1
-                    for result in group_results
-                    if result.get("affects_identity_health")
-                )
-                return (
-                    group_results,
-                    group_success,
-                    group_failures,
-                )
+            chunk_size = (
+                self.DOUYIN_ACCOUNT_LEASE_CHUNK_SIZE
+                if platform_value == CollectorPlatform.DOUYIN
+                else max(1, len(entries))
+            )
+            chunk_size = max(1, int(chunk_size))
+            group_results: list[dict] = []
+            identity_failure_state = {"streak": 0}
 
-            while True:
-                try:
-                    return await self._execute_collector_identity_operation(
-                        platform_value,
-                        identity_id,
-                        operation,
-                        failure_error_code="account_collection_failed",
+            for chunk_start in range(0, len(entries), chunk_size):
+                chunk = entries[chunk_start : chunk_start + chunk_size]
+                has_more_entries = chunk_start + len(chunk) < len(entries)
+
+                async def operation(worker, credentials, selected_identity_id):
+                    chunk_results = await run_entries(
+                        worker,
+                        chunk,
+                        identity_id=selected_identity_id,
+                        identity_cookie=credentials.cookie or None,
+                        identity_proxy=credentials.proxy or None,
+                        track_progress=track_progress,
+                        identity_failure_state=identity_failure_state,
+                        pause_after_last=has_more_entries,
                     )
-                except CancelledError:
-                    raise
-                except Exception as error:
-                    paused = (
-                        await identity_failure(
-                            identity_id,
-                            "identity_runtime_unavailable",
-                            str(error),
-                        )
-                        if callable(identity_failure)
-                        else False
+                    chunk_success = sum(
+                        1
+                        for result in chunk_results
+                        if not result.get("affects_identity_health")
                     )
-                    if paused:
-                        await wait_for_resume()
-                        continue
-                    failed_results = [
-                        {
-                            "index": index,
-                            "item": item,
-                            "ok": False,
-                            "identity_id": identity_id,
-                            "route_reason": reason,
-                            "target_key": target_key,
-                            "context": {},
-                            "outcome_code": "identity_runtime_unavailable",
-                            "reason": _("身份运行环境执行失败"),
-                            "failure_category": "identity",
-                            "terminal_status": "failed",
-                            "retryable": True,
-                            "cross_identity": True,
-                            "affects_identity_health": True,
-                            "sec_uid": "",
-                        }
-                        for index, item, reason, target_key in entries
-                    ]
-                    if track_progress:
-                        for execution in failed_results:
-                            execution["_progress_status"] = "failed"
-                            complete_progress_item(
-                                "failed",
-                                execution["item"],
-                                identity_id=identity_id,
-                                reason=execution["reason"],
-                                result={
-                                    "outcome_code": execution["outcome_code"],
-                                    "failure_category": execution[
-                                        "failure_category"
-                                    ],
-                                    "retryable": True,
-                                },
+                    chunk_failures = sum(
+                        1
+                        for result in chunk_results
+                        if result.get("affects_identity_health")
+                    )
+                    return chunk_results, chunk_success, chunk_failures
+
+                while True:
+                    try:
+                        chunk_results = (
+                            await self._execute_collector_identity_operation(
+                                platform_value,
+                                identity_id,
+                                operation,
+                                failure_error_code="account_collection_failed",
                             )
-                    return failed_results
+                        )
+                        group_results.extend(chunk_results)
+                        break
+                    except CancelledError:
+                        raise
+                    except Exception as error:
+                        paused = (
+                            await identity_failure(
+                                identity_id,
+                                "identity_runtime_unavailable",
+                                str(error),
+                            )
+                            if callable(identity_failure)
+                            else False
+                        )
+                        if paused:
+                            await wait_for_resume()
+                            continue
+                        remaining_entries = entries[chunk_start:]
+                        failed_results = [
+                            {
+                                "index": index,
+                                "item": item,
+                                "ok": False,
+                                "identity_id": identity_id,
+                                "route_reason": reason,
+                                "target_key": target_key,
+                                "context": {},
+                                "outcome_code": "identity_runtime_unavailable",
+                                "reason": _("身份运行环境执行失败"),
+                                "failure_category": "identity",
+                                "terminal_status": "failed",
+                                "retryable": True,
+                                "cross_identity": True,
+                                "affects_identity_health": True,
+                                "sec_uid": "",
+                            }
+                            for index, item, reason, target_key in remaining_entries
+                        ]
+                        if track_progress:
+                            for execution in failed_results:
+                                execution["_progress_status"] = "failed"
+                                complete_progress_item(
+                                    "failed",
+                                    execution["item"],
+                                    identity_id=identity_id,
+                                    reason=execution["reason"],
+                                    result={
+                                        "outcome_code": execution["outcome_code"],
+                                        "failure_category": execution[
+                                            "failure_category"
+                                        ],
+                                        "retryable": True,
+                                    },
+                                )
+                        group_results.extend(failed_results)
+                        return group_results
+
+                if has_more_entries:
+                    # Give tasks already queued on this identity/platform (for
+                    # example the 30-minute collection monitor) a chance to
+                    # acquire the lease before this batch requests it again.
+                    await sleep(0)
+
+            return group_results
 
         def alternate_identity_ids(execution: dict) -> list[str]:
             if forced_identity_id or legacy_override or not routes:

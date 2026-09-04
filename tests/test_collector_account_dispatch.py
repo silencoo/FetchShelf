@@ -539,6 +539,122 @@ def test_proxy_only_identity_is_not_routable_without_cookie(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_douyin_account_batch_releases_identity_for_queued_monitor(
+    tmp_path: Path,
+    monkeypatch,
+):
+    server = APIServer.__new__(APIServer)
+    server.collector_store = CollectorStore(
+        tmp_path / "cooperative-lease.sqlite3",
+        codec=AESGCMSecretCodec(b"c" * 32),
+    )
+    server.collector_leases = IdentityLeaseManager()
+    server.database = object()
+    server.console = SimpleNamespace()
+    server.logger = SimpleNamespace(info=lambda *args, **kwargs: None)
+    server.parameter = SimpleNamespace(
+        accounts_urls=[],
+        accounts_urls_tiktok=[],
+        earliest_update_days=3,
+        auto_backfill_mark=True,
+        settings=SimpleNamespace(path=tmp_path / "settings.json"),
+    )
+    server._persist_account_runtime_updates = lambda **kwargs: None
+    identity = CollectorIdentity(
+        identity_id="dy-shared",
+        name="dy-shared",
+        platform=CollectorPlatform.DOUYIN,
+        max_concurrency=1,
+    )
+    server.collector_store.save_identity(
+        identity,
+        credentials=CollectorCredentials(cookie="sessionid=shared"),
+    )
+    server.collector_store.upsert_policy(
+        CollectorPolicy(
+            platform=CollectorPlatform.DOUYIN,
+            global_max_parallel=1,
+        )
+    )
+    monkeypatch.setattr(APIServer, "DOUYIN_ACCOUNT_LEASE_CHUNK_SIZE", 1)
+
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    execution_order = []
+
+    class _Worker:
+        async def check_sec_user_id(self, url, tiktok=False):
+            return url.rsplit("/", 1)[-1]
+
+        async def deal_account_detail(self, *args, **kwargs):
+            mark = kwargs["mark"]
+            execution_order.append(f"batch:{mark}")
+            if mark == "first":
+                first_started.set()
+                await release_first.wait()
+            return {"mark": mark}
+
+    monkeypatch.setattr(
+        main_server_module,
+        "TikTok",
+        lambda parameter, database, server_mode=True: _Worker(),
+    )
+    monkeypatch.setattr(
+        main_server_module,
+        "build_collector_runtime",
+        lambda base, identity, credentials, settings_dir: _Runtime(identity),
+    )
+    items = [
+        {
+            "mark": mark,
+            "url": f"https://www.douyin.com/user/{mark}",
+            "enable": True,
+        }
+        for mark in ("first", "second", "third")
+    ]
+    batch = asyncio.create_task(
+        server._run_ui_account_batch(
+            {
+                "use_settings": False,
+                "items": items,
+                "identity_id": "dy-shared",
+            },
+            tiktok=False,
+        )
+    )
+    await asyncio.wait_for(first_started.wait(), timeout=1)
+
+    async def monitor_operation(worker, credentials, identity_id):
+        execution_order.append("monitor")
+        return {"ok": True}, 1, 0
+
+    monitor = asyncio.create_task(
+        server._execute_collector_identity_operation(
+            CollectorPlatform.DOUYIN,
+            "dy-shared",
+            monitor_operation,
+        )
+    )
+    for _ in range(20):
+        if (await server.collector_leases.snapshot("dy-shared")).waiting:
+            break
+        await asyncio.sleep(0)
+    assert (await server.collector_leases.snapshot("dy-shared")).waiting == 1
+
+    release_first.set()
+    result, _ = await asyncio.gather(batch, monitor)
+
+    assert result.data["success"] == 3
+    assert execution_order == [
+        "batch:first",
+        "monitor",
+        "batch:second",
+        "batch:third",
+    ]
+    server.collector_store.close()
+
+
+@pytest.mark.asyncio
 async def test_visibility_failure_probes_other_identity_and_pins_success(
     tmp_path: Path,
     monkeypatch,
