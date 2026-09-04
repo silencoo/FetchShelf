@@ -168,6 +168,15 @@ const state = {
     douyin: false,
     tiktok: false,
   },
+  collectorAssignmentPagination: {
+    douyin: { page: 1, pageSize: 50, pages: 1, total: 0, search: "", requestId: 0 },
+    tiktok: { page: 1, pageSize: 50, pages: 1, total: 0, search: "", requestId: 0 },
+  },
+  collectorAssignmentRequests: {
+    douyin: null,
+    tiktok: null,
+  },
+  collectorAssignmentSearchTimer: null,
   collectorListLoading: false,
   collectorDialogRestoreFocus: null,
   collectorLoginBrowser: {
@@ -586,6 +595,16 @@ const refs = {
   collectorAssignmentList: document.getElementById("collector-assignment-list"),
   collectorBindingListStatus: document.getElementById("collector-binding-list-status"),
   collectorBindingCount: document.getElementById("collector-binding-count"),
+  collectorBindingSearch: document.getElementById("collector-binding-search"),
+  collectorBindingSearchClearBtn: document.getElementById("collector-binding-search-clear-btn"),
+  collectorBindingPager: document.getElementById("collector-binding-pager"),
+  collectorBindingPageRange: document.getElementById("collector-binding-page-range"),
+  collectorBindingPageSize: document.getElementById("collector-binding-page-size"),
+  collectorBindingPrevBtn: document.getElementById("collector-binding-prev-btn"),
+  collectorBindingPageInput: document.getElementById("collector-binding-page-input"),
+  collectorBindingPageJumpBtn: document.getElementById("collector-binding-page-jump-btn"),
+  collectorBindingPageMeta: document.getElementById("collector-binding-page-meta"),
+  collectorBindingNextBtn: document.getElementById("collector-binding-next-btn"),
   collectorPreviewBtn: document.getElementById("collector-preview-btn"),
   collectorPreviewTargets: document.getElementById("collector-preview-targets"),
   collectorPreviewStatus: document.getElementById("collector-preview-status"),
@@ -6062,21 +6081,60 @@ function collectorAssignmentSourceLabel(source) {
   }[source] || "账号绑定";
 }
 
+function collectorAssignmentPageState(platform = refs.collectorAssignmentPlatform.value) {
+  return state.collectorAssignmentPagination[platform];
+}
+
+function renderCollectorAssignmentPager(platform = refs.collectorAssignmentPlatform.value) {
+  if (refs.collectorAssignmentPlatform.value !== platform) {
+    return;
+  }
+  const pagination = collectorAssignmentPageState(platform);
+  const loading = state.collectorAssignmentsLoading[platform];
+  const start = pagination.total
+    ? (pagination.page - 1) * pagination.pageSize + 1
+    : 0;
+  const end = Math.min(pagination.total, pagination.page * pagination.pageSize);
+  refs.collectorBindingPager.hidden = pagination.total === 0;
+  refs.collectorBindingPageRange.textContent = `${start}–${end} / ${pagination.total.toLocaleString("zh-CN")}`;
+  refs.collectorBindingPageSize.value = String(pagination.pageSize);
+  refs.collectorBindingPrevBtn.disabled = loading || pagination.page <= 1;
+  refs.collectorBindingNextBtn.disabled = loading || pagination.page >= pagination.pages;
+  refs.collectorBindingPageInput.min = "1";
+  refs.collectorBindingPageInput.max = String(pagination.pages);
+  refs.collectorBindingPageInput.value = String(pagination.page);
+  refs.collectorBindingPageInput.disabled = loading;
+  refs.collectorBindingPageJumpBtn.disabled = loading;
+  refs.collectorBindingPageMeta.textContent = `第 ${pagination.page} / ${pagination.pages} 页`;
+}
+
 function renderCollectorAssignments(platform = refs.collectorAssignmentPlatform.value) {
   if (refs.collectorAssignmentPlatform.value !== platform) {
     return;
   }
   const items = state.collectorAssignments[platform] || [];
+  const pagination = collectorAssignmentPageState(platform);
   refs.collectorAssignmentList.innerHTML = "";
   refs.collectorAssignmentList.setAttribute("aria-busy", "false");
-  refs.collectorBindingCount.textContent = String(items.length);
+  refs.collectorBindingCount.textContent = pagination.total.toLocaleString("zh-CN");
+  renderCollectorAssignmentPager(platform);
   if (!items.length) {
-    refs.collectorAssignmentList.innerHTML = `
-      <div class="empty-tip collector-binding-empty">
-        该平台还没有账号绑定；未绑定账号会按平台策略自动选择身份。
-      </div>
-    `;
-    refs.collectorBindingListStatus.textContent = "暂无账号绑定";
+    if (pagination.search) {
+      refs.collectorAssignmentList.innerHTML = `
+        <div class="empty-tip collector-binding-empty">
+          <span>没有与“${escapeHtml(pagination.search)}”匹配的账号绑定。</span>
+          <button type="button" class="btn ghost" data-collector-binding-action="clear-search">清除搜索</button>
+        </div>
+      `;
+      refs.collectorBindingListStatus.textContent = "当前搜索没有结果";
+    } else {
+      refs.collectorAssignmentList.innerHTML = `
+        <div class="empty-tip collector-binding-empty">
+          该平台还没有账号绑定；未绑定账号会按平台策略自动选择身份。
+        </div>
+      `;
+      refs.collectorBindingListStatus.textContent = "暂无账号绑定";
+    }
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -6114,18 +6172,23 @@ function renderCollectorAssignments(platform = refs.collectorAssignmentPlatform.
     fragment.appendChild(row);
   });
   refs.collectorAssignmentList.appendChild(fragment);
-  refs.collectorBindingListStatus.textContent = `${collectorPlatformLabel(platform)} · ${items.length} 个账号绑定`;
+  const rangeStart = (pagination.page - 1) * pagination.pageSize + 1;
+  const rangeEnd = Math.min(pagination.total, rangeStart + items.length - 1);
+  refs.collectorBindingListStatus.textContent = `${collectorPlatformLabel(platform)} · 显示 ${rangeStart}–${rangeEnd} / ${pagination.total.toLocaleString("zh-CN")}`;
 }
 
 async function loadCollectorAssignments(platform = refs.collectorAssignmentPlatform.value) {
-  if (state.collectorAssignmentsLoading[platform]) {
-    return;
-  }
+  const pagination = collectorAssignmentPageState(platform);
+  state.collectorAssignmentRequests[platform]?.abort();
+  const controller = new AbortController();
+  state.collectorAssignmentRequests[platform] = controller;
+  const requestId = ++pagination.requestId;
   state.collectorAssignmentsLoading[platform] = true;
   if (refs.collectorAssignmentPlatform.value === platform) {
     if (state.collectorAssignmentsLoaded[platform]) {
       renderCollectorAssignments(platform);
     }
+    renderCollectorAssignmentPager(platform);
     refs.collectorAssignmentList.setAttribute("aria-busy", "true");
     refs.collectorBindingListStatus.textContent = `正在加载${collectorPlatformLabel(platform)}账号绑定…`;
     if (!state.collectorAssignmentsLoaded[platform]) {
@@ -6134,19 +6197,45 @@ async function loadCollectorAssignments(platform = refs.collectorAssignmentPlatf
     }
   }
   try {
+    const query = new URLSearchParams({
+      platform,
+      target_type: "account",
+      page: String(pagination.page),
+      page_size: String(pagination.pageSize),
+    });
+    if (pagination.search) {
+      query.set("search", pagination.search);
+    }
     const payload = await fetchJson(
-      `/ui/api/collector-assignments?platform=${encodeURIComponent(platform)}&target_type=account`,
+      `/ui/api/collector-assignments?${query.toString()}`,
       {
         method: "GET",
         headers: headerOptions(false),
+        signal: controller.signal,
       },
     );
+    if (requestId !== pagination.requestId) {
+      return;
+    }
     state.collectorAssignments[platform] = collectorAssignmentsFromPayload(payload)
       .map((item) => normalizeCollectorAssignment(item, platform))
       .filter((item) => item.target_key && item.identity_id && item.target_type === "account");
+    pagination.total = Math.max(
+      0,
+      Number(payload?.total ?? state.collectorAssignments[platform].length),
+    );
+    pagination.pageSize = Math.max(1, Number(payload?.page_size ?? pagination.pageSize));
+    pagination.pages = Math.max(1, Number(payload?.pages ?? 1));
+    pagination.page = Math.min(
+      pagination.pages,
+      Math.max(1, Number(payload?.page ?? pagination.page)),
+    );
     state.collectorAssignmentsLoaded[platform] = true;
     renderCollectorAssignments(platform);
   } catch (error) {
+    if (error?.name === "AbortError" || requestId !== pagination.requestId) {
+      return;
+    }
     if (refs.collectorAssignmentPlatform.value === platform) {
       refs.collectorAssignmentList.setAttribute("aria-busy", "false");
       refs.collectorAssignmentList.innerHTML = `
@@ -6158,7 +6247,11 @@ async function loadCollectorAssignments(platform = refs.collectorAssignmentPlatf
       refs.collectorBindingListStatus.textContent = `加载失败：${error.message}`;
     }
   } finally {
-    state.collectorAssignmentsLoading[platform] = false;
+    if (requestId === pagination.requestId) {
+      state.collectorAssignmentsLoading[platform] = false;
+      state.collectorAssignmentRequests[platform] = null;
+      renderCollectorAssignmentPager(platform);
+    }
   }
 }
 
@@ -8619,8 +8712,12 @@ function bindEvents() {
         loadSchedules(),
         loadCollectMonitors(),
         loadCollectorIdentities(),
-        loadCollectorPolicy(refs.collectorPolicyPlatform.value),
-        loadCollectorAssignments(refs.collectorAssignmentPlatform.value),
+        ...(state.activeTab === "collectors"
+          ? [
+              loadCollectorPolicy(refs.collectorPolicyPlatform.value),
+              loadCollectorAssignments(refs.collectorAssignmentPlatform.value),
+            ]
+          : []),
       ]);
       connectLogSocket();
     });
@@ -9612,6 +9709,9 @@ function bindEvents() {
 
   refs.collectorAssignmentPlatform.addEventListener("change", () => {
     const platform = refs.collectorAssignmentPlatform.value;
+    const pagination = collectorAssignmentPageState(platform);
+    refs.collectorBindingSearch.value = pagination.search;
+    refs.collectorBindingPageSize.value = String(pagination.pageSize);
     populateCollectorIdentitySelect(
       refs.collectorAssignmentIdentity,
       platform,
@@ -9649,6 +9749,16 @@ function bindEvents() {
       withBusyButton(button, "重试中", () => loadCollectorAssignments(platform));
       return;
     }
+    if (action === "clear-search") {
+      clearTimeout(state.collectorAssignmentSearchTimer);
+      const pagination = collectorAssignmentPageState(platform);
+      pagination.search = "";
+      pagination.page = 1;
+      refs.collectorBindingSearch.value = "";
+      loadCollectorAssignments(platform);
+      refs.collectorBindingSearch.focus();
+      return;
+    }
     const row = button.closest("[data-target-key]");
     const targetKey = row?.dataset.targetKey || "";
     const assignment = (state.collectorAssignments[platform] || []).find(
@@ -9665,6 +9775,88 @@ function bindEvents() {
       withBusyButton(button, "解绑中", () =>
         removeCollectorAssignment(platform, assignment.target_key),
       );
+    }
+  });
+  refs.collectorBindingSearch.addEventListener("input", () => {
+    clearTimeout(state.collectorAssignmentSearchTimer);
+    state.collectorAssignmentSearchTimer = setTimeout(() => {
+      const platform = refs.collectorAssignmentPlatform.value;
+      const pagination = collectorAssignmentPageState(platform);
+      const search = refs.collectorBindingSearch.value.trim();
+      if (search === pagination.search) {
+        return;
+      }
+      pagination.search = search;
+      pagination.page = 1;
+      loadCollectorAssignments(platform);
+    }, 250);
+  });
+  refs.collectorBindingSearchClearBtn.addEventListener("click", () => {
+    clearTimeout(state.collectorAssignmentSearchTimer);
+    const platform = refs.collectorAssignmentPlatform.value;
+    const pagination = collectorAssignmentPageState(platform);
+    refs.collectorBindingSearch.value = "";
+    if (pagination.search) {
+      pagination.search = "";
+      pagination.page = 1;
+      loadCollectorAssignments(platform);
+    }
+    refs.collectorBindingSearch.focus();
+  });
+  refs.collectorBindingPageSize.addEventListener("change", () => {
+    const platform = refs.collectorAssignmentPlatform.value;
+    const pagination = collectorAssignmentPageState(platform);
+    pagination.pageSize = Number(refs.collectorBindingPageSize.value || 50);
+    pagination.page = 1;
+    loadCollectorAssignments(platform);
+  });
+  refs.collectorBindingPrevBtn.addEventListener("click", () => {
+    const platform = refs.collectorAssignmentPlatform.value;
+    const pagination = collectorAssignmentPageState(platform);
+    if (pagination.page <= 1 || state.collectorAssignmentsLoading[platform]) {
+      return;
+    }
+    pagination.page -= 1;
+    loadCollectorAssignments(platform);
+  });
+  refs.collectorBindingNextBtn.addEventListener("click", () => {
+    const platform = refs.collectorAssignmentPlatform.value;
+    const pagination = collectorAssignmentPageState(platform);
+    if (
+      pagination.page >= pagination.pages ||
+      state.collectorAssignmentsLoading[platform]
+    ) {
+      return;
+    }
+    pagination.page += 1;
+    loadCollectorAssignments(platform);
+  });
+  const jumpCollectorAssignmentPage = () => {
+    const platform = refs.collectorAssignmentPlatform.value;
+    const pagination = collectorAssignmentPageState(platform);
+    if (state.collectorAssignmentsLoading[platform]) {
+      return;
+    }
+    jumpToValidatedPage(
+      refs.collectorBindingPageInput,
+      pagination.pages,
+      (page) => {
+        pagination.page = page;
+        loadCollectorAssignments(platform);
+      },
+      (message) => {
+        refs.collectorBindingListStatus.textContent = message;
+      },
+    );
+  };
+  refs.collectorBindingPageJumpBtn.addEventListener(
+    "click",
+    jumpCollectorAssignmentPage,
+  );
+  refs.collectorBindingPageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      jumpCollectorAssignmentPage();
     }
   });
   refs.collectorPreviewBtn.addEventListener("click", () => {
@@ -10023,8 +10215,10 @@ async function bootstrap() {
   loadSchedules();
   loadCollectMonitors();
   loadCollectorIdentities();
-  loadCollectorPolicy(refs.collectorPolicyPlatform.value);
-  loadCollectorAssignments(refs.collectorAssignmentPlatform.value);
+  if (state.activeTab === "collectors") {
+    loadCollectorPolicy(refs.collectorPolicyPlatform.value);
+    loadCollectorAssignments(refs.collectorAssignmentPlatform.value);
+  }
 }
 
 void bootstrap();

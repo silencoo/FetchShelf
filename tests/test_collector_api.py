@@ -7,6 +7,7 @@ from src.application.main_server import APIServer
 from src.collector import (
     AESGCMSecretCodec,
     CapturedLoginCredentials,
+    CollectorAssignment,
     CollectorPlatform,
     CollectorStore,
     DouyinBrowserCollectionError,
@@ -490,6 +491,76 @@ def test_collect_monitor_auth_failure_returns_actionable_identity(
     assert result["selected_identity_id"] == "dy-main"
     assert result["requires_login"] is True
     assert result["action"] == "reauthenticate_identity"
+    server.collector_store.close()
+
+
+def test_collector_assignment_api_paginates_searches_and_keeps_legacy_shape(
+    tmp_path,
+    monkeypatch,
+):
+    server, client = _collector_test_client(tmp_path, monkeypatch)
+    headers = {"token": "collector-test-token"}
+    created = client.post(
+        "/ui/api/collector-identities",
+        headers=headers,
+        json={"name": "Paged", "platform": "douyin"},
+    )
+    assert created.status_code == 200, created.text
+    identity_id = created.json()["identity"]["identity_id"]
+    server.collector_store.upsert_assignments(
+        [
+            CollectorAssignment(
+                platform=CollectorPlatform.DOUYIN,
+                target_type="account",
+                target_key=f"account-{index:03d}",
+                identity_id=identity_id,
+            )
+            for index in range(57)
+        ]
+    )
+
+    legacy = client.get(
+        "/ui/api/collector-assignments?platform=douyin&target_type=account",
+        headers=headers,
+    )
+    assert legacy.status_code == 200, legacy.text
+    assert len(legacy.json()["assignments"]) == 57
+    assert legacy.json()["page_size"] == 57
+
+    second_page = client.get(
+        "/ui/api/collector-assignments"
+        "?platform=douyin&target_type=account&page=2&page_size=25",
+        headers=headers,
+    )
+    assert second_page.status_code == 200, second_page.text
+    payload = second_page.json()
+    assert payload["total"] == 57
+    assert payload["page"] == 2
+    assert payload["page_size"] == 25
+    assert payload["pages"] == 3
+    assert len(payload["assignments"]) == 25
+    assert payload["assignments"][0]["target_key"] == "account-025"
+    assert payload["assignments"][-1]["target_key"] == "account-049"
+
+    searched = client.get(
+        "/ui/api/collector-assignments"
+        "?platform=douyin&target_type=account&search=ACCOUNT-042&page=1&page_size=25",
+        headers=headers,
+    )
+    assert searched.status_code == 200, searched.text
+    assert searched.json()["total"] == 1
+    assert [item["target_key"] for item in searched.json()["assignments"]] == [
+        "account-042"
+    ]
+
+    clamped = client.get(
+        "/ui/api/collector-assignments"
+        "?platform=douyin&target_type=account&page=999&page_size=25",
+        headers=headers,
+    )
+    assert clamped.status_code == 200, clamped.text
+    assert clamped.json()["page"] == 3
+    assert len(clamped.json()["assignments"]) == 7
     server.collector_store.close()
 
 

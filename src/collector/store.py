@@ -783,6 +783,60 @@ class CollectorStore:
             rows = self.connection.execute(query, tuple(params)).fetchall()
             return [CollectorAssignment(**dict(row)) for row in rows]
 
+    def list_assignments_page(
+        self,
+        platform: CollectorPlatform | None = None,
+        *,
+        target_type: str | None = None,
+        search: str = "",
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[CollectorAssignment], int, int, int]:
+        """Return one stable assignment page and its pagination metadata."""
+
+        page = max(1, int(page))
+        page_size = max(1, min(int(page_size), 200))
+        clauses: list[str] = []
+        params: list[str] = []
+        if platform is not None:
+            clauses.append("platform = ?")
+            params.append(platform.value)
+        if target_type is not None:
+            clauses.append("target_type = ?")
+            params.append(target_type)
+        normalized_search = str(search or "").strip()
+        if normalized_search:
+            clauses.append(
+                "("
+                "instr(lower(target_key), lower(?)) > 0 OR "
+                "instr(lower(identity_id), lower(?)) > 0 OR "
+                "instr(lower(source), lower(?)) > 0"
+                ")"
+            )
+            params.extend([normalized_search] * 3)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._lock:
+            total = int(
+                self.connection.execute(
+                    f"SELECT COUNT(*) FROM collector_assignments{where}",
+                    tuple(params),
+                ).fetchone()[0]
+            )
+            pages = max(1, (total + page_size - 1) // page_size)
+            page = min(page, pages)
+            offset = (page - 1) * page_size
+            rows = self.connection.execute(
+                "SELECT * FROM collector_assignments"
+                f"{where} ORDER BY platform, target_type, target_key LIMIT ? OFFSET ?",
+                (*params, page_size, offset),
+            ).fetchall()
+            return (
+                [CollectorAssignment(**dict(row)) for row in rows],
+                total,
+                page,
+                pages,
+            )
+
     def delete_assignment(
         self,
         platform: CollectorPlatform,

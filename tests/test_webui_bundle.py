@@ -182,6 +182,32 @@ def test_webui_source_exposes_tiktok_identity_modes_without_requiring_cookie():
     assert 'auth_mode: refs.collectorIdentityPlatform.value === "tiktok"' in script
 
 
+def test_collector_assignments_are_lazy_paginated_and_searchable():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
+        encoding="utf-8",
+    )
+    styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
+
+    for hook in (
+        'id="collector-binding-search"',
+        'id="collector-binding-search-clear-btn"',
+        'id="collector-binding-pager"',
+        'id="collector-binding-page-size"',
+        'id="collector-binding-page-input"',
+        'id="collector-binding-page-jump-btn"',
+    ):
+        assert index.count(hook) == 1
+    assert "new AbortController()" in script
+    assert 'page_size: String(pagination.pageSize)' in script
+    assert 'query.set("search", pagination.search)' in script
+    assert 'if (nextTab === "collectors")' in script
+    bootstrap = script[script.index("async function bootstrap()") :]
+    assert 'if (state.activeTab === "collectors")' in bootstrap
+    assert ".collector-binding-search" in styles
+    assert ".collector-binding-pager" in styles
+
+
 def test_webui_source_exposes_identity_login_browser_without_cookie_copying():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
     script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(

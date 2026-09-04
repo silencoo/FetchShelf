@@ -50,9 +50,9 @@
       })();
     </script>
     <title>下载工作台 · FetchShelf</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-tGquUjJz.js"></script>
+    <script type="module" crossorigin src="/ui/static/assets/index-4BbHkahU.js"></script>
     <link rel="modulepreload" crossorigin href="/ui/static/assets/preload-helper-D9BqOEs6.js">
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-DxYTL9Xl.css">
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-CKOlVo6V.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -1345,11 +1345,48 @@
                 <div class="collector-binding-list-head">
                   <div>
                     <h4 id="collector-binding-list-title">当前账号绑定</h4>
-                    <p id="collector-binding-list-status" class="field-help" role="status" aria-live="polite">正在加载…</p>
+                    <p id="collector-binding-list-status" class="field-help" role="status" aria-live="polite">切换到采集身份后加载</p>
                   </div>
-                  <span id="collector-binding-count" class="badge">0</span>
+                  <div class="collector-binding-list-tools">
+                    <label class="search-field collector-binding-search">
+                      <i data-lucide="search" aria-hidden="true"></i>
+                      <span class="sr-only">搜索账号绑定</span>
+                      <input
+                        id="collector-binding-search"
+                        type="search"
+                        maxlength="500"
+                        autocomplete="off"
+                        placeholder="搜索 URL、身份或来源"
+                      />
+                    </label>
+                    <button id="collector-binding-search-clear-btn" type="button" class="btn ghost">
+                      清除
+                    </button>
+                    <span id="collector-binding-count" class="badge">0</span>
+                  </div>
                 </div>
-                <div id="collector-assignment-list" class="collector-binding-list" aria-busy="true"></div>
+                <div id="collector-assignment-list" class="collector-binding-list" aria-busy="false">
+                  <div class="loading-state">进入本页后读取账号绑定…</div>
+                </div>
+                <div id="collector-binding-pager" class="table-pager collector-binding-pager" hidden>
+                  <span id="collector-binding-page-range" class="table-pager-range">0–0 / 0</span>
+                  <label class="table-page-size">
+                    每页
+                    <select id="collector-binding-page-size">
+                      <option value="25">25</option>
+                      <option value="50" selected>50</option>
+                      <option value="100">100</option>
+                    </select>
+                  </label>
+                  <button id="collector-binding-prev-btn" type="button" class="btn ghost">上一页</button>
+                  <div class="page-jump">
+                    <label for="collector-binding-page-input">页码</label>
+                    <input id="collector-binding-page-input" type="number" min="1" step="1" inputmode="numeric" />
+                    <button id="collector-binding-page-jump-btn" type="button" class="btn ghost">跳转</button>
+                  </div>
+                  <span id="collector-binding-page-meta" class="table-pager-meta">第 1 / 1 页</span>
+                  <button id="collector-binding-next-btn" type="button" class="btn ghost">下一页</button>
+                </div>
               </div>
 
               <div class="collector-preview-block">

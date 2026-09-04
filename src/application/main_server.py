@@ -7841,16 +7841,48 @@ class APIServer(TikTok):
         async def webui_collector_assignments_get(
             platform: str = Query(""),
             target_type: str = Query(""),
+            search: str = Query("", max_length=500),
+            page: int | None = Query(None, ge=1),
+            page_size: int | None = Query(None, ge=1, le=200),
             token: str = Depends(token_dependency),
         ):
-            items = self.collector_store.list_assignments(
-                self._collector_platform(platform) if platform else None,
-                target_type=target_type or None,
+            normalized_platform = (
+                self._collector_platform(platform) if platform else None
             )
+            normalized_target_type = target_type or None
+            normalized_search = self._normalize_string(search)
+            paginated = page is not None or page_size is not None or bool(
+                normalized_search
+            )
+            if paginated:
+                resolved_page_size = page_size or 50
+                items, total, resolved_page, pages = (
+                    self.collector_store.list_assignments_page(
+                        normalized_platform,
+                        target_type=normalized_target_type,
+                        search=normalized_search,
+                        page=page or 1,
+                        page_size=resolved_page_size,
+                    )
+                )
+            else:
+                items = self.collector_store.list_assignments(
+                    normalized_platform,
+                    target_type=normalized_target_type,
+                )
+                total = len(items)
+                resolved_page = 1
+                resolved_page_size = max(1, total)
+                pages = 1
             return {
                 "assignments": [
                     self._collector_public_data(item) for item in items
-                ]
+                ],
+                "total": total,
+                "page": resolved_page,
+                "page_size": resolved_page_size,
+                "pages": pages,
+                "search": normalized_search,
             }
 
         @self.server.put(
