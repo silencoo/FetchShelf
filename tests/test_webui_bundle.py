@@ -7,6 +7,21 @@ STATIC_ROOT = PROJECT_ROOT.joinpath("src", "webui", "static")
 SOURCE_ROOT = PROJECT_ROOT.joinpath("webui")
 
 
+def _legacy_source() -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(SOURCE_ROOT.joinpath("src", "legacy").glob("*.js"))
+    )
+
+
+def _server_source() -> str:
+    application_root = PROJECT_ROOT.joinpath("src", "application")
+    return "\n".join(
+        application_root.joinpath(name).read_text(encoding="utf-8")
+        for name in ("main_server.py", "server_routes.py")
+    )
+
+
 def _assert_prepaint_theme_bootstrap(index: str):
     storage_marker = index.index('"webui.theme"')
     script_start = index.rfind("<script", 0, storage_marker)
@@ -63,6 +78,38 @@ def test_webui_production_bundle_references_existing_assets():
     assert "/ui/ws/logs" in legacy_chunk.read_text(encoding="utf-8")
 
 
+def test_legacy_entrypoint_is_split_into_bounded_feature_modules():
+    legacy_root = SOURCE_ROOT.joinpath("src", "legacy")
+    expected_modules = {
+        "app.js",
+        "collectors.js",
+        "dom-refs.js",
+        "icons.js",
+        "logs.js",
+        "runtime.js",
+        "state.js",
+        "task-templates.js",
+    }
+
+    assert expected_modules <= {path.name for path in legacy_root.glob("*.js")}
+    app = legacy_root.joinpath("app.js").read_text(encoding="utf-8")
+    assert len(app.splitlines()) < 8_000
+    assert 'from "./collectors.js"' in app
+    assert 'from "./runtime.js"' in app
+    assert 'from "./state.js"' in app
+
+
+def test_server_route_registration_is_split_from_runtime_service():
+    application_root = PROJECT_ROOT.joinpath("src", "application")
+    server = application_root.joinpath("main_server.py").read_text(encoding="utf-8")
+    routes = application_root.joinpath("server_routes.py").read_text(encoding="utf-8")
+
+    assert len(server.splitlines()) < 8_000
+    assert "class APIServer(TikTok, ServerRoutesMixin):" in server
+    assert "class ServerRoutesMixin:" in routes
+    assert "def setup_routes(self):" in routes
+
+
 def test_webui_bundle_keeps_core_interaction_hooks():
     index = STATIC_ROOT.joinpath("index.html").read_text(encoding="utf-8")
 
@@ -104,9 +151,7 @@ def test_webui_bundle_keeps_core_interaction_hooks():
 
 def test_task_account_rows_offer_safe_external_navigation():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
     styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
 
     assert "function safeExternalHttpUrl(value)" in script
@@ -169,9 +214,7 @@ def test_webui_source_keeps_complete_theme_contract():
 
 def test_webui_source_exposes_tiktok_identity_modes_without_requiring_cookie():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
 
     for value in ("anonymous", "authenticated", "adult_authenticated"):
         assert f'<option value="{value}">' in index
@@ -184,9 +227,7 @@ def test_webui_source_exposes_tiktok_identity_modes_without_requiring_cookie():
 
 def test_collector_assignments_are_lazy_paginated_and_searchable():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
     styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
 
     for hook in (
@@ -210,9 +251,7 @@ def test_collector_assignments_are_lazy_paginated_and_searchable():
 
 def test_webui_source_exposes_identity_login_browser_without_cookie_copying():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
     styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
     dockerfile = PROJECT_ROOT.joinpath("Dockerfile").read_text(encoding="utf-8")
 
@@ -258,9 +297,7 @@ def test_webui_production_bundle_includes_theme_runtime_and_styles():
 
 def test_webui_source_keeps_compact_brand_shell():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
 
     assert index.count('id="command-title"') == 1
     for asset_name in (
@@ -294,14 +331,8 @@ def test_webui_source_keeps_compact_brand_shell():
 
 
 def test_webui_source_persists_token_and_supports_authenticated_media():
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
-    server = PROJECT_ROOT.joinpath(
-        "src",
-        "application",
-        "main_server.py",
-    ).read_text(encoding="utf-8")
+    script = _legacy_source()
+    server = _server_source()
 
     assert 'const TOKEN_STORAGE_KEY = "webui.api.token"' in script
     assert "localStorage.setItem(TOKEN_STORAGE_KEY, token)" in script
@@ -318,9 +349,7 @@ def test_webui_source_persists_token_and_supports_authenticated_media():
 
 def test_webui_source_keeps_file_browser_navigation_contract():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
 
     for hook in (
         'id="files-breadcrumb"',
@@ -358,9 +387,7 @@ def test_webui_source_keeps_file_browser_navigation_contract():
 
 def test_account_board_cards_remain_usable_at_high_density():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
     styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
 
     assert "refs.boardGrid?.clientWidth" in script
@@ -444,12 +471,8 @@ def test_account_board_cards_remain_usable_at_high_density():
 
 
 def test_webui_websocket_uses_http_only_session_cookie_not_token_query():
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
-    server = PROJECT_ROOT.joinpath("src", "application", "main_server.py").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
+    server = _server_source()
 
     assert 'params.set("token"' not in script
     assert "websocket.cookies.get(WEBUI_SESSION_COOKIE)" in server
@@ -458,9 +481,7 @@ def test_webui_websocket_uses_http_only_session_cookie_not_token_query():
 
 def test_webui_source_contains_every_legacy_dom_reference_once():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
     element_ids = findall(r'id="([^"]+)"', index)
     referenced_ids = set(findall(r'getElementById\("([^"]+)"\)', script))
 
@@ -474,9 +495,7 @@ def test_webui_source_contains_every_legacy_dom_reference_once():
 
 def test_webui_source_prioritizes_the_download_workflow():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
 
     overview = index.index('id="workbench-overview"')
     quick_download = index.index('id="workflow-detail-form"')
@@ -541,9 +560,7 @@ def test_webui_source_prioritizes_the_download_workflow():
 
 
 def test_workbench_live_refresh_preserves_browsing_state():
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
 
     assert "const TASK_POLL_ACTIVE_MS = 2000" in script
     assert "const TASK_POLL_IDLE_MS = 15000" in script
@@ -557,9 +574,7 @@ def test_workbench_live_refresh_preserves_browsing_state():
 
 def test_webui_source_explains_bark_delivery_and_monitor_failures():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
     styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
 
     assert index.count('class="notification-panel"') == 2
@@ -581,9 +596,7 @@ def test_webui_source_explains_bark_delivery_and_monitor_failures():
 
 def test_webui_source_keeps_compact_account_tables_and_collapsible_raw_editor():
     index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
-    script = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(
-        encoding="utf-8",
-    )
+    script = _legacy_source()
     styles = SOURCE_ROOT.joinpath("src", "styles.css").read_text(encoding="utf-8")
 
     assert 'id="settings-raw-disclosure"' in index
