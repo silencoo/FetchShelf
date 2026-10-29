@@ -296,6 +296,7 @@ class API:
         request_headers = headers or self.headers
         params = self.deal_url_params(
             params,
+            url=url,
             data=data,
             method=method,
             user_agent=request_headers.get("User-Agent", ""),
@@ -495,11 +496,9 @@ class API:
         data: dict | str | None = None,
         **kwargs,
     ):
-        request_headers = {
-            key: value
-            for key, value in headers.items()
-            if key.lower() != "user-agent"
-        }
+        # Native A-Bogus binds the User-Agent. Send the same value that was
+        # signed instead of allowing curl impersonation to replace it.
+        request_headers = dict(headers)
         proxy = self.proxy if self.proxy is not None else self._client_proxy
         async with CurlAsyncSession() as client:
             return await client.request(
@@ -550,26 +549,28 @@ class API:
         data: dict | str | None = None,
         method="GET",
         user_agent: str = "",
+        url: str = "",
         **kwargs,
     ) -> str:
         if params:
             params = params.copy()
-            ms_token = str(
-                params.pop("msToken", "") or self.params.get("msToken", "")
-            )
-            params = urlencode(
-                params,
-                safe="=",
-                quote_via=quote,
-            )
             effective_user_agent = user_agent or self.headers.get("User-Agent", "")
             if (douyin_params := getattr(self, "douyin_params", None)) is not None:
+                # Preserve msToken and pass the endpoint so protected APIs can
+                # receive WebSign. The signer owns serialization exactly once.
                 return douyin_params.sign_url(
+                    url=url,
                     query=params,
                     data=data,
                     method=method,
                     user_agent=effective_user_agent,
                 )
+            params.pop("msToken", None)
+            params = urlencode(
+                params,
+                safe="=",
+                quote_via=quote,
+            )
             params += "&a_bogus=" + self.ab.get_value(
                 query=params,
                 data=data,

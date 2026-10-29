@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -180,11 +181,13 @@ def test_builtin_douyin_contract_uses_current_impersonated_profile_and_signer():
 
     assert api.params["browser_platform"] == "MacIntel"
     assert api.params["browser_version"] == "146.0.0.0"
-    assert signed.endswith(f"a_bogus={DouYinParams.A_BOGUS}")
+    query = parse_qs(signed)
+    assert query["cursor"] == ["1"]
+    assert len(query["a_bogus"][0]) > 100
 
 
 @pytest.mark.asyncio
-async def test_douyin_transport_uses_curl_impersonation_without_legacy_user_agent(
+async def test_douyin_transport_preserves_the_signed_user_agent(
     monkeypatch,
 ):
     captured = {}
@@ -240,7 +243,7 @@ async def test_douyin_transport_uses_curl_impersonation_without_legacy_user_agen
 
     assert result == {"ok": True}
     assert captured["impersonate"] == "chrome146"
-    assert "User-Agent" not in captured["headers"]
+    assert captured["headers"]["User-Agent"] == "legacy-agent"
     assert captured["headers"]["Cookie"] == "sessionid=secret"
 
 

@@ -41,6 +41,11 @@ index-url = "https://pypi.org/simple"
 [tool.uv.sources]
 tiktokapi = { path = "vendor/TikTok-Api", editable = true }
 
+[tool.pytest.ini_options]
+# The vendored upstream suite has separate browser/network fixtures. The
+# FetchShelf integration contracts live here and run offline by default.
+testpaths = ["tests"]
+
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [

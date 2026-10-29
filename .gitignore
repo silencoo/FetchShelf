@@ -32,3 +32,6 @@ webui/node_modules/
 /deploy/nas-migration/private/
 /deploy/nas-migration/env.nas-test
 /deploy/nas-migration/env.nas-final
+/deploy/truenas/.env
+/backups/
+/release.json

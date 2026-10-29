@@ -12,3 +12,10 @@ settings/
 logs/
 repos/
 .DS_Store
+**/.git/
+.env
+.env.*
+env.fetchshelf*
+backups/
+release.json
+deploy/truenas/.env

@@ -152,6 +152,10 @@ docker compose up -d --build
 
 ## 更新与迁移
 
+TrueNAS 的固定目录部署、版本记录与备份保留策略见
+[TrueNAS 部署说明](deploy/truenas/README.md)。不要通过日期目录名判断当前运行版本。
+TikTok-Api 依赖已随仓库保存，无需初始化 Git 子模块。
+
 ### 更新当前部署
 
 更新前先备份 `.env`、`SETTINGS_DIR` 和 `DOWNLOADS_DIR`，并确认没有正在写入的采集任务。

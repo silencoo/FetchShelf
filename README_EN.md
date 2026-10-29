@@ -1,5 +1,9 @@
 # FetchShelf
 
+For a stable TrueNAS deployment directory, recorded image revisions, and
+bounded rollback backups, see [TrueNAS deployment](deploy/truenas/README.md).
+The TikTok-Api dependency is included in this repository; no submodule setup is required.
+
 Docker-first Douyin / TikTok collection, download, and media management.
 
 > [!IMPORTANT]

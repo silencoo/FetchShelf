@@ -1,0 +1,52 @@
+name: fetchshelf
+
+services:
+  fetchshelf:
+    image: ${FETCHSHELF_IMAGE:?Build a versioned image first}
+    pull_policy: never
+    container_name: fetchshelf
+    working_dir: /app
+    command: ["python", "main_webui.py"]
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 120s
+    environment:
+      TZ: ${TZ:-UTC}
+      FETCHSHELF_API_TOKEN: ${FETCHSHELF_API_TOKEN:?Keep the existing API token}
+      FETCHSHELF_IDENTITY_KEY_FILE: /run/secrets/fetchshelf_identity_key
+      FETCHSHELF_ENCIPHER_PATH: /app/settings/encipher.py
+      NVIDIA_VISIBLE_DEVICES: void
+    ports:
+      - "${FETCHSHELF_BIND_IP:-127.0.0.1}:${FETCHSHELF_WEBUI_PORT:-5556}:5555"
+    volumes:
+      - type: bind
+        source: ${FETCHSHELF_SETTINGS_DIR:?Set the existing settings directory}
+        target: /app/settings
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${FETCHSHELF_DATA_DIR:?Set the existing media directory}
+        target: /mnt/data
+        bind:
+          create_host_path: false
+      # The image declares this volume. Explicitly bind it to avoid creating
+      # an anonymous volume on every replacement; root remains /mnt/data.
+      - type: bind
+        source: ${FETCHSHELF_DATA_DIR:?Set the existing media directory}
+        target: /app/downloads
+        bind:
+          create_host_path: false
+    secrets:
+      - source: fetchshelf_identity_key
+        target: fetchshelf_identity_key
+        mode: 0400
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5555/docs', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 45s
+
+secrets:
+  fetchshelf_identity_key:
+    file: ${FETCHSHELF_IDENTITY_KEY_FILE:?Keep the existing identity key file}
