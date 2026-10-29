@@ -16,7 +16,7 @@ CONTAINER = "fetchshelf"
 PRODUCT = "FetchShelf"
 BUSY_PROBE = """import json,os,urllib.request
 r=urllib.request.Request("http://127.0.0.1:5555/ui/api/tasks?limit=1",headers={"token":os.environ["FETCHSHELF_API_TOKEN"]})
-with urllib.request.urlopen(r,timeout=20) as f:
+with urllib.request.urlopen(r,timeout=60) as f:
  d=json.load(f)
 print(json.dumps({k:d.get(k,0) for k in ("running","pending","paused")}))"""
 

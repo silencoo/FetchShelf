@@ -1877,13 +1877,18 @@ class ServerRoutesMixin:
             token: str = Depends(token_dependency),
         ):
             tasks = sorted(
-                (self._public_ui_task(item) for item in self.ui_tasks.values()),
+                self.ui_tasks.values(),
                 key=self._ui_task_sort_key,
                 reverse=True,
             )
             if status:
                 tasks = [item for item in tasks if item.get("status") == status]
-            tasks = tasks[: self._normalize_limit(limit)]
+            # Redaction can traverse large historical results. Only inspect the
+            # requested page; global queue counters below still include all jobs.
+            tasks = [
+                self._public_ui_task(item)
+                for item in tasks[: self._normalize_limit(limit)]
+            ]
             return {
                 "items": tasks,
                 "count": len(tasks),
