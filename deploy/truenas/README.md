@@ -48,6 +48,12 @@ Build mirrors can be selected explicitly with `--build-arg NODE_IMAGE=...`,
 builds from the locked Python/Node dependencies and tracked vendor snapshot;
 it never requires a dated local FetchShelf image.
 
+An administrator-controlled Chromium download cache can be selected with
+`--build-arg PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST=...`. Its files must match the
+official archives for the Playwright version in `uv.lock`. Omit this option
+to download from the official CDN. Release labels are applied after dependency
+installation so updates can reuse the large build layers.
+
 If the NAS uses a loopback HTTP proxy for downloads, add `--build-network host`
 and `--build-arg http_proxy=http://127.0.0.1:7890`
 `--build-arg https_proxy=http://127.0.0.1:7890`. These are build-only options;

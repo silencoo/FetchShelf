@@ -39,12 +39,6 @@ RUN uv sync --frozen --no-dev --no-install-project
 FROM ${PYTHON_RUNTIME_IMAGE}
 COPY --from=uv /uv /uvx /usr/local/bin/
 
-ARG VCS_REF=unknown
-ARG BUILD_DATE=unknown
-LABEL org.opencontainers.image.source="https://github.com/silencoo/FetchShelf" \
-      org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.created="${BUILD_DATE}"
-
 # 设置工作目录
 WORKDIR /app
 
@@ -96,6 +90,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ldconfig \
     && ldconfig -p | grep -q "libxcb.so.1"
 COPY --from=builder /opt/venv /opt/venv
+ARG PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST
 RUN python -m playwright install chromium --no-shell
 
 # 复制你的应用程序代码和相关文件
@@ -111,6 +106,14 @@ COPY main_webui.py /app/main_webui.py
 COPY encipher_example.py /app/encipher_example.py
 COPY pyproject.toml /app/pyproject.toml
 COPY uv.lock /app/uv.lock
+
+# Keep changing release metadata after dependency installation so each release
+# can reuse the large system, Python and browser layers.
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.source="https://github.com/silencoo/FetchShelf" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
 
 # 暴露端口
 EXPOSE 5555
