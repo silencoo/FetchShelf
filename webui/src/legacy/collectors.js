@@ -111,6 +111,11 @@ export function createCollectorController({
     return Number.isFinite(timestamp) && timestamp > Date.now();
   }
 
+  function pendingTargetCheck(identity) {
+    return ["login_state_pending_target_check", "anonymous_session_pending_target_check"]
+      .includes(identity.last_error_code);
+  }
+
   function collectorIdentityState(identity) {
     if (identity.login_browser_active) {
       return "login";
@@ -127,6 +132,7 @@ export function createCollectorController({
     if (["ready", "valid", "healthy", "available", "idle"].includes(identity.status)) {
       return "ready";
     }
+    if (identity.status === "warning" && !pendingTargetCheck(identity)) return "warning";
     if (["invalid", "error", "failed", "blocked", "unavailable"].includes(identity.status)) {
       return "error";
     }
@@ -141,6 +147,7 @@ export function createCollectorController({
       cooldown: "冷却中",
       unconfigured: "待配置",
       error: "异常",
+      warning: "需关注",
       unknown: "待验证",
     }[value] || "待验证";
   }
@@ -178,7 +185,7 @@ export function createCollectorController({
     const identities = state.collectorIdentities;
     const ready = identities.filter((item) => collectorIdentityState(item) === "ready").length;
     const attention = identities.filter((item) =>
-      ["cooldown", "unconfigured", "error", "unknown", "login"].includes(
+      ["cooldown", "unconfigured", "error", "warning", "unknown", "login"].includes(
         collectorIdentityState(item),
       ),
     ).length;
@@ -203,7 +210,7 @@ export function createCollectorController({
         (status === "ready" && identityState === "ready") ||
         (status === "disabled" && identityState === "disabled") ||
         (status === "attention" &&
-          ["cooldown", "unconfigured", "error", "unknown"].includes(identityState));
+          ["cooldown", "unconfigured", "error", "warning", "unknown"].includes(identityState));
       return platformMatches && statusMatches;
     });
   }
@@ -271,11 +278,8 @@ export function createCollectorController({
       const authModeBadge = identity.platform === "tiktok"
         ? `<span class="badge">${escapeHtml(collectorAuthModeLabel(identity.auth_mode))}</span>`
         : "";
-      const pendingTargetCheck = [
-        "login_state_pending_target_check",
-        "anonymous_session_pending_target_check",
-      ].includes(identity.last_error_code);
-      const issue = identity.last_error_code && !pendingTargetCheck
+      const pending = pendingTargetCheck(identity);
+      const issue = identity.last_error_code && !pending
         ? `<p class="collector-identity-error">最近异常：${escapeHtml(identity.last_error_code)}</p>`
         : "";
       const cooldown = isFutureTimestamp(identity.cooldown_until)
@@ -312,7 +316,7 @@ export function createCollectorController({
         <div class="collector-identity-timeline">
           <span>上次验证 ${escapeHtml(collectorTimeLabel(identity.last_validated_at))}</span>
           ${cooldown}
-          ${pendingTargetCheck ? "<span>下次使用此身份采集时将验证可用性</span>" : ""}
+          ${pending ? "<span>下次使用此身份采集时将验证可用性</span>" : ""}
         </div>
         ${issue}
         <div class="collector-identity-actions">
@@ -455,13 +459,13 @@ export function createCollectorController({
     syncMonitorIdentityOverrides();
   }
 
-  async function loadCollectorIdentities() {
+  async function loadCollectorIdentities({ silent = false } = {}) {
     if (state.collectorListLoading) {
       return;
     }
     state.collectorListLoading = true;
     refs.collectorIdentityList.setAttribute("aria-busy", "true");
-    refs.collectorListStatus.textContent = "正在加载采集身份…";
+    if (!silent) refs.collectorListStatus.textContent = "正在加载采集身份…";
     if (!state.collectorIdentities.length) {
       refs.collectorIdentityList.innerHTML = '<div class="loading-state">正在读取身份状态…</div>';
     }
@@ -470,10 +474,13 @@ export function createCollectorController({
         method: "GET",
         headers: headerOptions(false),
       });
-      state.collectorIdentities = collectorItemsFromPayload(payload)
+      const next = collectorItemsFromPayload(payload)
         .map(normalizeCollectorIdentity)
         .filter((item) => item.identity_id);
+      if (silent && JSON.stringify(next) === JSON.stringify(state.collectorIdentities)) return;
+      state.collectorIdentities = next;
       renderCollectorIdentities();
+      if (silent) return;
       syncCollectorIdentitySelectors();
       if (state.collectorAssignmentsLoaded[refs.collectorAssignmentPlatform.value]) {
         renderCollectorAssignments(refs.collectorAssignmentPlatform.value);
@@ -486,6 +493,7 @@ export function createCollectorController({
       }
       setApiStatus("就绪", "ok");
     } catch (error) {
+      if (silent) return;
       refs.collectorIdentityList.setAttribute("aria-busy", "false");
       refs.collectorIdentityList.innerHTML = `
         <div class="error-state collector-error-state">
@@ -500,6 +508,7 @@ export function createCollectorController({
       refs.collectorListStatus.dataset.state = "error";
       setApiStatus(`异常: ${error.message}`, "error");
     } finally {
+      refs.collectorIdentityList.setAttribute("aria-busy", "false");
       state.collectorListLoading = false;
     }
   }
@@ -854,7 +863,7 @@ export function createCollectorController({
         payload.viewer_ticket,
         payload.viewer_protocol_prefix || "fetchshelf-login.",
       );
-      await loadCollectorIdentities({ silent: true });
+      await loadCollectorIdentities();
     } catch (error) {
       refs.collectorLoginBrowserSaveBtn.disabled = true;
       refs.collectorLoginBrowserReconnectBtn.hidden = true;

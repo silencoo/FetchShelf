@@ -5582,6 +5582,8 @@ class APIServer(TikTok, ServerRoutesMixin):
                     }
                 finally:
                     mark_unit_finished()
+                if identity_id and execution["ok"] and execution.get("terminal_status") == "success":
+                    self.collector_store.confirm_pending_target(identity_id)
                 results.append(execution)
                 execution["sec_uid"] = sec_user_id
                 execution["_progress_status"] = self._normalize_string(
@@ -5666,7 +5668,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                     chunk_success = sum(
                         1
                         for result in chunk_results
-                        if not result.get("affects_identity_health")
+                        if result.get("ok") and result.get("terminal_status") == "success"
                     )
                     chunk_failures = sum(
                         1

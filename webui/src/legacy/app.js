@@ -7432,6 +7432,9 @@ function startOverviewPolling() {
   setInterval(() => {
     if (!document.hidden && state.activeTab === "workbench") {
       loadOverview();
+    } else if (!document.hidden && state.activeTab === "collectors" &&
+        !document.querySelector("dialog[open]") && !refs.collectorListStatus.dataset.state) {
+      loadCollectorIdentities({ silent: true });
     }
   }, 10000);
 }

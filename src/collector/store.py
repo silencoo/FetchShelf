@@ -533,6 +533,23 @@ class CollectorStore:
                 last_error_code=row["last_error_code"],
             )
 
+    def confirm_pending_target(self, identity_id: str) -> None:
+        """Publish the first verified target without counting the lease group twice."""
+        now = _now_text()
+        with self._lock, self.connection:
+            self.connection.execute(
+                """
+                UPDATE collector_runtime
+                SET status = 'healthy', last_error_code = '', consecutive_failures = 0,
+                    last_success_at = ?, last_validated_at = ?, updated_at = ?
+                WHERE identity_id = ? AND (
+                    status = 'untested' OR (status = 'warning' AND last_error_code IN
+                        ('login_state_pending_target_check', 'anonymous_session_pending_target_check'))
+                )
+                """,
+                (now, now, now, identity_id),
+            )
+
     def save_runtime(self, state: CollectorRuntimeState) -> None:
         now = _now_text()
         with self._lock, self.connection:

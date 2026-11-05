@@ -68,6 +68,10 @@ async def test_account_batch_parallelizes_between_identities_not_within_one(
             identity,
             credentials=CollectorCredentials(cookie=f"sessionid={identity_id}"),
         )
+        runtime = server.collector_store.get_runtime(identity_id)
+        runtime.status = IdentityStatus.WARNING
+        runtime.last_error_code = "login_state_pending_target_check"
+        server.collector_store.save_runtime(runtime)
         identities.append(identity)
         await server.collector_leases.configure(identity_id, 1)
     await server.collector_leases.configure("platform:douyin", 2)
@@ -103,6 +107,11 @@ async def test_account_batch_parallelizes_between_identities_not_within_one(
 
         async def deal_account_detail(self, *args, **kwargs):
             nonlocal total_active, max_total_active
+            if kwargs["mark"] in {"c", "d"}:
+                runtime = server.collector_store.get_runtime(self.identity_id)
+                assert runtime.status == IdentityStatus.HEALTHY
+                assert runtime.last_error_code == ""
+                assert runtime.active_leases == 1
             active[self.identity_id] += 1
             total_active += 1
             max_per_identity[self.identity_id] = max(
@@ -133,6 +142,8 @@ async def test_account_batch_parallelizes_between_identities_not_within_one(
     assert result.data["failed"] == 0
     assert max_per_identity == {"dy-one": 1, "dy-two": 1}
     assert max_total_active == 2
+    for identity in identities:
+        assert server.collector_store.get_runtime(identity.identity_id).total_successes == 2
     assert progress_updates[0]["current"] == 0
     assert progress_updates[-1]["current"] == 4
     assert progress_updates[-1]["total"] == 4
