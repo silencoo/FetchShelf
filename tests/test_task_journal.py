@@ -1146,12 +1146,32 @@ def test_board_keeps_covers_and_only_replaces_the_requested_account(tmp_path, mo
     def board():
         return {row["url"]: (row["media_path"], row["pinned"]) for row in client.get(base).json()["items"]}
 
-    assert client.post(base + "/pin", json={"url": "beta", "path": "UID1_Beta/b.mp4"}).is_success
+    # The former release stored manual and automatic covers as plain paths.
+    server._account_board_pin_file().write_text('{"pins":{"douyin::beta":"UID1_Beta/b.mp4"}}')
     initial = board()
     assert initial == {"alpha": ("UID1_Alpha/a.jpg", True), "beta": ("UID1_Beta/b.mp4", True), "empty": ("", False)}
     assert board() == initial
-    change = client.post(base + "/random", json={"url": "alpha", "current_path": initial["alpha"][0], "pin": True}).json()
-    assert change["pinned"] and change["media_path"] == "UID1_Alpha/b.mp4"
+    def pick(url, mode):
+        return client.post(base + "/random", json={
+            "url": url, "current_path": board()[url][0], "face_cover": mode,
+        }).json()
+
+    from src.application import server_routes
+    calls = []
+    def match(*args):
+        calls.append(args)
+        return {"path": "UID1_Alpha/b.mp4", "second": 1}
+    monkeypatch.setattr(server_routes, "choose_face_cover", match)
+    assert pick("beta", "auto")["outcome"] == "superseded"
+    change = pick("alpha", "auto")
+    assert change["poster_second"] == 1
+    assert pick("alpha", "auto")["outcome"] == "superseded"
+    assert len(calls) == 1
     assert board() == {**initial, "alpha": (change["media_path"], True)}
+    monkeypatch.setattr(server_routes, "choose_face_cover", lambda *args: None)
+    assert pick("alpha", "replace")["outcome"] == "no_face"
+    assert client.get(base).json()["items"][0]["poster_second"] == 1
     (tmp_path / change["media_path"]).unlink()
     assert board() == initial
+    assert pick("alpha", "auto")["outcome"] == "no_face"
+    assert not client.get(base).json()["items"][0]["cover_pending"]

@@ -80,7 +80,7 @@ from ..webui.files import (
     resolve_within_root,
     serialize_entry,
 )
-from ..webui.profile_avatar import generate_face_avatar
+from ..webui.profile_avatar import choose_face_cover, generate_face_avatar
 from ..webui.video_preview import video_preview
 from ..webui_security import (
     redact_webui_json_text,
@@ -116,6 +116,7 @@ def token_dependency(
 class ServerRoutesMixin:
     def setup_routes(self):
         preview_slots = Semaphore(2)
+        cover_slot = Semaphore(1)
 
         @self.server.exception_handler(RequestValidationError)
         async def safe_request_validation_error(
@@ -238,6 +239,7 @@ class ServerRoutesMixin:
             scope: ScopeType = Query("download"),
             path: str = Query(""),
             thumbnail: bool = Query(False),
+            poster_second: int = Query(0, ge=0, le=3),
             token: str = Depends(token_dependency),
         ):
             if scope not in {"project", "download"}:
@@ -275,7 +277,7 @@ class ServerRoutesMixin:
                 try:
                     async with preview_slots:
                         stat = target.stat()
-                        frame = await to_thread(video_preview, target, stat.st_mtime_ns, stat.st_size)
+                        frame = await to_thread(video_preview, target, stat.st_mtime_ns, stat.st_size, poster_second)
                 except (OSError, SubprocessError, ValueError):
                     raise HTTPException(status_code=422, detail="Video preview unavailable.")
                 return Response(frame, media_type="image/jpeg", headers={"Cache-Control": "private, no-cache"})
@@ -1467,16 +1469,50 @@ class ServerRoutesMixin:
                     detail="Account row not found.",
                 )
             root = self._scope_root("download").expanduser().resolve()
-            folder = self._match_account_board_dir(
-                mark=row.get("mark", ""),
-                url=url,
-                candidates=self._account_board_dirs(root),
-            )
+            folder = self._indexed_account_folder(row, self._board_folder_index(root))
             if not folder:
                 raise HTTPException(
                     status_code=404,
                     detail="Account media folder not found.",
                 )
+            key = self._account_pin_key(platform, url)
+            mode = body.get("face_cover")
+            if mode in ("auto", "replace"):
+                def result(pin, outcome):
+                    path = (pin or {}).get("path", "")
+                    return {
+                        "media_path": path,
+                        "media_kind": self._media_kind_from_relpath(path) if path else "",
+                        "pinned": bool(path),
+                        "poster_second": (pin or {}).get("second", 0),
+                        "outcome": outcome,
+                    }
+
+                before = self._load_account_board_pins().get(key)
+                async with cover_slot:
+                    latest = self._load_account_board_pins().get(key)
+                    if latest != before or (latest and latest["path"] != current_path):
+                        return result(latest, "superseded")
+                    if mode == "auto" and (not latest or latest["source"] != "pending"):
+                        return result(latest, "superseded")
+
+                    def find_cover():
+                        images, videos = self._collect_media_relpaths(root, folder, {})
+                        return choose_face_cover(root, images, videos, current_path, prefer_kind, mode == "auto")
+
+                    selected = await to_thread(find_cover)
+                    pins = self._load_account_board_pins()
+                    if pins.get(key) != before:
+                        return result(pins.get(key), "superseded")
+                    if selected:
+                        pins[key] = {**selected, "source": "face_auto" if mode == "auto" else "face_refresh"}
+                    elif mode == "auto":
+                        pins[key] = {**before, "source": "fallback"}
+                    else:
+                        return result(before, "no_face")
+                    self._save_account_board_pins(pins)
+                    return result(pins[key], "selected" if selected else "no_face")
+
             media = self._pick_account_board_media(
                 root=root,
                 folder=folder,
@@ -1488,7 +1524,7 @@ class ServerRoutesMixin:
             pin = body.get("pin") is True and bool(media["path"])
             if pin:
                 pins = self._load_account_board_pins()
-                pins[self._account_pin_key(platform, url)] = media["path"]
+                pins[key] = {"path": media["path"], "source": "manual"}
                 self._save_account_board_pins(pins)
             return {
                 "platform": platform,
@@ -1531,7 +1567,8 @@ class ServerRoutesMixin:
                     detail="Invalid media path.",
                 )
             pins = self._load_account_board_pins()
-            pins[self._account_pin_key(platform, url)] = media_path
+            key = self._account_pin_key(platform, url)
+            pins[key] = self._manual_board_cover(pins.get(key), media_path)
             try:
                 self._save_account_board_pins(pins)
             except OSError as error:
@@ -1576,7 +1613,8 @@ class ServerRoutesMixin:
                 media_path = self._coerce_media_relpath(root, path)
                 if not media_path:
                     continue
-                pins[self._account_pin_key(platform, url)] = media_path
+                key = self._account_pin_key(platform, url)
+                pins[key] = self._manual_board_cover(pins.get(key), media_path)
                 updated += 1
             if updated:
                 try:

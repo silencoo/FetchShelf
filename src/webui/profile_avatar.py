@@ -1,11 +1,16 @@
 import os
+from io import BytesIO
+from random import sample
+from subprocess import SubprocessError
+from time import monotonic
 from pathlib import Path
 from shutil import which
 from subprocess import DEVNULL, CalledProcessError, run
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-from .files import VIDEO_SUFFIXES
+from .files import VIDEO_SUFFIXES, resolve_within_root
+from .video_preview import video_preview
 
 __all__ = ["generate_face_avatar"]
 
@@ -511,3 +516,58 @@ def generate_face_avatar(
     finally:
         for temporary_frame in temporary_frames:
             temporary_frame.unlink(missing_ok=True)
+
+def choose_face_cover(root, images, videos, current, prefer_kind, automatic):
+    """Inspect a bounded sample. Return the source path and the exact poster second."""
+    import numpy as np
+    from PIL import Image, ImageOps
+
+    def candidates(pool, limit):
+        others = [path for path in pool if path != current]
+        return sample(others, min(limit, len(others)))
+
+    image_paths = candidates(images, 6)
+    video_paths = candidates(videos, 2)
+    pools = [video_paths, image_paths] if prefer_kind == "video" else [image_paths, video_paths]
+    # A single-video account may still gain a better poster on a manual refresh.
+    if automatic or current in videos:
+        for paths, all_paths in ((image_paths, images), (video_paths, videos)):
+            if current in all_paths:
+                if automatic:
+                    paths.insert(0, current)
+                else:
+                    paths.append(current)
+    deadline = monotonic() + 20
+    for pool in pools:
+        best = None
+        best_score = 0
+        for relative in pool:
+            if monotonic() >= deadline:
+                break
+            path = resolve_within_root(root, relative)
+            is_video = path.suffix.lower() in VIDEO_SUFFIXES
+            for second in ((0, 1, 3) if is_video else (0,)):
+                if monotonic() >= deadline:
+                    break
+                try:
+                    source = path
+                    if is_video:
+                        stat = path.stat()
+                        source = BytesIO(video_preview(path, stat.st_mtime_ns, stat.st_size, second))
+                    with Image.open(source) as image:
+                        image.thumbnail((512, 512))
+                        rgb = np.asarray(ImageOps.exif_transpose(image).convert("RGB"))
+                except (OSError, ValueError, SubprocessError, Image.DecompressionBombError):
+                    continue
+                for face in _detect_faces(rgb, min_confidence=0.7):
+                    if face["area"] < rgb.shape[0] * rgb.shape[1] * 0.02:
+                        continue
+                    quality = _face_candidate_quality(face, rgb)
+                    if quality > best_score:
+                        best_score = quality
+                        best = {"path": relative, "second": second}
+            if best_score >= 0.82:
+                break
+        if best:
+            return best
+    return None

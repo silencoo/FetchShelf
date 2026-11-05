@@ -4,13 +4,14 @@ from subprocess import DEVNULL, PIPE, run
 
 
 @lru_cache(maxsize=192)
-def video_preview(path: Path, mtime_ns: int, size: int) -> bytes:
+def video_preview(path: Path, mtime_ns: int, size: int, second: int = 0) -> bytes:
     """Cache a small JPEG per source revision, without writing into the library."""
     result = run(
         [
             "ffmpeg", "-nostdin", "-loglevel", "error",
             "-protocol_whitelist", "file",
             "-format_whitelist", "mov,matroska,webm,avi,flv",
+            *(["-ss", str(second)] if second else []),
             "-threads", "1", "-i", str(path), "-map", "0:v:0",
             "-frames:v", "1", "-vf",
             "scale=480:480:force_original_aspect_ratio=decrease",

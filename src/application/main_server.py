@@ -2570,7 +2570,7 @@ class APIServer(TikTok, ServerRoutesMixin):
     def _account_board_pin_file(self) -> Path:
         return self.parameter.settings.path.parent.joinpath("account_profile_pins.json")
 
-    def _load_account_board_pins(self) -> dict[str, str]:
+    def _load_account_board_pins(self) -> dict[str, dict]:
         pin_file = self._account_board_pin_file()
         try:
             payload = loads(pin_file.read_text(encoding=self.parameter.settings.encode))
@@ -2579,22 +2579,34 @@ class APIServer(TikTok, ServerRoutesMixin):
         if not isinstance(payload, dict) or not isinstance(payload.get("pins", payload), dict):
             raise ValueError("Invalid account board pin file")
         source = payload.get("pins", payload)
+        details = payload.get("cover_details", {})
         pins = {}
         for key, value in source.items():
             k = self._normalize_string(key)
             v = self._normalize_string(value).replace("\\", "/").lstrip("/")
             if k and v:
-                pins[k] = v
+                detail = details.get(k, {}) if isinstance(details, dict) else {}
+                pins[k] = {"source": "legacy", "path": v}
+                if isinstance(detail, dict) and detail.get("path") == v:
+                    pins[k].update(detail)
         return pins
 
-    def _save_account_board_pins(self, pins: dict[str, str]) -> None:
+    @staticmethod
+    def _manual_board_cover(previous, path):
+        pin = {"path": path, "source": "manual"}
+        if previous and previous.get("path") == path and previous.get("second"):
+            pin["second"] = previous["second"]
+        return pin
+
+    def _save_account_board_pins(self, pins: dict[str, dict]) -> None:
         pin_file = self._account_board_pin_file()
         if not pin_file.parent.exists():
             pin_file.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "version": 1,
+            "version": 2,
             "updated_at": self._now_text(),
-            "pins": pins,
+            "pins": {key: pin["path"] for key, pin in pins.items()},
+            "cover_details": {key: pin for key, pin in pins.items() if pin["source"] != "legacy"},
         }
         handle = NamedTemporaryFile(
             mode="w", encoding=self.parameter.settings.encode,
@@ -3208,6 +3220,38 @@ class APIServer(TikTok, ServerRoutesMixin):
             return "legacy_success"
         return "no_updates" if code == "no_matching_items" else "success"
 
+    def _indexed_account_folder(self, row, folder_index):
+        candidates, candidate_index, candidate_mark_index, folder_by_account = folder_index
+        key = (
+            self._normalize_string(row.get("url")),
+            self._normalize_string(row.get("mark")),
+        )
+        if key not in folder_by_account:
+            mark_candidates = (
+                self._account_board_mark_candidates(
+                    row.get("mark", ""),
+                    candidate_mark_index,
+                )
+                if candidates
+                else []
+            )
+            if len(mark_candidates) == 1:
+                folder_by_account[key] = mark_candidates[0]
+            else:
+                match_candidates = mark_candidates or candidates
+                match_index = (
+                    self._account_board_dir_match_index(match_candidates)
+                    if mark_candidates
+                    else candidate_index
+                )
+                folder_by_account[key] = self._match_account_board_dir(
+                    mark=row.get("mark", ""),
+                    url=row.get("url", ""),
+                    candidates=match_candidates,
+                    candidate_index=match_index,
+                )
+        return folder_by_account[key]
+
     def _build_account_board_page(
         self,
         platform: str,
@@ -3262,36 +3306,7 @@ class APIServer(TikTok, ServerRoutesMixin):
             nonlocal folder_index
             if folder_index is None:
                 folder_index = self._board_folder_index(root)
-            candidates, candidate_index, candidate_mark_index, folder_by_account = folder_index
-            key = (
-                self._normalize_string(row.get("url")),
-                self._normalize_string(row.get("mark")),
-            )
-            if key not in folder_by_account:
-                mark_candidates = (
-                    self._account_board_mark_candidates(
-                        row.get("mark", ""),
-                        candidate_mark_index,
-                    )
-                    if candidates
-                    else []
-                )
-                if len(mark_candidates) == 1:
-                    folder_by_account[key] = mark_candidates[0]
-                else:
-                    match_candidates = mark_candidates or candidates
-                    match_index = (
-                        self._account_board_dir_match_index(match_candidates)
-                        if mark_candidates
-                        else candidate_index
-                    )
-                    folder_by_account[key] = self._match_account_board_dir(
-                        mark=row.get("mark", ""),
-                        url=row.get("url", ""),
-                        candidates=match_candidates,
-                        candidate_index=match_index,
-                    )
-            return folder_by_account[key]
+            return self._indexed_account_folder(row, folder_index)
 
         if normalized_search:
             rows = [
@@ -3417,11 +3432,11 @@ class APIServer(TikTok, ServerRoutesMixin):
                 root=root,
                 folder=folder,
                 cache=media_cache,
-                pinned_path=pins.get(pin_key, ""),
+                pinned_path=pins.get(pin_key, {}).get("path", ""),
                 use_pinned=True,
             )
             if media["path"] and not media["pinned"]:
-                pins[pin_key] = media["path"]
+                pins[pin_key] = {"path": media["path"], "source": "pending"}
                 media["pinned"] = True
                 new_pins = True
             avatar_path = self._coerce_project_image_relpath(avatars.get(pin_key, ""))
@@ -3459,6 +3474,8 @@ class APIServer(TikTok, ServerRoutesMixin):
                     "media_path": media.get("path", ""),
                     "media_kind": media.get("kind", ""),
                     "pinned": bool(media.get("pinned", False)),
+                    "cover_pending": pins.get(pin_key, {}).get("source") == "pending",
+                    "poster_second": pins.get(pin_key, {}).get("second", 0),
                     "avatar_path": avatar_path,
                     "avatar_scope": "project" if avatar_path else "",
                     "latest_work_at": latest_work_at,

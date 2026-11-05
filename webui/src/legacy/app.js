@@ -2680,7 +2680,10 @@ function renderBoardCardPreview(card) {
     mediaWrap.appendChild(empty);
     return;
   }
-  const src = boardAssetUrl(preview.path, preview.scope || "download");
+  let src = boardAssetUrl(preview.path, preview.scope || "download");
+  if (preview.kind === "video" && Number(card.dataset.posterSecond) > 0) {
+    src += "&poster_second=" + Number(card.dataset.posterSecond);
+  }
   mediaWrap.classList.add(`profile-media-wrap-${preview.kind}`);
   if (preview.kind === "image" || preview.kind === "video") {
     appendBoardMediaThumbnail(mediaWrap, src, preview.kind, card.dataset.mark || "");
@@ -2692,7 +2695,8 @@ function renderBoardCardPreview(card) {
   mediaWrap.appendChild(empty);
 }
 
-function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false) {
+function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false, second = 0) {
+  card.dataset.posterSecond = String(second);
   card.dataset.mediaPath = mediaPath || "";
   card.dataset.mediaKind = mediaKind || "";
   card.dataset.pinned = pinned ? "1" : "0";
@@ -3342,10 +3346,12 @@ function renderAccountBoard(items) {
 
     card.appendChild(mediaWrap);
     card.appendChild(body);
-    setBoardCardMedia(card, item.media_path || "", item.media_kind || "", Boolean(item.pinned));
+    setBoardCardMedia(card, item.media_path || "", item.media_kind || "", Boolean(item.pinned), item.poster_second);
+    if (item.cover_pending) card.dataset.coverPending = "1";
     fragment.appendChild(card);
   }
   refs.boardGrid.appendChild(fragment);
+  void improveBoardCovers(refs.boardGrid.querySelectorAll('[data-cover-pending="1"]'));
   refreshIcons(refs.boardGrid);
 }
 
@@ -3412,14 +3418,23 @@ async function loadAccountBoard(resetPage = false) {
   }
 }
 
-async function refreshBoardCard(card, preferKind = "auto") {
+async function improveBoardCovers(cards) {
+  for (const card of cards) {
+    if (!card.isConnected) break;
+    if (card.dataset.coverPending === "1") await refreshBoardCard(card, "auto", true);
+  }
+}
+
+async function refreshBoardCard(card, preferKind = "auto", automatic = false) {
   const platform = card.dataset.platform || state.accountBoard.platform;
   const url = card.dataset.url || "";
   if (!url) {
     setBoardStatus("当前卡片缺少账号 URL，无法刷新");
     return;
   }
-  setBoardStatus("正在刷新卡片媒体…");
+  const initialPath = card.dataset.mediaPath;
+  delete card.dataset.coverPending;
+  if (!automatic) setBoardStatus("正在挑选人脸封面…");
   try {
     const payload = await fetchJson("/ui/api/accounts/board/random", {
       method: "POST",
@@ -3430,15 +3445,23 @@ async function refreshBoardCard(card, preferKind = "auto") {
         current_path: card.dataset.mediaPath || "",
         prefer_kind: preferKind,
         pin: true,
+        face_cover: automatic ? "auto" : "replace",
       }),
     });
+    if (!card.isConnected || card.dataset.mediaPath !== initialPath) return;
+    if (payload.outcome === "no_face" || payload.outcome === "superseded") {
+      if (!automatic) setBoardStatus(payload.outcome === "no_face" ? "本次未找到合适的人脸，已保留当前封面" : "封面已更新");
+      return;
+    }
     card.dataset.previewMode = "media";
     setBoardCardMedia(
       card,
       payload.media_path || "",
       payload.media_kind || "",
       Boolean(payload.pinned),
+      payload.poster_second,
     );
+    if (automatic) return;
     const usedKind = String(payload.media_kind || "").trim();
     const preferText =
       preferKind === "video"
@@ -3449,6 +3472,7 @@ async function refreshBoardCard(card, preferKind = "auto") {
     setBoardStatus(`已更新卡片封面（${preferText}，当前: ${usedKind || "无"}）`);
     setApiStatus("就绪", "ok");
   } catch (error) {
+    if (automatic) return;
     setBoardStatus(`刷新失败: ${error.message}`);
     setApiStatus(`异常: ${error.message}`, "error");
   }
@@ -3472,7 +3496,7 @@ async function pinBoardCard(card) {
         path,
       }),
     });
-    setBoardCardMedia(card, path, card.dataset.mediaKind || "", true);
+    setBoardCardMedia(card, path, card.dataset.mediaKind || "", true, card.dataset.posterSecond);
     setBoardStatus("已固定该账号 Profile 媒体");
     setApiStatus("就绪", "ok");
   } catch (error) {
@@ -3506,7 +3530,7 @@ async function pinCurrentBoardPage() {
       if (!card.dataset.mediaPath) {
         continue;
       }
-      setBoardCardMedia(card, card.dataset.mediaPath, card.dataset.mediaKind || "", true);
+      setBoardCardMedia(card, card.dataset.mediaPath, card.dataset.mediaKind || "", true, card.dataset.posterSecond);
     }
     setBoardStatus(`批量固定完成：${result.updated || 0} / ${result.requested || items.length}`);
     setApiStatus("就绪", "ok");
