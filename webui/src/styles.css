@@ -5653,6 +5653,7 @@ select.batch-field-select + .app-select-mount {
 
 .profile-board-immersive .profile-name {
   min-height: 0;
+  text-align: center;
 }
 
 /* Monitoring, workflows, schedules, and tasks */
