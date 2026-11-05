@@ -1,3 +1,4 @@
+import { renderPageNumbers } from "./pagination.js";
 import { refs } from "./dom-refs.js";
 import {
   fetchJson,
@@ -1336,8 +1337,10 @@ export function createCollectorController({
     refs.collectorBindingPager.hidden = pagination.total === 0;
     refs.collectorBindingPageRange.textContent = `${start}–${end} / ${pagination.total.toLocaleString("zh-CN")}`;
     refs.collectorBindingPageSize.value = String(pagination.pageSize);
-    refs.collectorBindingPrevBtn.disabled = loading || pagination.page <= 1;
-    refs.collectorBindingNextBtn.disabled = loading || pagination.page >= pagination.pages;
+    renderPageNumbers(refs.collectorBindingPageNumbers, pagination.page, pagination.pages, (page) => {
+      pagination.page = page;
+      loadCollectorAssignments(platform);
+    }, loading);
     refs.collectorBindingPageInput.min = "1";
     refs.collectorBindingPageInput.max = String(pagination.pages);
     refs.collectorBindingPageInput.value = String(pagination.page);

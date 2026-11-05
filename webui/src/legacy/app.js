@@ -1,3 +1,4 @@
+import { renderPageNumbers } from "./pagination.js";
 import { refs } from "./dom-refs.js";
 import { createCollectorController } from "./collectors.js";
 import { refreshIcons } from "./icons.js";
@@ -319,13 +320,7 @@ function renderAccountPager(platform, section = "active") {
           .join("")}
       </select>
     </label>
-    <button class="btn ghost pager-prev" type="button" ${pagination.page <= 1 ? "disabled" : ""}>
-      <i data-lucide="chevron-left"></i><span>上一页</span>
-    </button>
-    <span class="table-page-number">第 ${pagination.page} / ${pages} 页</span>
-    <button class="btn ghost pager-next" type="button" ${pagination.page >= pages ? "disabled" : ""}>
-      <span>下一页</span><i data-lucide="chevron-right"></i>
-    </button>
+    <nav class="page-numbers" aria-label="账号页码"></nav>
   `;
   pager.querySelector("select")?.addEventListener("change", (event) => {
     pagination.pageSize = Number(event.target.value) || pagination.pageSize;
@@ -336,21 +331,11 @@ function renderAccountPager(platform, section = "active") {
       renderAccountRows(platform);
     }
   });
-  pager.querySelector(".pager-prev")?.addEventListener("click", () => {
-    pagination.page = Math.max(1, pagination.page - 1);
-    if (section === "deleted") {
-      renderDeletedRows(platform);
-    } else {
-      renderAccountRows(platform);
-    }
-  });
-  pager.querySelector(".pager-next")?.addEventListener("click", () => {
-    pagination.page = Math.min(pages, pagination.page + 1);
-    if (section === "deleted") {
-      renderDeletedRows(platform);
-    } else {
-      renderAccountRows(platform);
-    }
+  renderPageNumbers(pager.querySelector(".page-numbers"), pagination.page, pages, (page) => {
+    pagination.page = page;
+    if (section === "deleted") renderDeletedRows(platform);
+    else renderAccountRows(platform);
+    pager.querySelector('[aria-current="page"]')?.focus({ preventScroll: true });
   });
   refreshIcons(pager);
 }
@@ -2273,7 +2258,10 @@ async function loadFileStats() {
   }
 }
 
+let fileRequestVersion = 0;
+
 async function loadFiles() {
+  const version = ++fileRequestVersion;
   refs.filesMeta.textContent = "正在加载目录…";
   renderFileBreadcrumb();
   try {
@@ -2288,6 +2276,7 @@ async function loadFiles() {
       method: "GET",
       headers: headerOptions(false),
     });
+    if (version !== fileRequestVersion) return;
     const normalized = normalizeEntries(payload);
     state.fileEntries = normalized.entries || [];
     state.currentPath = normalized.currentPath || state.currentPath || "";
@@ -2309,21 +2298,23 @@ async function loadFiles() {
       ? `“${state.fileSearch.trim()}” · ${start}–${end} / ${state.fileTotal} 项`
       : `${start}–${end} / ${state.fileTotal} 个项目`;
     refs.filesPageMeta.textContent = `第 ${state.filePage} / ${state.filePages} 页`;
-    refs.filesPrevBtn.disabled = state.filePage <= 1;
-    refs.filesNextBtn.disabled = state.filePage >= state.filePages;
+    renderPageNumbers(refs.filesPageNumbers, state.filePage, state.filePages, (page) => {
+      state.filePage = page;
+      loadFiles();
+    });
     refs.filesPageSize.value = String(state.filePageSize);
     if (refs.filesStats.textContent.includes("统计信息待加载")) {
       refs.filesStats.textContent = "目录统计按需加载，避免扫描大型下载目录";
     }
     setApiStatus("就绪", "ok");
   } catch (error) {
+    if (version !== fileRequestVersion) return;
     state.fileEntries = [];
     state.selectedFilePath = "";
     refs.filesList.innerHTML = "";
     refs.filesMeta.textContent = `加载失败: ${error.message}`;
     refs.filesPageMeta.textContent = "第 1 / 1 页";
-    refs.filesPrevBtn.disabled = true;
-    refs.filesNextBtn.disabled = true;
+    refs.filesPageNumbers.replaceChildren();
     renderFileBreadcrumb();
     if (refs.filesStats) {
       refs.filesStats.textContent = "统计信息待加载…";
@@ -2778,8 +2769,10 @@ function updateAccountGalleryControls() {
   refs.accountGalleryPageMeta.textContent = `第 ${gallery.page} / ${gallery.pages} 页`;
   refs.accountGalleryPageInput.value = String(gallery.page);
   refs.accountGalleryPageInput.max = String(gallery.pages);
-  refs.accountGalleryPrevBtn.disabled = gallery.loading || gallery.page <= 1;
-  refs.accountGalleryNextBtn.disabled = gallery.loading || gallery.page >= gallery.pages;
+  renderPageNumbers(refs.accountGalleryPageNumbers, gallery.page, gallery.pages, (page) => {
+    gallery.page = page;
+    loadAccountGallery();
+  }, gallery.loading);
   refs.accountGalleryMediaPrevBtn.disabled =
     gallery.loading || !item || (gallery.page <= 1 && gallery.selectedIndex <= 0);
   refs.accountGalleryMediaNextBtn.disabled =
@@ -3392,8 +3385,10 @@ async function loadAccountBoard(resetPage = false) {
     state.accountBoard.unfilteredTotal = Number(
       payload.unfiltered_total ?? state.accountBoard.total,
     );
-    refs.boardPrevBtn.disabled = state.accountBoard.page <= 1;
-    refs.boardNextBtn.disabled = state.accountBoard.page >= state.accountBoard.pages;
+    renderPageNumbers(refs.boardPageNumbers, state.accountBoard.page, state.accountBoard.pages, (page) => {
+      state.accountBoard.page = page;
+      loadAccountBoard(false);
+    });
     updateBoardMeta();
     renderAccountBoard(payload.items || []);
     setBoardStatus(
@@ -3410,6 +3405,7 @@ async function loadAccountBoard(resetPage = false) {
   } catch (error) {
     if (version !== boardRequestVersion) return;
     refs.boardGrid.innerHTML = "";
+    refs.boardPageNumbers.replaceChildren();
     setBoardStatus(`加载失败: ${error.message}`);
     setApiStatus(`异常: ${error.message}`, "error");
   }
@@ -5494,8 +5490,10 @@ async function loadTaskAccounts(taskId = state.selectedTaskId) {
     refs.taskAccountPageInput.value = String(state.taskAccounts.page);
     refs.taskAccountPageInput.max = String(state.taskAccounts.pages);
     refs.taskAccountPageMeta.textContent = `第 ${state.taskAccounts.page} / ${state.taskAccounts.pages} 页 · ${Number(payload.filtered_total || 0)} 条`;
-    refs.taskAccountPrevBtn.disabled = state.taskAccounts.page <= 1;
-    refs.taskAccountNextBtn.disabled = state.taskAccounts.page >= state.taskAccounts.pages;
+    renderPageNumbers(refs.taskAccountPageNumbers, state.taskAccounts.page, state.taskAccounts.pages, (page) => {
+      state.taskAccounts.page = page;
+      loadTaskAccounts();
+    });
     const categoryCounts = payload?.category_counts || {};
     refs.taskAccountCategorySummary.textContent = Object.entries(
       TASK_ACCOUNT_CATEGORY_LABELS,
@@ -6515,16 +6513,6 @@ function bindEvents() {
     loadAccountBoard(true);
   });
 
-  refs.boardPrevBtn.addEventListener("click", () => {
-    state.accountBoard.page = Math.max(1, state.accountBoard.page - 1);
-    loadAccountBoard(false);
-  });
-
-  refs.boardNextBtn.addEventListener("click", () => {
-    state.accountBoard.page = Math.min(state.accountBoard.pages, state.accountBoard.page + 1);
-    loadAccountBoard(false);
-  });
-
   const jumpBoardPage = () =>
     jumpToValidatedPage(
       refs.boardPageInput,
@@ -6644,24 +6632,6 @@ function bindEvents() {
     loadAccountGallery();
   });
 
-  refs.accountGalleryPrevBtn.addEventListener("click", () => {
-    if (state.accountGallery.page <= 1 || state.accountGallery.loading) {
-      return;
-    }
-    state.accountGallery.page -= 1;
-    loadAccountGallery();
-  });
-
-  refs.accountGalleryNextBtn.addEventListener("click", () => {
-    if (
-      state.accountGallery.page >= state.accountGallery.pages ||
-      state.accountGallery.loading
-    ) {
-      return;
-    }
-    state.accountGallery.page += 1;
-    loadAccountGallery();
-  });
 
   const jumpGalleryPage = () =>
     jumpToValidatedPage(
@@ -6812,22 +6782,6 @@ function bindEvents() {
   refs.filesPageSize.addEventListener("change", () => {
     state.filePageSize = Number(refs.filesPageSize.value) || 24;
     state.filePage = 1;
-    loadFiles();
-  });
-
-  refs.filesPrevBtn.addEventListener("click", () => {
-    if (state.filePage <= 1) {
-      return;
-    }
-    state.filePage -= 1;
-    loadFiles();
-  });
-
-  refs.filesNextBtn.addEventListener("click", () => {
-    if (state.filePage >= state.filePages) {
-      return;
-    }
-    state.filePage += 1;
     loadFiles();
   });
 
@@ -7168,27 +7122,6 @@ function bindEvents() {
     pagination.page = 1;
     loadCollectorAssignments(platform);
   });
-  refs.collectorBindingPrevBtn.addEventListener("click", () => {
-    const platform = refs.collectorAssignmentPlatform.value;
-    const pagination = collectorAssignmentPageState(platform);
-    if (pagination.page <= 1 || state.collectorAssignmentsLoading[platform]) {
-      return;
-    }
-    pagination.page -= 1;
-    loadCollectorAssignments(platform);
-  });
-  refs.collectorBindingNextBtn.addEventListener("click", () => {
-    const platform = refs.collectorAssignmentPlatform.value;
-    const pagination = collectorAssignmentPageState(platform);
-    if (
-      pagination.page >= pagination.pages ||
-      state.collectorAssignmentsLoading[platform]
-    ) {
-      return;
-    }
-    pagination.page += 1;
-    loadCollectorAssignments(platform);
-  });
   const jumpCollectorAssignmentPage = () => {
     const platform = refs.collectorAssignmentPlatform.value;
     const pagination = collectorAssignmentPageState(platform);
@@ -7372,18 +7305,6 @@ function bindEvents() {
     });
   });
 
-  refs.taskAccountPrevBtn.addEventListener("click", () => {
-    state.taskAccounts.page = Math.max(1, state.taskAccounts.page - 1);
-    loadTaskAccounts();
-  });
-
-  refs.taskAccountNextBtn.addEventListener("click", () => {
-    state.taskAccounts.page = Math.min(
-      state.taskAccounts.pages,
-      state.taskAccounts.page + 1,
-    );
-    loadTaskAccounts();
-  });
 
   const jumpTaskAccountPage = () =>
     jumpToValidatedPage(

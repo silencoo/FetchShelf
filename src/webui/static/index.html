@@ -50,9 +50,9 @@
       })();
     </script>
     <title>下载工作台 · FetchShelf</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-D-p-3Qam.js"></script>
+    <script type="module" crossorigin src="/ui/static/assets/index-DiQMj6Oa.js"></script>
     <link rel="modulepreload" crossorigin href="/ui/static/assets/preload-helper-D9BqOEs6.js">
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-DUsyE1e4.css">
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-B8iwAQFN.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -928,15 +928,8 @@
               tabindex="-1"
             ></div>
             <div class="file-pagination" aria-label="文件分页">
-              <button id="files-prev-btn" type="button" class="btn ghost">
-                <i data-lucide="chevron-left" aria-hidden="true"></i>
-                上一页
-              </button>
+              <nav id="files-page-numbers" class="page-numbers" aria-label="文件页码"></nav>
               <span id="files-page-meta" class="status-line">第 1 / 1 页</span>
-              <button id="files-next-btn" type="button" class="btn ghost">
-                下一页
-                <i data-lucide="chevron-right" aria-hidden="true"></i>
-              </button>
             </div>
           </div>
         </section>
@@ -1030,8 +1023,12 @@
               <input id="board-density" type="range" min="1" max="12" value="4" />
             </label>
             <span id="board-density-label" class="badge">4 列</span>
-            <button id="board-prev-btn" type="button" class="btn ghost">上一页</button>
-            <button id="board-next-btn" type="button" class="btn ghost">下一页</button>
+
+          </div>
+          <div id="board-status" class="status-line">切换到该标签页后自动加载</div>
+          <div id="board-grid" class="profile-board"></div>
+          <div class="board-pagination">
+            <nav id="board-page-numbers" class="page-numbers" aria-label="账户看板页码"></nav>
             <div class="page-jump board-page-jump">
               <label for="board-page-input">跳至</label>
               <input id="board-page-input" type="number" min="1" value="1" inputmode="numeric" />
@@ -1039,8 +1036,6 @@
             </div>
             <span id="board-meta" class="badge">第 1 / 1 页</span>
           </div>
-          <div id="board-status" class="status-line">切换到该标签页后自动加载</div>
-          <div id="board-grid" class="profile-board"></div>
         </section>
 
         <section
@@ -1381,14 +1376,13 @@
                       <option value="100">100</option>
                     </select>
                   </label>
-                  <button id="collector-binding-prev-btn" type="button" class="btn ghost">上一页</button>
+                  <nav id="collector-binding-page-numbers" class="page-numbers" aria-label="账号绑定页码"></nav>
                   <div class="page-jump">
                     <label for="collector-binding-page-input">页码</label>
                     <input id="collector-binding-page-input" type="number" min="1" step="1" inputmode="numeric" />
                     <button id="collector-binding-page-jump-btn" type="button" class="btn ghost">跳转</button>
                   </div>
                   <span id="collector-binding-page-meta" class="table-pager-meta">第 1 / 1 页</span>
-                  <button id="collector-binding-next-btn" type="button" class="btn ghost">下一页</button>
                 </div>
               </div>
 
@@ -1932,14 +1926,13 @@
                     tabindex="-1"
                   ></div>
                   <div class="task-account-pagination" aria-label="账号检查点分页">
-                    <button id="task-account-prev-btn" type="button" class="btn ghost">上一页</button>
+                    <nav id="task-account-page-numbers" class="page-numbers" aria-label="账号检查点页码"></nav>
                     <div class="page-jump">
                       <label for="task-account-page-input">第</label>
                       <input id="task-account-page-input" type="number" min="1" value="1" inputmode="numeric" />
                       <button id="task-account-page-jump-btn" type="button" class="btn ghost">前往</button>
                     </div>
                     <span id="task-account-page-meta" class="status-line">第 1 / 1 页</span>
-                    <button id="task-account-next-btn" type="button" class="btn ghost">下一页</button>
                   </div>
                 </details>
                 <details id="task-raw-result" class="task-raw-result">
@@ -2297,20 +2290,13 @@
             ></div>
           </div>
           <div class="account-gallery-pagination" aria-label="账户媒体分页">
-            <button id="account-gallery-prev-btn" type="button" class="btn ghost">
-              <i data-lucide="chevron-left" aria-hidden="true"></i>
-              上一页
-            </button>
+            <nav id="account-gallery-page-numbers" class="page-numbers" aria-label="账户媒体页码"></nav>
             <div class="page-jump account-gallery-page-jump">
               <label for="account-gallery-page-input">跳至</label>
               <input id="account-gallery-page-input" type="number" min="1" value="1" inputmode="numeric" />
               <button id="account-gallery-page-jump-btn" type="button" class="btn ghost">前往</button>
             </div>
             <span id="account-gallery-page-meta" class="status-line">第 1 / 1 页</span>
-            <button id="account-gallery-next-btn" type="button" class="btn ghost">
-              下一页
-              <i data-lucide="chevron-right" aria-hidden="true"></i>
-            </button>
           </div>
         </aside>
       </div>
