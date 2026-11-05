@@ -4977,6 +4977,7 @@ select.batch-field-select + .app-select-mount {
 }
 
 .account-gallery-media-frame-image img {
+  transform-origin: top left;
   width: auto;
   height: auto;
 }

@@ -6684,31 +6684,31 @@ function bindEvents() {
   });
 
   refs.accountGalleryLightboxClose.addEventListener("click", closeAccountGalleryLightbox);
-  let lastWheelAt = -Infinity;
-  let wheelDistance = 0;
-  let wheelNavigated = false;
-  refs.accountGalleryLightbox.addEventListener("close", () => {
-    lastWheelAt = -Infinity;
-  });
   refs.accountGalleryLightbox.addEventListener("wheel", (event) => {
     if (event.ctrlKey) return;
     event.preventDefault();
-    if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+    const image = refs.accountGalleryStage.querySelector("img");
+    if (!image || !event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
 
-    // Treat a trackpad swipe and its momentum as one navigation gesture.
-    if (event.timeStamp - lastWheelAt > 160 || wheelDistance * event.deltaY < 0) {
-      wheelDistance = 0;
-      wheelNavigated = false;
-    }
-    lastWheelAt = event.timeStamp;
-    if (wheelNavigated) return;
+    const bounds = image.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const current = new DOMMatrixReadOnly(image.style.transform || undefined);
     const pixelsPerUnit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16
       : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? window.innerHeight : 1;
-    wheelDistance += event.deltaY * pixelsPerUnit;
-    if (Math.abs(wheelDistance) >= 24) {
-      wheelNavigated = true;
-      moveAccountGallery(Math.sign(wheelDistance));
+    const scale = Math.max(1, Math.min(6, current.a * Math.exp(-event.deltaY * pixelsPerUnit / 500)));
+    if (scale === current.a) return;
+    if (scale === 1) {
+      image.style.removeProperty("transform");
+      return;
     }
+
+    // Keep the image point beneath the cursor in place as the scale changes.
+    const ratio = scale / current.a;
+    const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
+    const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
+    const tx = Math.max((1 - scale) * bounds.width / current.a, Math.min(0, current.e + x * (1 - ratio)));
+    const ty = Math.max((1 - scale) * bounds.height / current.a, Math.min(0, current.f + y * (1 - ratio)));
+    image.style.transform = `matrix(${scale}, 0, 0, ${scale}, ${tx}, ${ty})`;
   }, { passive: false });
   refs.accountGalleryLightbox.addEventListener("cancel", (event) => {
     event.preventDefault();
