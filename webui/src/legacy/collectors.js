@@ -270,7 +270,11 @@ export function createCollectorController({
       const authModeBadge = identity.platform === "tiktok"
         ? `<span class="badge">${escapeHtml(collectorAuthModeLabel(identity.auth_mode))}</span>`
         : "";
-      const issue = identity.last_error_code
+      const pendingTargetCheck = [
+        "login_state_pending_target_check",
+        "anonymous_session_pending_target_check",
+      ].includes(identity.last_error_code);
+      const issue = identity.last_error_code && !pendingTargetCheck
         ? `<p class="collector-identity-error">最近异常：${escapeHtml(identity.last_error_code)}</p>`
         : "";
       const cooldown = isFutureTimestamp(identity.cooldown_until)
@@ -307,6 +311,7 @@ export function createCollectorController({
         <div class="collector-identity-timeline">
           <span>上次验证 ${escapeHtml(collectorTimeLabel(identity.last_validated_at))}</span>
           ${cooldown}
+          ${pendingTargetCheck ? "<span>下次使用此身份采集时将验证可用性</span>" : ""}
         </div>
         ${issue}
         <div class="collector-identity-actions">

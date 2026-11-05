@@ -17,7 +17,7 @@ lucide.createIcons({icons});\``);if(r===void 0)throw Error("`createIcons()` only
             <button type="button" class="btn ghost" data-collector-action="clear-filter">清除筛选</button>
           </div>
         </div>
-      `,t.collectorListStatus.textContent=`已加载 ${A.collectorIdentities.length} 个身份，当前筛选无结果`;return}let r=document.createDocumentFragment();e.forEach(e=>{let t=v(e),i=document.createElement(`article`);i.className=`collector-identity-card state-${t}`,i.dataset.identityId=e.identity_id;let a=e.platform===`tiktok`?`${x(`Device ID`,e.device_id_configured)}${x(`User-Agent`,e.user_agent_configured)}`:``,o=e.login_browser_active?x(`登录窗口已打开`,!0):``,s=e.auth_mode===`anonymous`?``:`<button type="button" class="btn ${e.login_browser_active?`primary`:`ghost`}" data-collector-action="login-browser">${e.login_browser_active?`返回登录窗口`:`管理账号登录`}</button>`,c=e.platform===`tiktok`?`<span class="badge">${n(g(e.auth_mode))}</span>`:``,l=e.last_error_code?`<p class="collector-identity-error">最近异常：${n(e.last_error_code)}</p>`:``,u=_(e.cooldown_until)?`<span>冷却至 ${n(ee(e.cooldown_until))}</span>`:``;i.innerHTML=`
+      `,t.collectorListStatus.textContent=`已加载 ${A.collectorIdentities.length} 个身份，当前筛选无结果`;return}let r=document.createDocumentFragment();e.forEach(e=>{let t=v(e),i=document.createElement(`article`);i.className=`collector-identity-card state-${t}`,i.dataset.identityId=e.identity_id;let a=e.platform===`tiktok`?`${x(`Device ID`,e.device_id_configured)}${x(`User-Agent`,e.user_agent_configured)}`:``,o=e.login_browser_active?x(`登录窗口已打开`,!0):``,s=e.auth_mode===`anonymous`?``:`<button type="button" class="btn ${e.login_browser_active?`primary`:`ghost`}" data-collector-action="login-browser">${e.login_browser_active?`返回登录窗口`:`管理账号登录`}</button>`,c=e.platform===`tiktok`?`<span class="badge">${n(g(e.auth_mode))}</span>`:``,l=[`login_state_pending_target_check`,`anonymous_session_pending_target_check`].includes(e.last_error_code),u=e.last_error_code&&!l?`<p class="collector-identity-error">最近异常：${n(e.last_error_code)}</p>`:``,d=_(e.cooldown_until)?`<span>冷却至 ${n(ee(e.cooldown_until))}</span>`:``;i.innerHTML=`
         <div class="collector-identity-head">
           <div>
             <div class="collector-identity-badges">
@@ -43,9 +43,10 @@ lucide.createIcons({icons});\``);if(r===void 0)throw Error("`createIcons()` only
         </div>
         <div class="collector-identity-timeline">
           <span>上次验证 ${n(ee(e.last_validated_at))}</span>
-          ${u}
+          ${d}
+          ${l?`<span>下次使用此身份采集时将验证可用性</span>`:``}
         </div>
-        ${l}
+        ${u}
         <div class="collector-identity-actions">
           ${s}
           <button type="button" class="btn ghost" data-collector-action="edit">编辑</button>
