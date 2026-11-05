@@ -1,5 +1,6 @@
 from asyncio import (
     FIRST_COMPLETED,
+    Semaphore,
     Event,
     create_task,
     gather,
@@ -12,6 +13,7 @@ from datetime import datetime
 from json import JSONDecodeError, dumps, loads
 from mimetypes import guess_type
 from shutil import copy2
+from subprocess import SubprocessError
 from textwrap import dedent
 from urllib.parse import urlsplit
 
@@ -72,12 +74,14 @@ from ..models import (
 from ..translation import _
 from ..webui.files import (
     IMAGE_SUFFIXES,
+    VIDEO_SUFFIXES,
     ScopeType,
     relative_path,
     resolve_within_root,
     serialize_entry,
 )
 from ..webui.profile_avatar import generate_face_avatar
+from ..webui.video_preview import video_preview
 from ..webui_security import (
     redact_webui_json_text,
     redact_webui_value,
@@ -111,6 +115,8 @@ def token_dependency(
 
 class ServerRoutesMixin:
     def setup_routes(self):
+        preview_slots = Semaphore(2)
+
         @self.server.exception_handler(RequestValidationError)
         async def safe_request_validation_error(
             request: Request,
@@ -231,6 +237,7 @@ class ServerRoutesMixin:
         async def webui_file(
             scope: ScopeType = Query("download"),
             path: str = Query(""),
+            thumbnail: bool = Query(False),
             token: str = Depends(token_dependency),
         ):
             if scope not in {"project", "download"}:
@@ -262,6 +269,16 @@ class ServerRoutesMixin:
                     status_code=400,
                     detail="Target is not a file.",
                 )
+            if thumbnail:
+                if target.suffix.lower() not in VIDEO_SUFFIXES:
+                    raise HTTPException(status_code=400, detail="Expected a video file.")
+                try:
+                    async with preview_slots:
+                        stat = target.stat()
+                        frame = await to_thread(video_preview, target, stat.st_mtime_ns, stat.st_size)
+                except (OSError, SubprocessError, ValueError):
+                    raise HTTPException(status_code=422, detail="Video preview unavailable.")
+                return Response(frame, media_type="image/jpeg", headers={"Cache-Control": "private, no-cache"})
             media_type = guess_type(target.name)[0] or "application/octet-stream"
             return FileResponse(target, media_type=media_type)
 

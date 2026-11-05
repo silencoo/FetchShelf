@@ -2346,6 +2346,22 @@ function boardAssetUrl(path, scope = "download") {
   return `/ui/api/file?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path || "")}`;
 }
 
+function appendBoardMediaThumbnail(container, src, kind, alt = "") {
+  const image = document.createElement("img");
+  image.alt = alt;
+  image.loading = "lazy";
+  image.decoding = "async";
+  image.addEventListener("error", () => {
+    const message = document.createElement("span");
+    message.className = "profile-empty";
+    message.textContent = "预览不可用";
+    image.replaceWith(message);
+  }, { once: true });
+  image.src = kind === "video" ? src + "&thumbnail=true" : src;
+  syncNaturalMediaRatio(image, container);
+  container.appendChild(image);
+}
+
 function persistAccountBoardState() {
   try {
     localStorage.setItem(
@@ -2598,9 +2614,8 @@ function renderBoardCardPreview(card) {
     pinBadge.classList.toggle("ok", card.dataset.pinned === "1");
   }
   if (avatarBadge) {
-    avatarBadge.textContent = card.dataset.avatarPath ? "头像" : "待头像";
+    avatarBadge.textContent = card.dataset.avatarPath ? "头像" : "未设置头像";
     avatarBadge.classList.toggle("ok", Boolean(card.dataset.avatarPath));
-    avatarBadge.classList.toggle("warn", !card.dataset.avatarPath);
   }
   if (displayBadge) {
     const isPinnedProfile = card.dataset.pinned === "1";
@@ -2675,25 +2690,8 @@ function renderBoardCardPreview(card) {
   }
   const src = boardAssetUrl(preview.path, preview.scope || "download");
   mediaWrap.classList.add(`profile-media-wrap-${preview.kind}`);
-  if (preview.kind === "image") {
-    const image = document.createElement("img");
-    image.src = src;
-    image.alt = card.dataset.mark || "profile";
-    image.loading = "lazy";
-    image.decoding = "async";
-    syncNaturalMediaRatio(image, mediaWrap);
-    mediaWrap.appendChild(image);
-    return;
-  }
-  if (preview.kind === "video") {
-    const video = document.createElement("video");
-    video.src = src;
-    video.preload = "metadata";
-    video.muted = true;
-    video.playsInline = true;
-    video.setAttribute("aria-hidden", "true");
-    syncNaturalMediaRatio(video, mediaWrap);
-    mediaWrap.appendChild(video);
+  if (preview.kind === "image" || preview.kind === "video") {
+    appendBoardMediaThumbnail(mediaWrap, src, preview.kind, card.dataset.mark || "");
     return;
   }
   const empty = document.createElement("div");
@@ -2939,23 +2937,8 @@ function renderAccountGalleryGrid() {
     const media = document.createElement("span");
     media.className = `account-gallery-thumb-media account-gallery-thumb-media-${item.kind}`;
     const src = boardAssetUrl(item.path, "download");
-    if (item.kind === "image") {
-      const image = document.createElement("img");
-      image.src = src;
-      image.alt = "";
-      image.loading = "lazy";
-      image.decoding = "async";
-      syncNaturalMediaRatio(image, media);
-      media.appendChild(image);
-    } else {
-      const video = document.createElement("video");
-      video.src = src;
-      video.muted = true;
-      video.preload = "metadata";
-      video.playsInline = true;
-      video.setAttribute("aria-hidden", "true");
-      syncNaturalMediaRatio(video, media);
-      media.appendChild(video);
+    appendBoardMediaThumbnail(media, src, item.kind);
+    if (item.kind === "video") {
       const play = document.createElement("span");
       play.className = "account-gallery-thumb-play";
       play.innerHTML = '<i data-lucide="play"></i>';
@@ -3260,8 +3243,7 @@ function renderAccountBoard(items) {
     enableBadge.className = `badge ${item.enable ? "ok" : "warn"}`;
     enableBadge.textContent = item.enable ? "启用" : "停用";
     const avatarBadge = document.createElement("span");
-    avatarBadge.className = `badge profile-avatar-badge ${item.avatar_path ? "ok" : "warn"}`;
-    avatarBadge.textContent = item.avatar_path ? "头像" : "待头像";
+    avatarBadge.className = "badge profile-avatar-badge";
     const displayBadge = document.createElement("span");
     displayBadge.className = "badge profile-display-badge";
     displayBadge.textContent = item.pinned
