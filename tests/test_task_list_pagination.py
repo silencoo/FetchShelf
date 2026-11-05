@@ -46,3 +46,22 @@ def test_task_list_only_redacts_requested_page_and_preserves_global_counts(
     }]
     assert (body['count'], body['pending'], body['running'], body['paused']) == (1, 1, 1, 0)
     assert server.ui_tasks[expected_id]['payload']['cookie'] == 'fixture-cookie'
+
+
+def test_task_summary_omits_bulk_results_but_detail_keeps_them(tmp_path, monkeypatch):
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "pagination-test-token")
+    server = APIServer.__new__(APIServer)
+    server.server = FastAPI()
+    server.parameter = SimpleNamespace(root=tmp_path)
+    result = {"items": ["media"] * 10000}
+    server.ui_tasks = {"T1": {
+        "task_id": "T1", "status": "success", "result": result,
+        "payload": {"cookie": "fixture-cookie"}, "progress": {"current": 10000},
+    }}
+    server.setup_routes()
+    client = TestClient(server.server, headers={"token": "pagination-test-token"})
+    summary = client.get("/ui/api/tasks?summary=true").json()["items"][0]
+    assert summary == {"task_id": "T1", "status": "success", "progress": {"current": 10000}}
+    detail = client.get("/ui/api/tasks/T1").json()["task"]
+    assert detail["result"] == result
+    assert detail["payload"]["cookie"] == REDACTED_VALUE

@@ -1874,6 +1874,7 @@ class ServerRoutesMixin:
         async def webui_list_tasks(
             limit: int = Query(100, ge=1, le=500),
             status: str = Query(""),
+            summary: bool = Query(False),
             token: str = Depends(token_dependency),
         ):
             tasks = sorted(
@@ -1885,8 +1886,9 @@ class ServerRoutesMixin:
                 tasks = [item for item in tasks if item.get("status") == status]
             # Redaction can traverse large historical results. Only inspect the
             # requested page; global queue counters below still include all jobs.
+            serialize = self._public_ui_task_summary if summary else self._public_ui_task
             tasks = [
-                self._public_ui_task(item)
+                serialize(item)
                 for item in tasks[: self._normalize_limit(limit)]
             ]
             return {

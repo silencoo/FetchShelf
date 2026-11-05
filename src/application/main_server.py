@@ -672,6 +672,16 @@ class APIServer(TikTok, ServerRoutesMixin):
         )
 
     @classmethod
+    def _public_ui_task_summary(cls, task: dict) -> dict:
+        # Project before redaction so list polling never walks per-account results.
+        fields = (
+            "task_id", "endpoint", "status", "created_at", "updated_at",
+            "message", "error", "pause_supported", "recovered_after_restart",
+            "progress", "account_summary",
+        )
+        return cls._public_ui_task({key: task[key] for key in fields if key in task})
+
+    @classmethod
     def _public_settings(cls, settings: dict) -> dict:
         return cls._redact_ui_task_value(settings)
 

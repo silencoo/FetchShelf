@@ -5433,7 +5433,27 @@ function syncSelectedTaskRow() {
   });
 }
 
+let detailRequestVersion = 0;
+let pendingDetailId = "";
+
+async function loadTaskDetail(taskId) {
+  const version = ++detailRequestVersion;
+  pendingDetailId = taskId;
+  try {
+    const response = await fetchJson(`/ui/api/tasks/${encodeURIComponent(taskId)}`, {
+      headers: headerOptions(false),
+    });
+    if (version === detailRequestVersion) renderTaskResult(response.task);
+  } catch (error) {
+    if (version === detailRequestVersion) setApiStatus(`任务详情加载失败: ${error.message}`, "error");
+  } finally {
+    if (version === detailRequestVersion) pendingDetailId = "";
+  }
+}
+
 function renderTaskResult(task) {
+  detailRequestVersion++;
+  pendingDetailId = "";
   if (!task) {
     return;
   }
@@ -5599,7 +5619,7 @@ function renderTaskList(items, emptyMessage = "还没有任务。粘贴作品链
       main.appendChild(progressRow);
     }
     main.addEventListener("click", () => {
-      renderTaskResult(task);
+      void loadTaskDetail(task.task_id);
     });
 
     const actions = document.createElement("div");
@@ -5759,7 +5779,7 @@ async function loadTaskList() {
     refs.taskQueueList.setAttribute("aria-busy", "true");
   }
   try {
-    const payload = await fetchJson("/ui/api/tasks?limit=120", {
+    const payload = await fetchJson("/ui/api/tasks?limit=120&summary=true", {
       method: "GET",
       headers: headerOptions(false),
     });
@@ -5773,8 +5793,8 @@ async function loadTaskList() {
     }
     if (state.selectedTaskId) {
       const selected = items.find((item) => item.task_id === state.selectedTaskId);
-      if (selected && taskRenderKey(selected) !== state.selectedTaskRenderKey) {
-        renderTaskResult(selected);
+      if (!pendingDetailId && selected && taskRenderKey(selected) !== state.selectedTaskRenderKey) {
+        await loadTaskDetail(selected.task_id);
       }
     }
   } catch (error) {
@@ -5860,6 +5880,7 @@ function bindEvents() {
           : "令牌与浏览器会话已清除",
         "ok",
       );
+      refs.applyTokenBtn.textContent = nextToken ? "已验证，正在加载数据…" : "正在刷新…";
       await Promise.allSettled([
         loadOverview(),
         loadSettings(),
