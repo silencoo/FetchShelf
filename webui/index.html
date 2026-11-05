@@ -1165,7 +1165,7 @@
             <span class="collector-notice-icon" aria-hidden="true">i</span>
             <div>
               <strong>登录身份可直接使用内置浏览器</strong>
-              <p>保存身份后从身份卡片打开登录浏览器，Cookie 会自动加密写入；手动粘贴仍作为备用方式。</p>
+              <p>保存身份后，可在身份卡片中选择“管理账号登录”，登录平台账号并保存 Cookie。</p>
             </div>
           </div>
 
@@ -1510,7 +1510,7 @@
                 <div class="collector-credentials-heading">
                   <div>
                     <h3 id="collector-credentials-title">登录与网络凭据</h3>
-                    <p>代理会同时用于内置登录浏览器；Cookie 输入仅作为手动备用方式。</p>
+                    <p>登录平台账号时也会使用此代理。你也可以手动粘贴 Cookie。</p>
                   </div>
                   <span class="badge warn">WRITE ONLY</span>
                 </div>
@@ -2437,17 +2437,17 @@
               <div class="collector-login-browser-heading">
                 <div class="collector-login-browser-title-row">
                   <i data-lucide="monitor-up" aria-hidden="true"></i>
-                  <h2 id="collector-login-browser-title">身份登录浏览器</h2>
+                  <h2 id="collector-login-browser-title">管理账号登录</h2>
                 </div>
                 <p id="collector-login-browser-description">
-                  浏览器使用当前采集身份的独立 Profile 与代理；完成登录后直接保存，无需复制 Cookie。
+                  请在平台页面确认当前账号。如果页面提示登录，请先登录，再保存登录凭据。
                 </p>
               </div>
               <button
                 id="collector-login-browser-close-btn"
                 type="button"
                 class="btn ghost collector-dialog-close"
-                aria-label="暂时关闭身份登录浏览器窗口"
+                aria-label="暂时关闭账号登录窗口"
                 title="暂时关闭"
               >
                 <i data-lucide="x" aria-hidden="true"></i>
@@ -2486,7 +2486,7 @@
                 id="collector-login-browser-viewport"
                 class="collector-login-browser-viewport"
                 tabindex="0"
-                aria-label="可交互的远程身份登录浏览器"
+                aria-label="平台账号登录页面"
               ></div>
               <div
                 id="collector-login-browser-overlay"
@@ -2521,7 +2521,7 @@
                   id="collector-login-browser-save-btn"
                   type="button"
                   class="btn primary"
-                >完成登录并保存</button>
+                >保存登录凭据</button>
               </div>
             </div>
           </div>

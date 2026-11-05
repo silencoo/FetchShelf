@@ -265,7 +265,7 @@ def test_webui_source_exposes_identity_login_browser_without_cookie_copying():
         'id="collector-login-browser-save-btn"',
     ):
         assert index.count(hook) == 1
-    assert "完成登录并保存" in index
+    assert "保存登录凭据" in index
     assert 'data-collector-action="login-browser"' in script
     assert 'await import("@novnc/novnc")' in script
     assert "viewer_protocol_prefix" in script

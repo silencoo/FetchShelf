@@ -258,14 +258,14 @@ export function createCollectorController({
           )}`
         : "";
       const loginBrowserChip = identity.login_browser_active
-        ? collectorCredentialChip("登录浏览器运行中", true)
+        ? collectorCredentialChip("登录窗口已打开", true)
         : "";
       const loginBrowserAction = identity.auth_mode === "anonymous"
         ? ""
         : `<button type="button" class="btn ${
             identity.login_browser_active ? "primary" : "ghost"
           }" data-collector-action="login-browser">${
-            identity.login_browser_active ? "继续登录" : "登录浏览器"
+            identity.login_browser_active ? "返回登录窗口" : "管理账号登录"
           }</button>`;
       const authModeBadge = identity.platform === "tiktok"
         ? `<span class="badge">${escapeHtml(collectorAuthModeLabel(identity.auth_mode))}</span>`
@@ -527,7 +527,7 @@ export function createCollectorController({
       ? "匿名身份会忽略已保存的登录 Cookie，由独立 Cloak profile 自动建立和复用会话。"
       : authMode === "adult_authenticated"
         ? "请使用已经完成年龄确认且可访问 18+ 内容的 TikTok Web Cookie。"
-        : "保存身份后可从身份卡片打开登录浏览器；也可以在这里手动粘贴 Cookie。";
+        : "保存身份后可选择“管理账号登录”，也可以在这里手动粘贴 Cookie。";
     refs.collectorIdentityAuthModeHelp.textContent = isAnonymous
       ? "匿名身份无需 Cookie；临时会话不写入凭据库，每个身份使用独立 Cloak profile。"
       : authMode === "adult_authenticated"
@@ -642,7 +642,7 @@ export function createCollectorController({
       refs.collectorLoginBrowserReconnectBtn.hidden = true;
       setCollectorLoginBrowserOverlay(
         "登录会话已到期",
-        "返回身份卡片可以重新启动登录浏览器。",
+        "请返回身份卡片，重新选择“管理账号登录”。",
         "error",
       );
       setCollectorStatus(
@@ -751,7 +751,7 @@ export function createCollectorController({
   async function requestCollectorLoginBrowserTicket() {
     const { identityId, sessionId } = state.collectorLoginBrowser;
     if (!identityId || !sessionId) {
-      throw new Error("登录浏览器会话不存在");
+      throw new Error("登录窗口已关闭，请重新打开。");
     }
     return fetchJson(
       `${collectorLoginBrowserBaseUrl(identityId, sessionId)}/viewer-ticket`,
@@ -789,7 +789,7 @@ export function createCollectorController({
     if (!identity || identity.auth_mode === "anonymous") {
       setCollectorStatus(
         refs.collectorListStatus,
-        "匿名身份会自动维护 Cloak 会话，不需要登录浏览器",
+        "此身份使用匿名会话。",
         "error",
       );
       return;
@@ -798,7 +798,7 @@ export function createCollectorController({
     state.collectorLoginBrowser.identityId = identity.identity_id;
     state.collectorLoginBrowser.sessionId = "";
     state.collectorLoginBrowser.expiresAt = "";
-    refs.collectorLoginBrowserTitle.textContent = "身份登录浏览器";
+    refs.collectorLoginBrowserTitle.textContent = "管理账号登录";
     refs.collectorLoginBrowserIdentity.textContent = `${identity.name} · ${collectorPlatformLabel(
       identity.platform,
     )}`;
@@ -823,7 +823,7 @@ export function createCollectorController({
       );
       const session = payload.session || {};
       if (!session.session_id) {
-        throw new Error("服务端未返回登录浏览器会话");
+        throw new Error("未能打开账号登录窗口");
       }
       state.collectorLoginBrowser.sessionId = session.session_id;
       state.collectorLoginBrowser.expiresAt = session.expires_at || "";
@@ -888,7 +888,7 @@ export function createCollectorController({
       });
       closeCollectorLoginBrowserDialog();
       await loadCollectorIdentities();
-      setCollectorStatus(refs.collectorListStatus, "身份登录浏览器已停止", "success");
+      setCollectorStatus(refs.collectorListStatus, "账号登录窗口已关闭", "success");
     } catch (error) {
       setCollectorStatus(
         refs.collectorLoginBrowserStatus,
@@ -901,10 +901,10 @@ export function createCollectorController({
   async function captureCollectorLoginBrowserCredentials() {
     const { identityId, sessionId } = state.collectorLoginBrowser;
     if (!identityId || !sessionId) {
-      setCollectorStatus(refs.collectorLoginBrowserStatus, "登录浏览器会话不存在", "error");
+      setCollectorStatus(refs.collectorLoginBrowserStatus, "登录窗口已关闭，请重新打开。", "error");
       return;
     }
-    setCollectorStatus(refs.collectorLoginBrowserStatus, "正在检测登录状态并加密保存 Cookie…");
+    setCollectorStatus(refs.collectorLoginBrowserStatus, "正在读取并保存登录凭据…");
     try {
       const payload = await fetchJson(
         `${collectorLoginBrowserBaseUrl(identityId, sessionId)}/capture`,
@@ -929,8 +929,8 @@ export function createCollectorController({
         "error",
       );
       setCollectorLoginBrowserOverlay(
-        "还没有检测到完整登录状态",
-        "请继续完成登录，然后再次点击“完成登录并保存”。",
+        "登录凭据保存失败",
+        "请确认平台页面已显示你的账号，再点击“保存登录凭据”。",
         "error",
       );
       window.setTimeout(() => setCollectorLoginBrowserOverlay(""), 2600);

@@ -4278,7 +4278,7 @@ async function repairCollectMonitorIdentity(identityId) {
   if (!identity) {
     setCollectorStatus(
       refs.collectorListStatus,
-      "未找到本次失败使用的身份，请选择抖音身份并打开登录浏览器。",
+      "未找到本次失败使用的身份，请选择抖音身份，再点击“管理账号登录”。",
       "error",
     );
     refs.collectorIdentityList.scrollIntoView({ behavior: "smooth", block: "start" });
