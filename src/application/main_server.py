@@ -15,7 +15,7 @@ from random import choice
 from re import compile, sub
 from shutil import copy2, disk_usage
 from sqlite3 import connect as sqlite_connect
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from threading import Lock, Thread
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Callable
@@ -2572,17 +2572,13 @@ class APIServer(TikTok, ServerRoutesMixin):
 
     def _load_account_board_pins(self) -> dict[str, str]:
         pin_file = self._account_board_pin_file()
-        if not pin_file.exists():
-            return {}
         try:
             payload = loads(pin_file.read_text(encoding=self.parameter.settings.encode))
-        except (JSONDecodeError, OSError, TypeError, ValueError):
+        except FileNotFoundError:
             return {}
-        if not isinstance(payload, dict):
-            return {}
+        if not isinstance(payload, dict) or not isinstance(payload.get("pins", payload), dict):
+            raise ValueError("Invalid account board pin file")
         source = payload.get("pins", payload)
-        if not isinstance(source, dict):
-            return {}
         pins = {}
         for key, value in source.items():
             k = self._normalize_string(key)
@@ -2600,10 +2596,17 @@ class APIServer(TikTok, ServerRoutesMixin):
             "updated_at": self._now_text(),
             "pins": pins,
         }
-        pin_file.write_text(
-            dumps(payload, ensure_ascii=False, indent=2),
-            encoding=self.parameter.settings.encode,
+        handle = NamedTemporaryFile(
+            mode="w", encoding=self.parameter.settings.encode,
+            dir=pin_file.parent, delete=False,
         )
+        temporary = Path(handle.name)
+        try:
+            with handle:
+                handle.write(dumps(payload, ensure_ascii=False, indent=2))
+            temporary.replace(pin_file)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _account_board_avatar_file(self) -> Path:
         return self.parameter.settings.path.parent.joinpath("account_profile_avatars.json")
@@ -3031,12 +3034,12 @@ class APIServer(TikTok, ServerRoutesMixin):
 
         selected = ""
         for pool in media_order:
-            candidates = pool
-            if exclude_rel and len(candidates) > 1:
-                candidates = [item for item in candidates if item != exclude_rel]
+            candidates = [item for item in pool if item != exclude_rel] if exclude_rel else pool
             if candidates:
                 selected = choice(candidates)
                 break
+        if not selected and any(exclude_rel in pool for pool in media_order):
+            selected = exclude_rel
         if not selected:
             return {
                 "path": "",
@@ -3385,6 +3388,7 @@ class APIServer(TikTok, ServerRoutesMixin):
             }
 
         pins = self._load_account_board_pins()
+        new_pins = False
         media_cache: dict[str, tuple[list[str], list[str]]] = {}
         items = []
         for offset, row in enumerate(page_rows, start=start + 1):
@@ -3416,6 +3420,10 @@ class APIServer(TikTok, ServerRoutesMixin):
                 pinned_path=pins.get(pin_key, ""),
                 use_pinned=True,
             )
+            if media["path"] and not media["pinned"]:
+                pins[pin_key] = media["path"]
+                media["pinned"] = True
+                new_pins = True
             avatar_path = self._coerce_project_image_relpath(avatars.get(pin_key, ""))
             latest_seen_at = self._normalize_string(
                 activity.get("latest_seen_work_at")
@@ -3459,6 +3467,9 @@ class APIServer(TikTok, ServerRoutesMixin):
                     "latest_seen_work_at": latest_seen_at,
                 }
             )
+
+        if new_pins:
+            self._save_account_board_pins(pins)
 
         return {
             "platform": normalized_platform,

@@ -3306,8 +3306,8 @@ function renderAccountBoard(items) {
       <button class="btn ghost profile-action-primary" type="button" data-action="board-open-gallery">
         <i data-lucide="eye" aria-hidden="true"></i><span>Gallery</span>
       </button>
-      <button class="btn ghost profile-action-primary" type="button" data-action="board-refresh-media">
-        <i data-lucide="refresh-cw" aria-hidden="true"></i><span>更新</span>
+      <button class="btn ghost profile-action-primary" type="button" data-action="board-refresh-media" title="更换并固定此账号的封面">
+        <i data-lucide="refresh-cw" aria-hidden="true"></i><span>换封面</span>
       </button>
       <details class="profile-actions-menu">
         <summary class="btn ghost profile-more-btn" role="button" aria-haspopup="menu" aria-label="更多账户操作" title="更多账户操作">
@@ -3321,7 +3321,7 @@ function renderAccountBoard(items) {
             <i data-lucide="external-link" aria-hidden="true"></i><span>打开主页</span>
           </button>
           <button class="profile-menu-item" type="button" role="menuitem" data-action="board-refresh-video">
-            <i data-lucide="video" aria-hidden="true"></i><span>仅刷新视频</span>
+            <i data-lucide="video" aria-hidden="true"></i><span>换封面（视频优先）</span>
           </button>
           <button class="profile-menu-item" type="button" role="menuitem" data-action="board-generate-avatar">
             <i data-lucide="image-plus" aria-hidden="true"></i><span>处理头像</span>
@@ -3429,6 +3429,7 @@ async function refreshBoardCard(card, preferKind = "auto") {
         url,
         current_path: card.dataset.mediaPath || "",
         prefer_kind: preferKind,
+        pin: true,
       }),
     });
     card.dataset.previewMode = "media";
@@ -3436,7 +3437,7 @@ async function refreshBoardCard(card, preferKind = "auto") {
       card,
       payload.media_path || "",
       payload.media_kind || "",
-      false,
+      Boolean(payload.pinned),
     );
     const usedKind = String(payload.media_kind || "").trim();
     const preferText =
@@ -3445,7 +3446,7 @@ async function refreshBoardCard(card, preferKind = "auto") {
         : preferKind === "image"
           ? "图片优先"
           : "自动";
-    setBoardStatus(`已刷新卡片媒体（${preferText}，当前: ${usedKind || "无"}）`);
+    setBoardStatus(`已更新卡片封面（${preferText}，当前: ${usedKind || "无"}）`);
     setApiStatus("就绪", "ok");
   } catch (error) {
     setBoardStatus(`刷新失败: ${error.message}`);

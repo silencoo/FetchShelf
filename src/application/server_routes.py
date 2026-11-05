@@ -1395,7 +1395,7 @@ class ServerRoutesMixin:
         @self.server.get(
             "/ui/api/accounts/board",
             summary="Web UI 账号媒体看板",
-            description="分页返回账号卡片及随机媒体预览（图片优先）",
+            description="分页返回账号卡片，首次展示时自动固定媒体封面（图片优先）",
             tags=[_("配置")],
         )
         async def webui_accounts_board(
@@ -1485,13 +1485,18 @@ class ServerRoutesMixin:
                 use_pinned=False,
                 prefer_kind=prefer_kind,
             )
+            pin = body.get("pin") is True and bool(media["path"])
+            if pin:
+                pins = self._load_account_board_pins()
+                pins[self._account_pin_key(platform, url)] = media["path"]
+                self._save_account_board_pins(pins)
             return {
                 "platform": platform,
                 "url": url,
                 "folder_path": relative_path(root, folder),
                 "media_path": media.get("path", ""),
                 "media_kind": media.get("kind", ""),
-                "pinned": False,
+                "pinned": pin,
                 "prefer_kind": prefer_kind,
             }
 

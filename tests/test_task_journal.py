@@ -1123,3 +1123,35 @@ async def test_shutdown_does_not_leave_running_worker_waiting_for_queue():
     await wait_for(started.wait(), 2)
     await wait_for(server._stop_ui_task_workers(), 2)
     assert server.ui_tasks["T000001"]["status"] == "pending"
+
+
+def test_board_keeps_covers_and_only_replaces_the_requested_account(tmp_path, monkeypatch):
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "board-test-token")
+    server = APIServer.__new__(APIServer)
+    server.server = FastAPI()
+    server.parameter = SimpleNamespace(
+        CLEANER=Cleaner(), settings=SimpleNamespace(path=tmp_path / "settings.json", encode="utf-8"),
+    )
+    rows = [{"url": name.lower(), "mark": name} for name in ("Alpha", "Beta", "Empty")]
+    server._active_account_rows = lambda platform: rows
+    server._scope_root = lambda scope: tmp_path
+    for name in ("Alpha", "Beta"):
+        folder = tmp_path / f"UID1_{name}"
+        folder.mkdir()
+        for filename in ("a.jpg", "b.mp4"):
+            (folder / filename).touch()
+    server.setup_routes()
+    client = TestClient(server.server, headers={"token": "board-test-token"})
+    base = "/ui/api/accounts/board"
+    def board():
+        return {row["url"]: (row["media_path"], row["pinned"]) for row in client.get(base).json()["items"]}
+
+    assert client.post(base + "/pin", json={"url": "beta", "path": "UID1_Beta/b.mp4"}).is_success
+    initial = board()
+    assert initial == {"alpha": ("UID1_Alpha/a.jpg", True), "beta": ("UID1_Beta/b.mp4", True), "empty": ("", False)}
+    assert board() == initial
+    change = client.post(base + "/random", json={"url": "alpha", "current_path": initial["alpha"][0], "pin": True}).json()
+    assert change["pinned"] and change["media_path"] == "UID1_Alpha/b.mp4"
+    assert board() == {**initial, "alpha": (change["media_path"], True)}
+    (tmp_path / change["media_path"]).unlink()
+    assert board() == initial
