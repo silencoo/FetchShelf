@@ -4982,6 +4982,16 @@ select.batch-field-select + .app-select-mount {
   height: auto;
 }
 
+.account-gallery-media-frame-image img.is-zoomed {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.account-gallery-media-frame-image img.is-dragging {
+  cursor: grabbing;
+}
+
 .account-gallery-empty {
   display: grid;
   max-width: 44ch;
@@ -5260,27 +5270,24 @@ select.batch-field-select + .app-select-mount {
 
 .profile-card {
   position: relative;
-  display: flex;
+  display: inline-flex;
   width: 100%;
   min-width: 0;
+  vertical-align: top;
   flex-direction: column;
   margin: 0 0 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--bg-profile);
   box-shadow: var(--profile-shadow);
-  transition:
-    border-color 150ms ease,
-    box-shadow 150ms ease;
+  transition: border-color 150ms ease;
   break-inside: avoid;
   page-break-inside: avoid;
 }
 
 .profile-card:hover,
 .profile-card:focus-within {
-  z-index: 2;
   border-color: var(--line-strong);
-  box-shadow: var(--profile-shadow-hover);
 }
 
 .profile-media-wrap {

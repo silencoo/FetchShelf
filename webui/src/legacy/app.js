@@ -2809,6 +2809,36 @@ function closeAccountGalleryLightbox() {
   refs.accountGalleryGrid.querySelector('[aria-current="true"]')?.focus();
 }
 
+function positionGalleryImage(image, scale, x, y) {
+  const tx = Math.max((1 - scale) * image.clientWidth, Math.min(0, x));
+  const ty = Math.max((1 - scale) * image.clientHeight, Math.min(0, y));
+  image.style.transform = `matrix(${scale}, 0, 0, ${scale}, ${tx}, ${ty})`;
+}
+
+function enableGalleryImagePan(image) {
+  let drag = null;
+  image.draggable = false;
+  image.addEventListener("pointerdown", (event) => {
+    if (!image.style.transform || drag || event.button !== 0) return;
+    image.setPointerCapture(event.pointerId);
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    image.classList.add("is-dragging");
+  });
+  image.addEventListener("pointermove", (event) => {
+    if (drag?.id !== event.pointerId || !image.style.transform) return;
+    const matrix = new DOMMatrixReadOnly(image.style.transform);
+    positionGalleryImage(image, matrix.a,
+      matrix.e + event.clientX - drag.x, matrix.f + event.clientY - drag.y);
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+  });
+  image.addEventListener("lostpointercapture", (event) => {
+    if (drag?.id !== event.pointerId) return;
+    drag = null;
+    image.classList.remove("is-dragging");
+  });
+}
+
 function renderAccountGalleryStage() {
   if (!refs.accountGalleryLightbox.open) {
     return;
@@ -2835,6 +2865,7 @@ function renderAccountGalleryStage() {
     image.src = mediaUrl;
     image.alt = `${gallery.mark || "账户媒体"} · ${item.name || "图片"}`;
     image.decoding = "async";
+    enableGalleryImagePan(image);
     syncNaturalMediaRatio(image, mediaFrame);
     mediaFrame.appendChild(image);
     refs.accountGalleryStage.appendChild(mediaFrame);
@@ -6698,6 +6729,7 @@ function bindEvents() {
     const scale = Math.max(1, Math.min(6, current.a * Math.exp(-event.deltaY * pixelsPerUnit / 500)));
     if (scale === current.a) return;
     if (scale === 1) {
+      image.classList.remove("is-zoomed");
       image.style.removeProperty("transform");
       return;
     }
@@ -6706,9 +6738,9 @@ function bindEvents() {
     const ratio = scale / current.a;
     const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
     const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
-    const tx = Math.max((1 - scale) * bounds.width / current.a, Math.min(0, current.e + x * (1 - ratio)));
-    const ty = Math.max((1 - scale) * bounds.height / current.a, Math.min(0, current.f + y * (1 - ratio)));
-    image.style.transform = `matrix(${scale}, 0, 0, ${scale}, ${tx}, ${ty})`;
+    image.classList.add("is-zoomed");
+    positionGalleryImage(image, scale,
+      current.e + x * (1 - ratio), current.f + y * (1 - ratio));
   }, { passive: false });
   refs.accountGalleryLightbox.addEventListener("cancel", (event) => {
     event.preventDefault();

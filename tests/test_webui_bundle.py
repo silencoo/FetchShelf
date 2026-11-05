@@ -422,7 +422,7 @@ def test_account_board_cards_remain_usable_at_high_density():
     assert (
         ".profile-card {\n"
         "  position: relative;\n"
-        "  display: flex;\n"
+        "  display: inline-flex;\n"
         "  width: 100%;"
     ) in styles
     profile_card_styles = styles[
