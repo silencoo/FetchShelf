@@ -433,7 +433,9 @@ def test_account_board_cards_remain_usable_at_high_density():
     assert ".profile-state-row" in styles
     assert ".profile-actions-popover" in styles
     assert ".profile-latest-short" in styles
-    assert ".account-gallery-layout" in styles
+    assert "refs.accountGalleryLightbox.showModal()" in script
+    assert ".account-gallery-lightbox::backdrop" in styles
+    assert ".account-gallery-media-frame {\n  display: grid;\n  grid-template: minmax(0, 1fr) / minmax(0, 1fr);" in styles
     assert ".account-gallery-thumb" in styles
     assert ".account-gallery-media-frame-video" in styles
     assert "aspect-ratio: var(--media-aspect, 9 / 16);" in styles

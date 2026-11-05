@@ -2284,84 +2284,85 @@
           </span>
         </div>
 
-        <div class="account-gallery-layout">
-          <section class="account-gallery-viewer" aria-label="当前媒体预览">
-            <div class="account-gallery-canvas">
-              <button
-                id="account-gallery-media-prev-btn"
-                type="button"
-                class="account-gallery-nav account-gallery-nav-prev"
-                aria-label="上一个媒体"
-              >
-                <i data-lucide="chevron-left" aria-hidden="true"></i>
-              </button>
-              <div
-                id="account-gallery-stage"
-                class="account-gallery-stage"
-                role="group"
-                aria-live="polite"
-                aria-label="账户媒体预览"
-              >
-                <div class="account-gallery-empty">选择账户后在这里浏览媒体</div>
-              </div>
-              <button
-                id="account-gallery-media-next-btn"
-                type="button"
-                class="account-gallery-nav account-gallery-nav-next"
-                aria-label="下一个媒体"
-              >
-                <i data-lucide="chevron-right" aria-hidden="true"></i>
-              </button>
+        <aside class="account-gallery-browser" aria-label="账户媒体列表">
+          <div class="account-gallery-scroll">
+            <div
+              id="account-gallery-grid"
+              class="account-gallery-grid"
+              aria-label="账户媒体缩略图"
+              tabindex="-1"
+            ></div>
+          </div>
+          <div class="account-gallery-pagination" aria-label="账户媒体分页">
+            <button id="account-gallery-prev-btn" type="button" class="btn ghost">
+              <i data-lucide="chevron-left" aria-hidden="true"></i>
+              上一页
+            </button>
+            <div class="page-jump account-gallery-page-jump">
+              <label for="account-gallery-page-input">跳至</label>
+              <input id="account-gallery-page-input" type="number" min="1" value="1" inputmode="numeric" />
+              <button id="account-gallery-page-jump-btn" type="button" class="btn ghost">前往</button>
             </div>
-            <footer class="account-gallery-selection">
-              <div>
-                <strong id="account-gallery-selection-name">尚未选择媒体</strong>
-                <span id="account-gallery-selection-meta">—</span>
-              </div>
-              <div class="account-gallery-selection-actions">
-                <button id="account-gallery-pin-btn" type="button" class="btn ghost" disabled>
-                  <i data-lucide="pin" aria-hidden="true"></i>
-                  设为看板媒体
-                </button>
-                <a
-                  id="account-gallery-open-link"
-                  class="btn ghost"
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-disabled="true"
-                >原文件</a>
-              </div>
-            </footer>
-          </section>
-
-          <aside class="account-gallery-browser" aria-label="账户媒体列表">
-            <div class="account-gallery-scroll">
-              <div
-                id="account-gallery-grid"
-                class="account-gallery-grid"
-                aria-label="账户媒体缩略图"
-                tabindex="-1"
-              ></div>
-            </div>
-            <div class="account-gallery-pagination" aria-label="账户媒体分页">
-              <button id="account-gallery-prev-btn" type="button" class="btn ghost">
-                <i data-lucide="chevron-left" aria-hidden="true"></i>
-                上一页
-              </button>
-              <div class="page-jump account-gallery-page-jump">
-                <label for="account-gallery-page-input">跳至</label>
-                <input id="account-gallery-page-input" type="number" min="1" value="1" inputmode="numeric" />
-                <button id="account-gallery-page-jump-btn" type="button" class="btn ghost">前往</button>
-              </div>
-              <span id="account-gallery-page-meta" class="status-line">第 1 / 1 页</span>
-              <button id="account-gallery-next-btn" type="button" class="btn ghost">
-                下一页
-                <i data-lucide="chevron-right" aria-hidden="true"></i>
-              </button>
-            </div>
-          </aside>
-        </div>
+            <span id="account-gallery-page-meta" class="status-line">第 1 / 1 页</span>
+            <button id="account-gallery-next-btn" type="button" class="btn ghost">
+              下一页
+              <i data-lucide="chevron-right" aria-hidden="true"></i>
+            </button>
+          </div>
+        </aside>
       </div>
+    </dialog>
+
+    <dialog id="account-gallery-lightbox" class="account-gallery-lightbox" aria-label="媒体预览">
+      <button id="account-gallery-lightbox-close" type="button" class="account-gallery-dismiss" aria-label="关闭媒体预览" autofocus>
+        <i data-lucide="x" aria-hidden="true"></i>
+      </button>
+      <div class="account-gallery-canvas">
+        <button
+          id="account-gallery-media-prev-btn"
+          type="button"
+          class="account-gallery-nav account-gallery-nav-prev"
+          aria-label="上一个媒体"
+        >
+          <i data-lucide="chevron-left" aria-hidden="true"></i>
+        </button>
+        <div
+          id="account-gallery-stage"
+          class="account-gallery-stage"
+          role="group"
+          aria-live="polite"
+          aria-label="账户媒体预览"
+        >
+          <div class="account-gallery-empty">选择账户后在这里浏览媒体</div>
+        </div>
+        <button
+          id="account-gallery-media-next-btn"
+          type="button"
+          class="account-gallery-nav account-gallery-nav-next"
+          aria-label="下一个媒体"
+        >
+          <i data-lucide="chevron-right" aria-hidden="true"></i>
+        </button>
+      </div>
+      <footer class="account-gallery-selection">
+        <div>
+          <strong id="account-gallery-selection-name">尚未选择媒体</strong>
+          <span id="account-gallery-selection-meta">—</span>
+        </div>
+        <div class="account-gallery-selection-actions">
+          <button id="account-gallery-pin-btn" type="button" class="btn ghost" disabled>
+            <i data-lucide="pin" aria-hidden="true"></i>
+            设为看板媒体
+          </button>
+          <a
+            id="account-gallery-open-link"
+            class="btn ghost"
+            target="_blank"
+            rel="noreferrer"
+            aria-disabled="true"
+          >原文件</a>
+        </div>
+      </footer>
     </dialog>
 
     <dialog

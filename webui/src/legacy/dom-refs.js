@@ -159,6 +159,8 @@ export const refs = {
   boardMeta: document.getElementById("board-meta"),
   boardStatus: document.getElementById("board-status"),
   boardGrid: document.getElementById("board-grid"),
+  accountGalleryLightbox: document.getElementById("account-gallery-lightbox"),
+  accountGalleryLightboxClose: document.getElementById("account-gallery-lightbox-close"),
   accountGalleryDialog: document.getElementById("account-gallery-dialog"),
   accountGalleryTitle: document.getElementById("account-gallery-title"),
   accountGalleryMeta: document.getElementById("account-gallery-meta"),

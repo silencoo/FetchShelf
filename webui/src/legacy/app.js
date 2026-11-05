@@ -2802,7 +2802,17 @@ function updateAccountGalleryControls() {
   );
 }
 
+function closeAccountGalleryLightbox() {
+  stopAccountGalleryMedia();
+  refs.accountGalleryStage.replaceChildren();
+  refs.accountGalleryLightbox.close();
+  refs.accountGalleryGrid.querySelector('[aria-current="true"]')?.focus();
+}
+
 function renderAccountGalleryStage() {
+  if (!refs.accountGalleryLightbox.open) {
+    return;
+  }
   const gallery = state.accountGallery;
   const item = selectedAccountGalleryItem();
   if (!item) {
@@ -2863,7 +2873,7 @@ function selectAccountGalleryItem(index, { focus = false } = {}) {
       thumb.removeAttribute("aria-current");
     }
     thumb.tabIndex = active ? 0 : -1;
-    if (active && focus) {
+    if (active && focus && !refs.accountGalleryLightbox.open) {
       thumb.focus();
       thumb.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
@@ -2925,7 +2935,10 @@ function renderAccountGalleryGrid() {
     label.textContent = item.name || "未命名媒体";
     thumb.appendChild(media);
     thumb.appendChild(label);
-    thumb.addEventListener("click", () => selectAccountGalleryItem(index));
+    thumb.addEventListener("click", () => {
+      refs.accountGalleryLightbox.showModal();
+      selectAccountGalleryItem(index);
+    });
     fragment.appendChild(thumb);
   });
   refs.accountGalleryGrid.appendChild(fragment);
@@ -3055,7 +3068,7 @@ function closeAccountGallery({ restoreFocus = true } = {}) {
   rememberAccountGalleryPosition();
   gallery.requestId += 1;
   gallery.loading = false;
-  stopAccountGalleryMedia();
+  if (refs.accountGalleryLightbox.open) closeAccountGalleryLightbox();
   if (refs.accountGalleryDialog?.open) {
     refs.accountGalleryDialog.close();
   }
@@ -6670,6 +6683,22 @@ function bindEvents() {
     withBusyButton(refs.accountGalleryPinBtn, "设置中", pinAccountGalleryMedia);
   });
 
+  refs.accountGalleryLightboxClose.addEventListener("click", closeAccountGalleryLightbox);
+  refs.accountGalleryLightbox.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeAccountGalleryLightbox();
+  });
+  refs.accountGalleryLightbox.addEventListener("click", (event) => {
+    if (!event.target.closest("img, video, button, a")) closeAccountGalleryLightbox();
+  });
+  refs.accountGalleryLightbox.addEventListener("keydown", (event) => {
+    if (event.target.closest("video")) return;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      moveAccountGallery(event.key === "ArrowLeft" ? -1 : 1);
+    }
+  });
+
   refs.accountGalleryDialog.addEventListener("cancel", (event) => {
     event.preventDefault();
     closeAccountGallery();
@@ -6689,7 +6718,7 @@ function bindEvents() {
     if (!(target instanceof HTMLElement)) {
       return;
     }
-    if (!target.closest(".account-gallery-viewer, .account-gallery-thumb")) {
+    if (!target.closest(".account-gallery-thumb")) {
       return;
     }
     event.preventDefault();
