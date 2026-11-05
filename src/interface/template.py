@@ -509,7 +509,7 @@ class API:
                 proxy=proxy,
                 impersonate=self.transport_impersonate,
                 allow_redirects=True,
-                verify=False,
+                verify=True,
                 timeout=self.timeout,
                 **kwargs,
             )

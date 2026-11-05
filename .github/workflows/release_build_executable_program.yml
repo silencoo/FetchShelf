@@ -47,13 +47,13 @@ jobs:
       - name: 构建 Win 可执行文件
         if: runner.os == 'Windows'
         run: |
-          pyinstaller --icon=./static/images/FetchShelf.ico --add-data "static:static" --add-data "locale:locale" --add-data "src/webui/static:src/webui/static" --collect-all rich main.py
+          pyinstaller --icon=./static/images/FetchShelf.ico --add-data "static:static" --add-data "detector.tflite:." --add-data "locale:locale" --add-data "src/webui/static:src/webui/static" --collect-all rich main.py
         shell: pwsh
 
       - name: 构建 Mac 可执行文件
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --icon=./static/images/FetchShelf.icns --add-data "static:static" --add-data "locale:locale" --add-data "src/webui/static:src/webui/static" --collect-all rich main.py
+          pyinstaller --icon=./static/images/FetchShelf.icns --add-data "static:static" --add-data "detector.tflite:." --add-data "locale:locale" --add-data "src/webui/static:src/webui/static" --collect-all rich main.py
 
       - name: 创建压缩包
         run: |

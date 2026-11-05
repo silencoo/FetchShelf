@@ -212,18 +212,8 @@ def test_runtime_probe_mediapipe_with_profile_webp():
     assert has_tasks_face_detector is True
 
     rgb_array = profile_avatar._load_rgb_array(image_path)
-    if has_top_level_face_detection:
-        boxes = profile_avatar._detect_faces_with_mediapipe(
-            rgb_array,
-            min_confidence=0.5,
-        )
-        print(f"mediapipe_probe: legacy_solutions_boxes={len(boxes)}")
-    else:
-        with pytest.raises(RuntimeError, match="未提供 solutions.face_detection"):
-            profile_avatar._detect_faces_with_mediapipe(
-                rgb_array,
-                min_confidence=0.5,
-            )
+    boxes = profile_avatar._detect_faces_with_mediapipe(rgb_array, min_confidence=0.5)
+    assert isinstance(boxes, list)
 
 
 def test_runtime_probe_mediapipe_tasks_with_profile_webp():

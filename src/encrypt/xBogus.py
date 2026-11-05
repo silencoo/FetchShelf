@@ -123,9 +123,7 @@ class XBogus:
             ]
 
     def process_url_path(self, url_path):
-        return self.md5_to_array(
-            self.calculate_md5(self.md5_to_array(self.calculate_md5(url_path)))
-        )
+        return list(md5(md5(url_path.encode("utf-8")).digest()).digest())
 
     def generate_str(self, num):
         string = [num & 16515072, num & 258048, num & 4032, num & 63]

@@ -667,3 +667,31 @@ async def test_ui_executor_covers_complete_direct_collector_matrix():
 
 async def _async_value(value):
     return value
+
+
+@pytest.mark.asyncio
+async def test_verification_preserves_unconfirmed_accounts_and_concurrent_edits(tmp_path):
+    server = _server(tmp_path)
+    active = [{"url": url, "mark": url} for url in ("incomplete", "unresolved", "removed", "edited")]
+    archived = []
+    server._account_rows = lambda _, deleted=False: archived if deleted else list(active)
+    def set_rows(_, rows, deleted=False):
+        (archived if deleted else active)[:] = rows
+    server._set_account_rows = set_rows
+    server._backup_settings_file = lambda **kwargs: "backup"
+    server.parameter.settings = SimpleNamespace(update=lambda data: None)
+    server.parameter.get_settings_data = lambda: {}
+    async def execute(target_key, **kwargs):
+        if target_key == "edited":
+            active[-1]["mark"] = "new mark"
+            active.append({"url": "added"})
+        profile = {"sec_uid": target_key, "uid": "1", "nickname": "账号已注销" if target_key == "removed" else "creator"}
+        return {"sec_user_id": "" if target_key == "unresolved" else target_key,
+                "info": {} if target_key == "incomplete" else profile}, "", "auto"
+    server._execute_collector_operation = execute
+    result = await server._verify_accounts({"use_settings": True, "move_deleted": True})
+    assert result["unverified"] == 2
+    assert result["missing"] == result["moved_to_deleted"] == 1
+    assert [item["url"] for item in active] == ["incomplete", "unresolved", "edited", "added"]
+    assert active[2]["mark"] == "new mark"
+    server.collector_store.close()

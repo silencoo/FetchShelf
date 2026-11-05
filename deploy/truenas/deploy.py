@@ -15,7 +15,7 @@ PROJECT = "fetchshelf"
 CONTAINER = "fetchshelf"
 PRODUCT = "FetchShelf"
 BUSY_PROBE = """import json,os,urllib.request
-r=urllib.request.Request("http://127.0.0.1:5555/ui/api/tasks?limit=1",headers={"token":os.environ["FETCHSHELF_API_TOKEN"]})
+r=urllib.request.Request("http://127.0.0.1:5555/ui/api/tasks?limit=1&summary=true",headers={"token":os.environ["FETCHSHELF_API_TOKEN"]})
 with urllib.request.urlopen(r,timeout=60) as f:
  d=json.load(f)
 print(json.dumps({k:d.get(k,0) for k in ("running","pending","paused")}))"""
@@ -56,11 +56,13 @@ def prune_backups(root, keep=2):
         if path.is_symlink() or not path.is_dir() or not path.name.startswith("release-"):
             continue
         marker = path / "backup.json"
+        if marker.is_symlink() or not marker.is_file():
+            continue
         try:
             data = json.loads(marker.read_text())
         except (OSError, ValueError):
             continue
-        if data.get("product") == PRODUCT and data.get("complete") is True:
+        if isinstance(data, dict) and data.get("product") == PRODUCT and data.get("complete") is True:
             entries.append(path)
     for path in sorted(entries, reverse=True)[keep:]:
         shutil.rmtree(path)

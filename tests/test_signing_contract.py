@@ -242,6 +242,7 @@ async def test_douyin_transport_preserves_the_signed_user_agent(
     )
 
     assert result == {"ok": True}
+    assert captured["verify"] is True
     assert captured["impersonate"] == "chrome146"
     assert captured["headers"]["User-Agent"] == "legacy-agent"
     assert captured["headers"]["Cookie"] == "sessionid=secret"
@@ -334,3 +335,18 @@ def test_parameter_selects_partial_external_signers_and_falls_back(monkeypatch):
     assert xg is builtins[2]
     assert loaded == {"XBogus"}
     assert console.errors
+
+
+@pytest.mark.asyncio
+async def test_tiktok_token_refresh_signs_without_mutating_request_headers(monkeypatch):
+    from src.encrypt.msToken import MsTokenTikTok
+
+    async def capture(logger, params, headers, proxy, **kwargs):
+        assert params["X-Bogus"]
+        assert headers["Cookie"] == "msToken=fixture"
+        return {"msToken": "new"}
+
+    headers = {"User-Agent": "fixture-agent"}
+    monkeypatch.setattr(MsTokenTikTok, "_get_ms_token", staticmethod(capture))
+    assert await MsTokenTikTok.get_long_ms_token(None, headers, "fixture") == {"msToken": "new"}
+    assert headers == {"User-Agent": "fixture-agent"}

@@ -817,6 +817,19 @@ class TikTok:
             )
         return None
 
+    DELETED_ACCOUNT_HINTS = (
+        "已注销",
+        "注销账号",
+        "账号已注销",
+        "account not found",
+        "user not found",
+        "account has been deleted",
+        "deleted account",
+    )
+    @classmethod
+    def _is_deleted_nickname(cls, nickname: str) -> bool:
+        return nickname.strip().lower() in cls.DELETED_ACCOUNT_HINTS
+
     def _empty_account_outcome(self, info: dict, tiktok: bool) -> dict:
         for diagnostic in (
             getattr(self, "_account_items_diagnostic", {}),
@@ -825,17 +838,7 @@ class TikTok:
             if outcome := self._request_failure_outcome(diagnostic):
                 return outcome
         meta = self._account_profile_meta(info, tiktok)
-        nickname = meta["nickname"].lower()
-        if any(
-            hint in nickname
-            for hint in (
-                "已注销",
-                "注销账号",
-                "account not found",
-                "user not found",
-                "deleted",
-            )
-        ):
+        if self._is_deleted_nickname(meta["nickname"]):
             return self._account_outcome(
                 ok=False,
                 code="account_deleted",

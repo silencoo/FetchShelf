@@ -55,7 +55,7 @@ class DetailTikTokUnofficial:
             headers=self.headers,
             timeout=self.timeout,
             follow_redirects=True,
-            verify=False,
+            verify=True,
             proxy=self.proxy,
         )
         response.raise_for_status()

@@ -180,6 +180,8 @@ def test_file_browser_api_paginates_and_searches(tmp_path, monkeypatch):
     for index in range(30):
         (download_root / f"clip-{index:02d}.txt").write_text("demo", encoding="utf-8")
     (download_root / "album").mkdir()
+    (download_root / "dangling").symlink_to(download_root / "missing")
+    (download_root / "outside").symlink_to(tmp_path, target_is_directory=True)
     settings_path = tmp_path / "settings.json"
     settings_path.write_text("{}", encoding="utf-8")
     server = APIServer.__new__(APIServer)
@@ -496,3 +498,17 @@ async def test_ui_task_failure_keeps_internal_exception_out_of_public_state():
     assert task["error"] == "task_execution_failed"
     assert "task-secret" not in str(task)
     assert "user:password" not in str(task)
+
+
+def test_invalid_login_viewer_token_gets_websocket_denial(monkeypatch):
+    from starlette.websockets import WebSocketDisconnect
+
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "viewer-test-token")
+    server = APIServer.__new__(APIServer)
+    server.server = FastAPI()
+    server.setup_routes()
+    client = TestClient(server.server)
+    with pytest.raises(WebSocketDisconnect) as denied:
+        with client.websocket_connect("/ui/ws/collector-identities/demo/login-browser/session"):
+            pytest.fail("Invalid viewer credentials were accepted")
+    assert denied.value.code == 4403

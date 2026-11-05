@@ -980,13 +980,15 @@ function ensureSettings(refresh = false) {
 }
 
 function ensureRawSettings(refresh = false) {
-  if (!refresh && rawSettingsLoaded) return;
-  if (!rawSettingsRequest || rawSettingsRequest.token !== state.token) {
-    const request = { token: state.token };
-    request.promise = loadRawSettings().finally(() => {
+  const includeSecrets = refs.settingsRawIncludeSecrets.checked;
+  if (!refresh && rawSettingsLoaded && state.rawSettingsSecretsIncluded === includeSecrets) return;
+  if (!rawSettingsRequest || rawSettingsRequest.token !== state.token ||
+      rawSettingsRequest.includeSecrets !== includeSecrets) {
+    const request = { token: state.token, includeSecrets };
+    rawSettingsRequest = request;
+    request.promise = loadRawSettings(request).finally(() => {
       if (rawSettingsRequest === request) rawSettingsRequest = null;
     });
-    rawSettingsRequest = request;
   }
   return rawSettingsRequest.promise;
 }
@@ -1218,7 +1220,7 @@ async function verifyAccounts(platform) {
     }
     setAccountStatus(
       platform,
-      `检测完成：${result.checked} 条，存在 ${result.exists}，失效 ${result.missing}，转移 ${result.moved_to_deleted}`,
+      `检测完成：${result.checked} 条，存在 ${result.exists}，未能确认 ${result.unverified || 0}，失效 ${result.missing}，转移 ${result.moved_to_deleted}`,
     );
     setApiStatus("就绪", "ok");
   } catch (error) {
@@ -1299,12 +1301,11 @@ function renderRawSettingsSource() {
   updateRawEditorMeta();
 }
 
-async function loadRawSettings() {
-  const token = state.token;
+async function loadRawSettings(request) {
   rawSettingsLoaded = false;
   refs.settingsRawSaveBtn.disabled = true;
   refs.settingsAuthSaveBtn.disabled = true;
-  let includeSecrets = Boolean(refs.settingsRawIncludeSecrets?.checked);
+  let includeSecrets = request.includeSecrets;
   if (
     includeSecrets &&
     !window.confirm(
@@ -1313,6 +1314,13 @@ async function loadRawSettings() {
   ) {
     includeSecrets = false;
     refs.settingsRawIncludeSecrets.checked = false;
+    request.includeSecrets = false;
+  }
+  if (!includeSecrets) {
+    state.rawSettingsSecretsIncluded = false;
+    state.rawSettingsSource = {};
+    refs.settingsRawEditor.value = "";
+    syncQuickAuthEditors({});
   }
   refs.settingsRawStatus.textContent = includeSecrets
     ? "正在安全读取完整 settings.json…"
@@ -1325,7 +1333,7 @@ async function loadRawSettings() {
       method: "GET",
       headers: headerOptions(false),
     });
-    if (token !== state.token) return;
+    if (request !== rawSettingsRequest || request.token !== state.token) return;
     state.rawSettingsSecretsIncluded = Boolean(payload?.secrets_included);
     try {
       const parsed = JSON.parse(String(payload?.text || "{}"));
@@ -1347,6 +1355,7 @@ async function loadRawSettings() {
     } · ${payload?.updated_at || ""}`;
     setApiStatus("就绪", "ok");
   } catch (error) {
+    if (request !== rawSettingsRequest || request.token !== state.token) return;
     refs.settingsRawStatus.textContent = `读取失败: ${error.message}`;
     setApiStatus(`异常: ${error.message}`, "error");
   }
@@ -6048,7 +6057,7 @@ function bindEvents() {
   });
 
   refs.settingsRawIncludeSecrets.addEventListener("change", () => {
-    withBusyButton(refs.settingsRawLoadBtn, "加载中", () => ensureRawSettings(true));
+    void ensureRawSettings(true);
   });
 
   refs.settingsRawSearchBtn.addEventListener("click", searchRawSettings);

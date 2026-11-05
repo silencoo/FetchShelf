@@ -178,14 +178,16 @@ class ServerRoutesMixin:
                     status_code=400,
                     detail="Path is not a directory.",
                 )
-            entries = sorted(
-                (
-                    serialize_entry(root, item)
-                    for item in current.iterdir()
-                    if not self._is_protected_file_scope_path(scope, root, item)
-                ),
-                key=lambda item: (not item["is_dir"], item["name"].lower()),
-            )
+            entries = []
+            for item in current.iterdir():
+                try:
+                    if self._is_protected_file_scope_path(scope, root, item) or self._is_runtime_debug_capture_path(item):
+                        continue
+                    entries.append(serialize_entry(root, item))
+                except (OSError, RuntimeError, ValueError):
+                    # A linked, unreadable or disappearing entry must not hide its siblings.
+                    continue
+            entries.sort(key=lambda item: (not item["is_dir"], item["name"].lower()))
             search_value = search.strip().casefold()
             if search_value:
                 entries = [
@@ -875,13 +877,10 @@ class ServerRoutesMixin:
                 await websocket.close(code=4409, reason="Viewer already connected")
                 return
 
-            await websocket.accept(
-                subprotocol="binary" if "binary" in protocols else None
-            )
             writer = None
             tasks = set()
-            pending = set()
             try:
+                await websocket.accept(subprotocol="binary" if "binary" in protocols else None)
                 reader, writer = await open_connection("127.0.0.1", vnc_port)
 
                 async def client_to_vnc():
@@ -901,15 +900,16 @@ class ServerRoutesMixin:
                 client_task = create_task(client_to_vnc())
                 server_task = create_task(vnc_to_client())
                 tasks = {client_task, server_task}
-                _, pending = await wait(
+                await wait(
                     tasks,
                     return_when=FIRST_COMPLETED,
                 )
             except (OSError, WebSocketDisconnect):
                 pass
             finally:
-                for task in pending:
-                    task.cancel()
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
                 if tasks:
                     await gather(*tasks, return_exceptions=True)
                 if writer is not None:
@@ -2034,7 +2034,7 @@ class ServerRoutesMixin:
             task = self.ui_tasks.get(task_id)
             if not task:
                 raise HTTPException(status_code=404, detail="Task not found.")
-            if task["status"] in {"success", "failed", "canceled"}:
+            if task["status"] in {"success", "partial_success", "failed", "canceled"}:
                 return {"task": self._public_ui_task(task)}
             if task["status"] == "pending":
                 task["status"] = "canceled"
@@ -2107,7 +2107,7 @@ class ServerRoutesMixin:
             ):
                 raise HTTPException(status_code=400, detail="Invalid failure category.")
             failed_accounts = (
-                journal.list_accounts(task_id, status="failed", limit=5000)
+                journal.list_accounts(task_id, status="failed", limit=None)
                 if journal is not None
                 else []
             )
@@ -2191,16 +2191,40 @@ class ServerRoutesMixin:
             journal = getattr(self, "task_journal", None)
             if journal is None:
                 return {"items": [], "summary": {}}
-            all_items = journal.list_accounts(
-                task_id,
-                status=status,
-                limit=5000,
-            )
-            categorized = [self._task_account_with_category(item) for item in all_items]
+            summary = journal.account_summary(task_id)
+            all_failed = journal.list_accounts(task_id, status="failed", limit=None)
+            failed = [self._task_account_with_category(item) for item in all_failed]
+            category_counts = dict.fromkeys(sorted(self.ACCOUNT_FAILURE_CATEGORIES), 0)
+            for item in failed:
+                category_counts[item["failure_category"]] += 1
+            filtered = None
+            if normalized_category:
+                filtered = [
+                    item for item in failed if item["failure_category"] == normalized_category
+                    and status in {"", "failed"}
+                ]
+            elif status == "failed":
+                filtered = failed
+            filtered_total = len(filtered) if filtered is not None else summary.get(status or "total", 0)
+            page_size = limit or page_size
+            pages = max(1, (filtered_total + page_size - 1) // page_size)
+            if limit is not None:
+                start = offset or 0
+                page = start // page_size + 1
+            else:
+                page = min(page, pages)
+                start = (page - 1) * page_size
+            if filtered is not None:
+                categorized = filtered[start:start + page_size]
+            else:
+                page_rows = journal.list_accounts(task_id, status=status, limit=page_size, offset=start)
+                categorized = [self._task_account_with_category(item) for item in page_rows]
             task_endpoint = self._normalize_string(
                 self.ui_tasks[task_id].get("endpoint")
             ).lower()
             task_platform = "tiktok" if "/tiktok/" in task_endpoint else "douyin"
+            if task_endpoint == "/workflow/accounts/avatar_batch":
+                task_platform = self._normalize_board_platform(self.ui_tasks[task_id].get("payload", {}).get("platform"))
             configured_urls = {
                 self._normalize_account_url(item.get("url", ""))
                 for item in self._account_rows(task_platform == "tiktok")
@@ -2217,34 +2241,9 @@ class ServerRoutesMixin:
                 account["configured"] = bool(
                     account_url and account_url in configured_urls
                 )
-            all_failed = journal.list_accounts(task_id, status="failed", limit=5000)
-            category_counts = {
-                key: 0
-                for key in sorted(self.ACCOUNT_FAILURE_CATEGORIES)
-            }
-            for account in all_failed:
-                category = self._task_account_with_category(account).get(
-                    "failure_category", "other"
-                )
-                category_counts[category] = category_counts.get(category, 0) + 1
-            if normalized_category:
-                categorized = [
-                    item
-                    for item in categorized
-                    if item.get("failure_category") == normalized_category
-                ]
-            if limit is not None:
-                page_size = limit
-                page = (max(0, int(offset or 0)) // page_size) + 1
-            filtered_total = len(categorized)
-            pages = max(1, (filtered_total + page_size - 1) // page_size)
-            page = min(page, pages)
-            start = (page - 1) * page_size
             return {
-                "items": redact_webui_value(
-                    categorized[start : start + page_size]
-                ),
-                "summary": journal.account_summary(task_id),
+                "items": redact_webui_value(categorized),
+                "summary": summary,
                 "category_counts": category_counts,
                 "filtered_total": filtered_total,
                 "page": page,
@@ -2276,7 +2275,7 @@ class ServerRoutesMixin:
             accounts = self.task_journal.list_accounts(
                 task_id,
                 status="failed",
-                limit=5000,
+                limit=None,
             )
             urls = []
             for account in accounts:

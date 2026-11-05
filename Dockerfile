@@ -99,6 +99,7 @@ COPY --from=webui-builder /app/src/webui/static /app/src/webui/static
 COPY vendor /app/vendor
 COPY locale /app/locale
 COPY static /app/static
+COPY detector.tflite /app/detector.tflite
 COPY license /app/license
 COPY licenses /app/licenses
 COPY main.py /app/main.py

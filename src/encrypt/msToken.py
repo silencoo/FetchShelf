@@ -4,7 +4,6 @@ from random import randint
 from string import ascii_lowercase, ascii_uppercase, digits
 from time import time
 from typing import TYPE_CHECKING, Union
-from urllib.parse import quote
 
 from src.custom import PARAMS_HEADERS, PARAMS_HEADERS_TIKTOK, USERAGENT
 from src.encrypt.ttWid import TtWid
@@ -214,20 +213,19 @@ class MsTokenTikTok(MsToken):
         headers: dict,
         token="",
         proxy: str = None,
+        signer=None,
         **kwargs,
     ) -> dict | None:
         params = {cls.NAME: token}
         if token:
-            headers |= {"Cookie": f"{cls.NAME}={token}"}
+            headers = {**headers, "Cookie": f"{cls.NAME}={token}"}
             signer = signer or XBogusTikTok()
-            params["X-Bogus"] = quote(
-                signer.get_x_bogus(
-                    query=params,
-                    data=None,
-                    method="GET",
-                    user_agent=headers.get("User-Agent", USERAGENT),
-                ),
-                safe="",
+            # The HTTP client encodes dict parameters when constructing the URL.
+            params["X-Bogus"] = signer.get_x_bogus(
+                query=params,
+                data=None,
+                method="POST",
+                user_agent=headers.get("User-Agent", USERAGENT),
             )
         return await cls._get_ms_token(
             logger,

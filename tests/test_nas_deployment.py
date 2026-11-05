@@ -108,3 +108,15 @@ def test_failed_cutover_restores_previous_image_and_preserves_snapshot(tmp_path,
     assert snapshot.is_file()
     assert not (state / "release.json").exists()
     assert (tmp_path / "settings/record.txt").read_text() == "preserve this"
+
+
+def test_backup_pruning_ignores_invalid_and_linked_markers(tmp_path):
+    good = {"product": "FetchShelf", "complete": True}
+    for name in ("release-1", "release-2", "release-invalid", "release-0"):
+        (tmp_path / name).mkdir()
+    for name in ("release-1", "release-2"):
+        (tmp_path / name / "backup.json").write_text(json.dumps(good))
+    (tmp_path / "release-invalid" / "backup.json").write_text("null")
+    (tmp_path / "release-0" / "backup.json").symlink_to(tmp_path / "release-1" / "backup.json")
+    nas.prune_backups(tmp_path, keep=1)
+    assert {path.name for path in tmp_path.iterdir()} == {"release-2", "release-invalid", "release-0"}

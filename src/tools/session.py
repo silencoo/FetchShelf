@@ -30,7 +30,7 @@ def create_client(
         },
         timeout=timeout,
         follow_redirects=True,
-        verify=False,
+        verify=True,
         mounts={
             "http://": AsyncHTTPTransport(proxy=proxy),
             "https://": AsyncHTTPTransport(proxy=proxy),
@@ -66,7 +66,7 @@ async def request_params(
         impersonate=IMPERSONATE,
         allow_redirects=True,
         timeout=timeout,
-        verify=False,
+        verify=True,
         proxy=proxy,
     ) as client:
         return await request(

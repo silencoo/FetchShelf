@@ -1058,3 +1058,68 @@ def test_board_reuses_folder_index_and_queries_activity_for_visible_page(tmp_pat
         (tmp_path / "UID-new").mkdir()
         assert (tmp_path / "UID-new") in server._board_folder_index(tmp_path)[0]
         assert len(scans) == 2
+
+
+def test_recovery_honors_pause_cancel_and_old_pending_tasks(tmp_path):
+    with TaskJournal(tmp_path / "journal.db") as journal:
+        for i, status in enumerate(["pausing", "canceling", "running", "success"], 1):
+            journal.save_task(_task(f"T{i:06d}", status))
+        journal.recover_interrupted()
+        all_tasks = {task["task_id"]: task for task in journal.load_tasks()}
+        assert all_tasks["T000001"]["status"] == "paused"
+        assert all_tasks["T000002"]["status"] == "canceled"
+        assert all_tasks["T000002"]["finished_at"]
+        assert all_tasks["T000003"]["status"] == "pending"
+        assert {t["task_id"] for t in journal.load_tasks(limit=1)} == {
+            "T000001", "T000003", "T000004",
+        }
+
+
+def test_large_task_checkpoint_pages_export_and_retry(tmp_path, monkeypatch):
+    monkeypatch.setenv("FETCHSHELF_API_TOKEN", "journal-test-token")
+    with TaskJournal(tmp_path / "journal.db") as journal:
+        server = APIServer.__new__(APIServer)
+        server.server = FastAPI()
+        server.task_journal = journal
+        task = _task(status="partial_success")
+        journal.save_task(task)
+        journal.prepare_accounts(task["task_id"], ({"url": f"https://example.test/{i}"} for i in range(5003)))
+        with journal.connection:
+            journal.connection.execute("UPDATE ui_task_accounts SET status = 'failed', reason = 'network'")
+        server.ui_tasks = {task["task_id"]: server._hydrate_ui_task(task)}
+        server.ui_task_queue = Queue()
+        server.ui_task_counter = 1
+        server._account_rows = lambda tiktok: []
+        server.setup_routes()
+        client = TestClient(server.server, headers={"token": "journal-test-token"})
+        base = "/ui/api/tasks/T000001"
+        last = client.get(base + "/accounts?page=26&page_size=200").json()
+        assert last["filtered_total"] == 5003
+        assert [r["position"] for r in last["items"]] == [5001, 5002, 5003]
+        offset = client.get(base + "/accounts?limit=2&offset=3").json()
+        assert [r["position"] for r in offset["items"]] == [4, 5]
+        assert not client.get(base + "/accounts?limit=2&offset=6000").json()["items"]
+        assert client.get(base + "/accounts/export").json()["count"] == 5003
+        assert client.post(base + "/retry-failed").is_success
+        assert len(server.ui_tasks["T000002"]["payload"]["items"]) == 5003
+        assert client.post(base + "/cancel").json()["task"]["status"] == "partial_success"
+
+
+@pytest.mark.asyncio
+async def test_shutdown_does_not_leave_running_worker_waiting_for_queue():
+    from asyncio import Event, create_task, wait_for
+
+    server = APIServer.__new__(APIServer)
+    server.ui_task_shutdown = False
+    server.ui_task_queue = Queue()
+    server.ui_tasks = {"T000001": server._hydrate_ui_task(_task(status="pending"))}
+    started = Event()
+    async def execute(*args):
+        started.set()
+        await Event().wait()
+    server._execute_ui_endpoint = execute
+    server.ui_task_workers = [create_task(server._ui_task_worker(1))]
+    server.ui_task_queue.put_nowait("T000001")
+    await wait_for(started.wait(), 2)
+    await wait_for(server._stop_ui_task_workers(), 2)
+    assert server.ui_tasks["T000001"]["status"] == "pending"

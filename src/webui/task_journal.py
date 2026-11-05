@@ -205,15 +205,19 @@ class TaskJournal:
 
     def load_tasks(self, limit: int = 2000) -> list[dict]:
         size = max(1, min(int(limit or 1), 10000))
+        active = sorted(ACTIVE_TASK_STATUSES)
         with self._lock:
             rows = self.connection.execute(
-                """
-                SELECT task_json
-                FROM ui_tasks
+                f"""
+                SELECT task_json FROM ui_tasks
+                WHERE status IN ({",".join("?" for _ in active)})
+                OR task_id IN (
+                    SELECT task_id FROM ui_tasks
+                    ORDER BY CAST(SUBSTR(task_id, 2) AS INTEGER) DESC LIMIT ?
+                )
                 ORDER BY CAST(SUBSTR(task_id, 2) AS INTEGER) DESC
-                LIMIT ?
                 """,
-                (size,),
+                (*active, size),
             ).fetchall()
         return [
             task
@@ -228,7 +232,7 @@ class TaskJournal:
         with self._lock, self.connection:
             rows = self.connection.execute(
                 """
-                SELECT task_id, task_json
+                SELECT task_id, status, task_json
                 FROM ui_tasks
                 WHERE status IN ('running', 'pausing', 'canceling')
                 """
@@ -237,19 +241,26 @@ class TaskJournal:
                 task = _load_object(row["task_json"], {})
                 if not task:
                     continue
-                task["status"] = "pending"
+                status, message = {
+                    "running": ("pending", "服务重启后已恢复，等待继续执行"),
+                    "pausing": ("paused", "服务重启后已暂停，等待手动继续"),
+                    "canceling": ("canceled", "任务已取消"),
+                }[row["status"]]
+                task["status"] = status
                 task["worker"] = None
-                task["finished_at"] = None
+                task["finished_at"] = now if status == "canceled" else None
                 task["updated_at"] = now
-                task["message"] = "服务重启后已恢复，等待继续执行"
+                task["message"] = message
+                if status == "canceled":
+                    task["error"] = "task_canceled"
                 task["recovered_after_restart"] = True
                 self.connection.execute(
                     """
                     UPDATE ui_tasks
-                    SET status = 'pending', task_json = ?, updated_at = ?
+                    SET status = ?, task_json = ?, updated_at = ?
                     WHERE task_id = ?
                     """,
-                    (_json(task), now, row["task_id"]),
+                    (status, _json(task), now, row["task_id"]),
                 )
             self.connection.execute(
                 """
@@ -327,7 +338,7 @@ class TaskJournal:
         task_id: str,
         *,
         status: str = "",
-        limit: int = 1000,
+        limit: int | None = 1000,
         offset: int = 0,
     ) -> list[dict]:
         params: list[Any] = [task_id]
@@ -337,7 +348,7 @@ class TaskJournal:
             params.append(status)
         params.extend(
             [
-                max(1, min(int(limit or 1), 5000)),
+                -1 if limit is None else max(1, min(int(limit or 1), 5000)),
                 max(0, int(offset or 0)),
             ]
         )
@@ -450,7 +461,7 @@ class TaskJournal:
             for account in self.list_accounts(
                 task_id,
                 status="failed",
-                limit=5000,
+                limit=None,
             )
         ]
 
