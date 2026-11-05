@@ -242,9 +242,10 @@ def test_collector_assignments_are_lazy_paginated_and_searchable():
     assert "new AbortController()" in script
     assert 'page_size: String(pagination.pageSize)' in script
     assert 'query.set("search", pagination.search)' in script
-    assert 'if (nextTab === "collectors")' in script
+    assert 'case "collectors":' in script
     bootstrap = script[script.index("async function bootstrap()") :]
-    assert 'if (state.activeTab === "collectors")' in bootstrap
+    assert "await loadTabData(state.activeTab)" in bootstrap
+    assert "loadRawSettings();" not in bootstrap
     assert ".collector-binding-search" in styles
     assert ".collector-binding-pager" in styles
 

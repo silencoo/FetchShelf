@@ -11,6 +11,7 @@ from src.application import main_server as main_server_module
 from src.application.main_server import APIServer
 from src.application.main_terminal import TikTok
 from src.collector import CollectorStore
+from src.tools.cleaner import Cleaner
 from src.webui.task_journal import TaskJournal
 
 
@@ -997,3 +998,63 @@ async def test_avatar_batch_uses_video_only_when_account_has_no_images(
     assert generated_from == [video_path]
     assert result.data["success"] == 1
     assert result.data["failed"] == 0
+
+
+def test_board_outcomes_survive_upgrade_and_attention_skips_media(tmp_path):
+    path = tmp_path / "journal.sqlite3"
+    with TaskJournal(path) as journal:
+        journal.save_account_activity(platform="douyin", url="legacy", status="success")
+        journal.connection.execute("ALTER TABLE ui_account_activity DROP COLUMN last_outcome_code")
+        journal.connection.commit()
+    with TaskJournal(path) as journal:
+        for url, status, code in [
+            ("active", "success", "success"),
+            ("quiet", "success", "no_matching_items"),
+            ("empty", "skipped", "no_works"),
+            ("blocked", "failed", "private_not_visible"),
+        ]:
+            journal.save_account_activity(platform="douyin", url=url, status=status, outcome_code=code)
+        activity = {a["url"]: APIServer._board_outcome(a) for a in journal.list_account_activity("douyin")}
+        assert activity == {
+            "legacy": "legacy_success", "active": "success", "quiet": "no_updates",
+            "empty": "skipped", "blocked": "failed",
+        }
+        server = APIServer.__new__(APIServer)
+        server.task_journal = journal
+        server._active_account_rows = lambda platform: [{"url": url} for url in [*activity, "unchecked"]]
+        server._scope_root = lambda scope: tmp_path
+        server._load_account_board_avatars = server._load_account_board_pins = lambda: {}
+        server._board_folder_index = lambda root: pytest.fail("Attention should not scan media")
+        page = server._build_account_board_page("douyin", 1, 24, status="attention")
+        assert {row["url"]: row["outcome"] for row in page["items"]} == {
+            "empty": "skipped", "blocked": "failed", "unchecked": "never",
+        }
+
+
+def test_board_reuses_folder_index_and_queries_activity_for_visible_page(tmp_path, monkeypatch):
+    server = APIServer.__new__(APIServer)
+    server.parameter = SimpleNamespace(CLEANER=Cleaner())
+    server._active_account_rows = lambda platform: [{"url": str(i)} for i in range(2750)]
+    server._scope_root = lambda scope: tmp_path
+    server._load_account_board_pins = server._load_account_board_avatars = lambda: {}
+    scans = []
+    original_scan = server._account_board_dirs
+    def scan(root):
+        scans.append(root)
+        return original_scan(root)
+    server._account_board_dirs = scan
+    with TaskJournal(tmp_path / "db") as journal:
+        server.task_journal = journal
+        requests = []
+        original = journal.list_account_activity
+        def activity(platform, urls=None):
+            requests.append(urls)
+            return original(platform, urls)
+        monkeypatch.setattr(journal, "list_account_activity", activity)
+        for page in (1, 2):
+            server._build_account_board_page("douyin", page, 24)
+        assert requests == [[str(i) for i in range(24)], [str(i) for i in range(24, 48)]]
+        assert len(scans) == 1
+        (tmp_path / "UID-new").mkdir()
+        assert (tmp_path / "UID-new") in server._board_folder_index(tmp_path)[0]
+        assert len(scans) == 2

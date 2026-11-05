@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 
 DEFAULT_TASK_JOURNAL_NAME = "ui_task_runtime.sqlite3"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 ACTIVE_TASK_STATUSES = frozenset(
     {
         "pending",
@@ -140,6 +140,13 @@ class TaskJournal:
                 self.connection.execute(
                     "ALTER TABLE ui_task_accounts "
                     "ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            activity_columns = {
+                row[1] for row in self.connection.execute("PRAGMA table_info(ui_account_activity)")
+            }
+            if "last_outcome_code" not in activity_columns:
+                self.connection.execute(
+                    "ALTER TABLE ui_account_activity ADD COLUMN last_outcome_code TEXT NOT NULL DEFAULT ''"
                 )
             self.connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -463,6 +470,7 @@ class TaskJournal:
             "last_failure_at": str(row["last_failure_at"]),
             "last_status": str(row["last_status"]),
             "last_error": str(row["last_error"]),
+            "last_outcome_code": str(row["last_outcome_code"]),
             "last_item_count": int(row["last_item_count"]),
             "updated_at": str(row["updated_at"]),
         }
@@ -481,6 +489,7 @@ class TaskJournal:
         status: str,
         error: str = "",
         item_count: int = 0,
+        outcome_code: str = "",
     ) -> dict:
         normalized_platform = str(platform or "").strip().lower()
         normalized_url = str(url or "").strip()
@@ -488,7 +497,7 @@ class TaskJournal:
             raise ValueError("platform must be douyin or tiktok")
         if not normalized_url:
             raise ValueError("url is required")
-        normalized_status = status if status in {"success", "failed"} else "failed"
+        normalized_status = status if status in {"success", "failed", "skipped"} else "failed"
         now = _now_text()
         success_at = now if normalized_status == "success" else ""
         failure_at = now if normalized_status == "failed" else ""
@@ -500,8 +509,8 @@ class TaskJournal:
                     latest_seen_work_at, latest_seen_work_id,
                     latest_saved_work_at, latest_saved_work_id,
                     last_checked_at, last_success_at, last_failure_at,
-                    last_status, last_error, last_item_count, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    last_status, last_error, last_item_count, updated_at, last_outcome_code
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(platform, url) DO UPDATE SET
                     sec_uid = CASE
                         WHEN excluded.sec_uid != '' THEN excluded.sec_uid
@@ -545,6 +554,7 @@ class TaskJournal:
                         ELSE ui_account_activity.last_failure_at
                     END,
                     last_status = excluded.last_status,
+                    last_outcome_code = excluded.last_outcome_code,
                     last_error = excluded.last_error,
                     last_item_count = excluded.last_item_count,
                     updated_at = excluded.updated_at
@@ -565,6 +575,7 @@ class TaskJournal:
                     str(error or "").strip(),
                     max(0, int(item_count or 0)),
                     now,
+                    outcome_code,
                 ),
             )
             row = self.connection.execute(
@@ -577,18 +588,17 @@ class TaskJournal:
             ).fetchone()
         return self._activity_row(row)
 
-    def list_account_activity(self, platform: str) -> list[dict]:
+    def list_account_activity(self, platform: str, urls: list[str] | None = None) -> list[dict]:
         normalized_platform = str(platform or "").strip().lower()
+        query = "SELECT * FROM ui_account_activity WHERE platform = ?"
+        params = [normalized_platform]
+        if urls is not None:
+            if not urls:
+                return []
+            query += " AND url IN (" + ",".join("?" for _ in urls) + ")"
+            params.extend(urls)
         with self._lock:
-            rows = self.connection.execute(
-                """
-                SELECT *
-                FROM ui_account_activity
-                WHERE platform = ?
-                ORDER BY last_checked_at DESC, url
-                """,
-                (normalized_platform,),
-            ).fetchall()
+            rows = self.connection.execute(query + " ORDER BY last_checked_at DESC, url", params).fetchall()
         return [self._activity_row(row) for row in rows]
 
     def has_active_schedule_task(self, schedule_id: str) -> bool:

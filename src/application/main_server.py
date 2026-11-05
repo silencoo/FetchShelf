@@ -3184,6 +3184,35 @@ class APIServer(TikTok, ServerRoutesMixin):
                 return item
         return None
 
+    def _board_folder_index(self, root: Path):
+        try:
+            stamp = root.stat().st_mtime_ns
+        except OSError:
+            stamp = None
+        key = (root, stamp)
+        cached = getattr(self, "_board_folder_cache", None)
+        if cached and cached[0] == key and monotonic() < cached[1]:
+            return cached[2]
+        candidates = self._account_board_dirs(root)
+        index = (
+            candidates,
+            self._account_board_dir_match_index(candidates),
+            self._account_board_dir_mark_index(candidates),
+            {},
+        )
+        self._board_folder_cache = (key, monotonic() + 60, index)
+        return index
+
+    @staticmethod
+    def _board_outcome(activity: dict) -> str:
+        status = activity.get("last_status") or "never"
+        if status != "success":
+            return status
+        code = activity.get("last_outcome_code")
+        if not code:
+            return "legacy_success"
+        return "no_updates" if code == "no_matching_items" else "success"
+
     def _build_account_board_page(
         self,
         platform: str,
@@ -3204,6 +3233,10 @@ class APIServer(TikTok, ServerRoutesMixin):
             "failed",
             "never",
             "no_avatar",
+            "attention",
+            "no_updates",
+            "skipped",
+            "legacy_success",
         }:
             normalized_status = "all"
         normalized_sort = self._normalize_string(sort_by).lower()
@@ -3217,24 +3250,24 @@ class APIServer(TikTok, ServerRoutesMixin):
             normalized_sort = "configured"
 
         journal = getattr(self, "task_journal", None)
-        activity_items = (
-            journal.list_account_activity(normalized_platform)
-            if journal is not None
-            else []
+        need_all_activity = (
+            normalized_status not in {"all", "no_avatar"}
+            or normalized_sort in {"latest_desc", "latest_asc", "checked_desc"}
         )
-        activity_by_url = {
-            self._normalize_string(item.get("url")): item
-            for item in activity_items
-            if self._normalize_string(item.get("url"))
-        }
+        activity_by_url = {}
+        if journal and need_all_activity:
+            activity_by_url = {
+                item["url"]: item for item in journal.list_account_activity(normalized_platform)
+            }
         avatars = self._load_account_board_avatars()
         root = self._scope_root("download").expanduser().resolve()
-        candidates = self._account_board_dirs(root)
-        candidate_index = self._account_board_dir_match_index(candidates)
-        candidate_mark_index = self._account_board_dir_mark_index(candidates)
-        folder_by_account: dict[tuple[str, str], Path | None] = {}
+        folder_index = None
 
         def account_folder(row: dict) -> Path | None:
+            nonlocal folder_index
+            if folder_index is None:
+                folder_index = self._board_folder_index(root)
+            candidates, candidate_index, candidate_mark_index, folder_by_account = folder_index
             key = (
                 self._normalize_string(row.get("url")),
                 self._normalize_string(row.get("mark")),
@@ -3293,7 +3326,12 @@ class APIServer(TikTok, ServerRoutesMixin):
                 activity_status = self._normalize_string(
                     activity.get("last_status")
                 ) or "never"
-                if activity_status == normalized_status:
+                outcome = self._board_outcome(activity)
+                if (
+                    (normalized_status == "attention" and outcome in {"failed", "skipped", "never"})
+                    or (normalized_status == "success" and activity_status == "success")
+                    or outcome == normalized_status
+                ):
                     filtered_rows.append(row)
             rows = filtered_rows
 
@@ -3348,11 +3386,34 @@ class APIServer(TikTok, ServerRoutesMixin):
         start = (current - 1) * size
         end = start + size
         page_rows = rows[start:end]
+        if journal and not need_all_activity:
+            urls = [self._normalize_string(row.get("url")) for row in page_rows]
+            activity_by_url = {
+                item["url"]: item for item in journal.list_account_activity(normalized_platform, urls)
+            }
 
         pins = self._load_account_board_pins()
         media_cache: dict[str, tuple[list[str], list[str]]] = {}
         items = []
         for offset, row in enumerate(page_rows, start=start + 1):
+            url = self._normalize_string(row.get("url"))
+            activity = activity_by_url.get(url, {})
+            entry = {
+                "index": offset,
+                "platform": normalized_platform,
+                "url": url,
+                "mark": row.get("mark") or activity.get("mark", ""),
+                "last_checked_at": activity.get("last_checked_at", ""),
+                "latest_saved_work_at": activity.get("latest_saved_work_at", ""),
+                "last_status": activity.get("last_status") or "never",
+                "last_error": activity.get("last_error", ""),
+                "outcome": self._board_outcome(activity),
+                "outcome_code": activity.get("last_outcome_code", ""),
+                "last_item_count": int(activity.get("last_item_count") or 0),
+            }
+            items.append(entry)
+            if normalized_status == "attention":
+                continue
             folder = account_folder(row)
             folder_updated_at = self._account_board_folder_updated_at(folder)
             pin_key = self._account_pin_key(normalized_platform, row.get("url", ""))
@@ -3364,10 +3425,6 @@ class APIServer(TikTok, ServerRoutesMixin):
                 use_pinned=True,
             )
             avatar_path = self._coerce_project_image_relpath(avatars.get(pin_key, ""))
-            activity = activity_by_url.get(
-                self._normalize_string(row.get("url")),
-                {},
-            )
             latest_seen_at = self._normalize_string(
                 activity.get("latest_seen_work_at")
             )
@@ -3392,12 +3449,8 @@ class APIServer(TikTok, ServerRoutesMixin):
                 )
                 latest_work_at = historical["at"]
                 latest_work_source = "filename" if latest_work_at else ""
-            items.append(
+            entry.update(
                 {
-                    "index": offset,
-                    "platform": normalized_platform,
-                    "url": row.get("url", ""),
-                    "mark": row.get("mark", ""),
                     "tab": row.get("tab", "post"),
                     "enable": bool(row.get("enable", True)),
                     "folder_path": relative_path(root, folder) if folder else "",
@@ -3412,20 +3465,6 @@ class APIServer(TikTok, ServerRoutesMixin):
                     "latest_work_id": latest_work_id,
                     "latest_work_source": latest_work_source,
                     "latest_seen_work_at": latest_seen_at,
-                    "latest_saved_work_at": latest_saved_at,
-                    "last_checked_at": self._normalize_string(
-                        activity.get("last_checked_at")
-                    ),
-                    "last_status": self._normalize_string(
-                        activity.get("last_status")
-                    )
-                    or "never",
-                    "last_error": self._normalize_string(
-                        activity.get("last_error")
-                    ),
-                    "last_item_count": int(
-                        activity.get("last_item_count") or 0
-                    ),
                 }
             )
 
@@ -5337,16 +5376,10 @@ class APIServer(TikTok, ServerRoutesMixin):
                     latest_saved_work_id=self._normalize_string(
                         context.get("latest_saved_work_id")
                     ),
-                    status=(
-                        "success"
-                        if execution.get("terminal_status") in {"success", "skipped"}
-                        else "failed"
-                    ),
-                    error=(
-                        ""
-                        if execution.get("terminal_status") in {"success", "skipped"}
-                        else self._normalize_string(execution.get("reason"))
-                    ),
+                    status=execution.get("terminal_status", "failed"),
+                    outcome_code=self._normalize_string(execution.get("outcome_code")),
+                    error=self._normalize_string(execution.get("reason"))
+                    if execution.get("terminal_status") == "failed" else "",
                     item_count=max(0, int(context.get("item_count") or 0)),
                 )
             except (OSError, TypeError, ValueError) as error:

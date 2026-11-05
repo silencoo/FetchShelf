@@ -37,6 +37,7 @@ export const refs = {
   overviewCollectorMeta: document.getElementById("overview-collector-meta"),
   overviewIdentityHealth: document.getElementById("overview-identity-health"),
 
+  settingsRawDisclosure: document.getElementById("settings-raw-disclosure"),
   settingsForm: document.getElementById("settings-form"),
   settingsReloadBtn: document.getElementById("settings-reload-btn"),
   settingsSaveBtn: document.getElementById("settings-save-btn"),

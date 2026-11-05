@@ -675,7 +675,6 @@
           <details
             id="settings-raw-disclosure"
             class="raw-settings-block raw-settings-disclosure"
-            open
           >
             <summary class="raw-settings-summary">
               <span class="raw-settings-summary-copy">
@@ -976,7 +975,11 @@
               <span>状态</span>
               <select id="board-status-filter">
                 <option value="all">全部账户</option>
-                <option value="success">最近成功</option>
+                <option value="attention">需要关注（失败、跳过、从未检查）</option>
+                <option value="success">检查成功（含历史记录）</option>
+                <option value="no_updates">已检查，无符合范围的新作品</option>
+                <option value="skipped">已跳过</option>
+                <option value="legacy_success">历史成功（结果未细分）</option>
                 <option value="failed">最近失败</option>
                 <option value="never">从未爬取</option>
                 <option value="no_avatar">没有头像</option>

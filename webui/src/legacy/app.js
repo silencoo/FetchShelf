@@ -29,7 +29,7 @@ import {
   TASK_TEMPLATES,
 } from "./task-templates.js";
 
-function switchTab(tab) {
+function switchTab(tab, { load = true } = {}) {
   const fallbackTab = "workbench";
   const nextTab = refs.tabButtons.some((button) => button.dataset.tabTarget === tab)
     ? tab
@@ -60,27 +60,32 @@ function switchTab(tab) {
   try {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, nextTab);
   } catch {}
-  if (nextTab === "profiles" && state.accountBoardDirty) {
-    loadAccountBoard(false);
-  }
-  if (nextTab === "files") {
-    updateFilesAccountContext();
-  }
-  if (nextTab === "workbench" && !document.hidden) {
-    loadTaskList();
-    loadOverview();
-  }
-  if (nextTab === "collectors") {
-    if (!state.collectorIdentities.length) {
-      loadCollectorIdentities();
+  if (load) void loadTabData(nextTab);
+}
+
+function loadTabData(tab, refresh = false) {
+  switch (tab) {
+    case "control": {
+      const requests = [ensureSettings(refresh), loadCollectorIdentities()];
+      if (refs.settingsRawDisclosure.open) requests.push(ensureRawSettings(refresh));
+      return Promise.allSettled(requests);
     }
-    if (!state.collectorPolicies[refs.collectorPolicyPlatform.value]) {
-      loadCollectorPolicy(refs.collectorPolicyPlatform.value);
-    }
-    const assignmentPlatform = refs.collectorAssignmentPlatform.value;
-    if (!state.collectorAssignmentsLoaded[assignmentPlatform]) {
-      loadCollectorAssignments(assignmentPlatform);
-    }
+    case "files":
+      updateFilesAccountContext();
+      return loadFiles();
+    case "profiles":
+      if (refresh || state.accountBoardDirty) return loadAccountBoard(false);
+      break;
+    case "monitor":
+      return Promise.allSettled([loadCollectMonitors(), loadCollectorIdentities()]);
+    case "collectors":
+      return Promise.allSettled([
+        loadCollectorIdentities(),
+        loadCollectorPolicy(refs.collectorPolicyPlatform.value),
+        loadCollectorAssignments(refs.collectorAssignmentPlatform.value),
+      ]);
+    case "workbench":
+      return Promise.allSettled([loadOverview(), loadTaskList(), loadSchedules(), loadCollectorIdentities()]);
   }
 }
 
@@ -957,23 +962,67 @@ function collectSettingsPayload() {
   return payload;
 }
 
+let settingsLoaded = false;
+let settingsRequest;
+let rawSettingsLoaded = false;
+let rawSettingsRequest;
+
+function ensureSettings(refresh = false) {
+  if (!refresh && settingsLoaded) return Promise.resolve(true);
+  if (!settingsRequest || settingsRequest.token !== state.token) {
+    const request = { token: state.token };
+    request.promise = loadSettings().finally(() => {
+      if (settingsRequest === request) settingsRequest = null;
+    });
+    settingsRequest = request;
+  }
+  return settingsRequest.promise;
+}
+
+function ensureRawSettings(refresh = false) {
+  if (!refresh && rawSettingsLoaded) return;
+  if (!rawSettingsRequest || rawSettingsRequest.token !== state.token) {
+    const request = { token: state.token };
+    request.promise = loadRawSettings().finally(() => {
+      if (rawSettingsRequest === request) rawSettingsRequest = null;
+    });
+    rawSettingsRequest = request;
+  }
+  return rawSettingsRequest.promise;
+}
+
 async function loadSettings() {
+  const token = state.token;
+  refs.settingsSaveBtn.disabled = true;
+  refs.settingsForm.inert = true;
+  refs.accountsSettingsBlock.inert = true;
   refs.settingsStatus.textContent = "正在加载配置…";
   try {
     const settings = await fetchJson("/settings", {
       method: "GET",
       headers: headerOptions(false),
     });
+    if (token !== state.token) return false;
     mapSettingsToForm(settings);
+    settingsLoaded = true;
+    refs.settingsForm.inert = false;
+    refs.accountsSettingsBlock.inert = false;
+    refs.settingsSaveBtn.disabled = false;
     refs.settingsStatus.textContent = "配置已加载";
     setApiStatus("就绪", "ok");
+    return true;
   } catch (error) {
+    if (token !== state.token) return false;
     refs.settingsStatus.textContent = `加载失败: ${error.message}`;
     setApiStatus(`异常: ${error.message}`, "error");
   }
 }
 
 async function saveSettings() {
+  if (!settingsLoaded) {
+    refs.settingsStatus.textContent = "请先重新加载配置";
+    return;
+  }
   refs.settingsStatus.textContent = "正在保存配置…";
   try {
     const payload = collectSettingsPayload();
@@ -1251,6 +1300,10 @@ function renderRawSettingsSource() {
 }
 
 async function loadRawSettings() {
+  const token = state.token;
+  rawSettingsLoaded = false;
+  refs.settingsRawSaveBtn.disabled = true;
+  refs.settingsAuthSaveBtn.disabled = true;
   let includeSecrets = Boolean(refs.settingsRawIncludeSecrets?.checked);
   if (
     includeSecrets &&
@@ -1272,10 +1325,14 @@ async function loadRawSettings() {
       method: "GET",
       headers: headerOptions(false),
     });
+    if (token !== state.token) return;
     state.rawSettingsSecretsIncluded = Boolean(payload?.secrets_included);
     try {
       const parsed = JSON.parse(String(payload?.text || "{}"));
       state.rawSettingsSource = cloneSettingsObject(parsed);
+      rawSettingsLoaded = true;
+      refs.settingsRawSaveBtn.disabled = false;
+      refs.settingsAuthSaveBtn.disabled = false;
       syncQuickAuthEditors(parsed);
       renderRawSettingsSource();
     } catch (error) {
@@ -2027,7 +2084,7 @@ function openBoardFolderInFiles(card) {
   };
   state.currentScope = "download";
   refs.filesScope.value = "download";
-  switchTab("files");
+  switchTab("files", { load: false });
   navigateToFilePath(folderPath);
 }
 
@@ -3056,10 +3113,57 @@ async function pinAccountGalleryMedia() {
   }
 }
 
+const BOARD_OUTCOMES = {
+  success: "采集完成", failed: "采集失败", skipped: "已跳过", never: "尚无检查记录",
+  no_updates: "已检查，无符合范围的新作品", legacy_success: "历史成功（结果未细分）",
+};
+
+function boardOutcomeText(item) {
+  const label = BOARD_OUTCOMES[item.outcome] || BOARD_OUTCOMES[item.last_status] || BOARD_OUTCOMES.never;
+  const reason = item.last_error || (item.outcome === "skipped" && TASK_ACCOUNT_OUTCOME_LABELS[item.outcome_code]);
+  return reason && reason !== label ? `${label} · ${reason}` : label;
+}
+
+function renderAttentionTable(items) {
+  const table = document.createElement("table");
+  table.className = "attention-table";
+  table.setAttribute("aria-label", "需要关注的账号");
+  const head = table.createTHead().insertRow();
+  for (const label of ["账号主页", "最近检查", "最近保存的作品", "结果"]) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = label;
+    head.append(th);
+  }
+  const body = table.createTBody();
+  for (const item of items) {
+    const row = body.insertRow();
+    const first = row.insertCell();
+    const url = safeExternalHttpUrl(item.url);
+    const name = item.mark || item.url || "未命名账号";
+    if (url) {
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = name;
+      first.append(link);
+    } else first.textContent = name;
+    row.insertCell().textContent = formatBoardDate(item.last_checked_at);
+    row.insertCell().textContent = formatBoardDate(item.latest_saved_work_at);
+    row.insertCell().textContent = boardOutcomeText(item);
+  }
+  refs.boardGrid.append(table);
+}
+
 function renderAccountBoard(items) {
   refs.boardGrid.innerHTML = "";
   if (!Array.isArray(items) || !items.length) {
     refs.boardGrid.innerHTML = '<div class="empty-tip">当前页没有可展示账号</div>';
+    return;
+  }
+  if (state.accountBoard.status === "attention") {
+    renderAttentionTable(items);
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -3160,12 +3264,7 @@ function renderAccountBoard(items) {
     }
     const checkedLine = document.createElement("span");
     checkedLine.className = "profile-check-line";
-    const statusLabel =
-      item.last_status === "success"
-        ? `最近爬取成功 · 处理 ${Number(item.last_item_count || 0)} 项`
-        : item.last_status === "failed"
-          ? "最近爬取失败"
-          : "尚无任务记录";
+    const statusLabel = boardOutcomeText(item);
     checkedLine.textContent = item.last_checked_at
       ? `${statusLabel} · ${formatBoardDate(item.last_checked_at)}`
       : statusLabel;
@@ -3221,7 +3320,10 @@ function renderAccountBoard(items) {
   refreshIcons(refs.boardGrid);
 }
 
+let boardRequestVersion = 0;
+
 async function loadAccountBoard(resetPage = false) {
+  const version = ++boardRequestVersion;
   if (!refs.boardPlatform || !refs.boardPageSize) {
     return;
   }
@@ -3247,6 +3349,7 @@ async function loadAccountBoard(resetPage = false) {
       method: "GET",
       headers: headerOptions(false),
     });
+    if (version !== boardRequestVersion) return;
     state.accountBoard.page = Number(payload.page || 1);
     state.accountBoard.pageSize = Number(payload.page_size || state.accountBoard.pageSize);
     state.accountBoard.pages = Number(payload.pages || 1);
@@ -3270,6 +3373,7 @@ async function loadAccountBoard(resetPage = false) {
     }
     setApiStatus("就绪", "ok");
   } catch (error) {
+    if (version !== boardRequestVersion) return;
     refs.boardGrid.innerHTML = "";
     setBoardStatus(`加载失败: ${error.message}`);
     setApiStatus(`异常: ${error.message}`, "error");
@@ -3724,6 +3828,7 @@ async function runWorkflowAccountTask() {
   refs.workflowAccountSummary.textContent = "";
   try {
     const useSettings = source === "settings";
+    if (!useSettings && !(await ensureSettings())) throw new Error("无法读取账号配置");
     const identityId = refs.workflowAccountIdentity.value || "";
     const payload = {
       use_settings: useSettings,
@@ -4056,6 +4161,7 @@ async function createSchedule() {
   }
   setCollectorStatus(refs.scheduleStatus, "正在创建定时任务…");
   try {
+    if (refs.scheduleSource.value !== "settings" && !(await ensureSettings())) throw new Error("无法读取账号配置");
     const payload = schedulePayloadFromForm();
     await fetchJson("/ui/api/schedules", {
       method: "POST",
@@ -4155,14 +4261,10 @@ function collectMonitorPayloadFromForm() {
 }
 
 async function repairCollectMonitorIdentity(identityId) {
-  switchTab("collectors");
+  switchTab("collectors", { load: false });
   refs.collectorPlatformFilter.value = "douyin";
   refs.collectorStatusFilter.value = "all";
-  if (!state.collectorIdentities.length) {
-    await loadCollectorIdentities();
-  } else {
-    renderCollectorIdentities();
-  }
+  await loadTabData("collectors");
   const identity = collectorIdentityById(identityId);
   if (!identity) {
     setCollectorStatus(
@@ -5860,6 +5962,7 @@ function bindEvents() {
   refs.applyTokenBtn.addEventListener("click", () => {
     withBusyButton(refs.applyTokenBtn, "应用中", async () => {
       const nextToken = refs.tokenInput.value.trim();
+      const previousToken = state.token;
       state.token = nextToken;
       try {
         if (nextToken) {
@@ -5868,6 +5971,7 @@ function bindEvents() {
           await clearWebUiSession();
         }
       } catch (error) {
+        state.token = previousToken;
         setApiStatus(`令牌验证失败: ${error.message}`, "error");
         return;
       }
@@ -5881,22 +5985,16 @@ function bindEvents() {
         "ok",
       );
       refs.applyTokenBtn.textContent = nextToken ? "已验证，正在加载数据…" : "正在刷新…";
-      await Promise.allSettled([
-        loadOverview(),
-        loadSettings(),
-        loadRawSettings(),
-        loadFiles(),
-        loadTaskList(),
-        loadSchedules(),
-        loadCollectMonitors(),
-        loadCollectorIdentities(),
-        ...(state.activeTab === "collectors"
-          ? [
-              loadCollectorPolicy(refs.collectorPolicyPlatform.value),
-              loadCollectorAssignments(refs.collectorAssignmentPlatform.value),
-            ]
-          : []),
-      ]);
+      settingsLoaded = false;
+      rawSettingsLoaded = false;
+      if (previousToken !== nextToken) {
+        refs.settingsRawIncludeSecrets.checked = false;
+        state.rawSettingsSource = {};
+        refs.settingsRawEditor.value = "";
+        syncQuickAuthEditors({});
+      }
+      state.accountBoardDirty = true;
+      await loadTabData(state.activeTab, true);
       connectLogSocket();
     });
   });
@@ -5921,15 +6019,19 @@ function bindEvents() {
   });
 
   refs.settingsReloadBtn.addEventListener("click", () => {
-    withBusyButton(refs.settingsReloadBtn, "加载中", loadSettings);
+    withBusyButton(refs.settingsReloadBtn, "加载中", () => ensureSettings(true));
   });
 
   refs.settingsSaveBtn.addEventListener("click", () => {
     withBusyButton(refs.settingsSaveBtn, "保存中", saveSettings);
   });
 
+  refs.settingsRawDisclosure.addEventListener("toggle", () => {
+    if (refs.settingsRawDisclosure.open && state.activeTab === "control") void ensureRawSettings();
+  });
+
   refs.settingsRawLoadBtn.addEventListener("click", () => {
-    withBusyButton(refs.settingsRawLoadBtn, "加载中", loadRawSettings);
+    withBusyButton(refs.settingsRawLoadBtn, "加载中", () => ensureRawSettings(true));
   });
 
   refs.settingsRawFormatBtn.addEventListener("click", () => {
@@ -5946,7 +6048,7 @@ function bindEvents() {
   });
 
   refs.settingsRawIncludeSecrets.addEventListener("change", () => {
-    withBusyButton(refs.settingsRawLoadBtn, "加载中", loadRawSettings);
+    withBusyButton(refs.settingsRawLoadBtn, "加载中", () => ensureRawSettings(true));
   });
 
   refs.settingsRawSearchBtn.addEventListener("click", searchRawSettings);
@@ -7358,7 +7460,7 @@ async function bootstrap() {
   try {
     activeTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY) || "workbench";
   } catch {}
-  switchTab(activeTab);
+  switchTab(activeTab, { load: false });
   let isCollapsed = false;
   try {
     isCollapsed = localStorage.getItem(ACCOUNTS_COLLAPSE_STORAGE_KEY) === "1";
@@ -7385,18 +7487,7 @@ async function bootstrap() {
   startTaskPolling();
   startOverviewPolling();
   pollLogs();
-  loadOverview();
-  loadSettings();
-  loadRawSettings();
-  loadFiles();
-  loadTaskList();
-  loadSchedules();
-  loadCollectMonitors();
-  loadCollectorIdentities();
-  if (state.activeTab === "collectors") {
-    loadCollectorPolicy(refs.collectorPolicyPlatform.value);
-    loadCollectorAssignments(refs.collectorAssignmentPlatform.value);
-  }
+  await loadTabData(state.activeTab);
 }
 
 void bootstrap();

@@ -7016,3 +7016,17 @@ select.batch-field-select + .app-select-mount {
     outline: 3px solid Highlight;
   }
 }
+
+.profile-board:has(> .attention-table) { column-count: 1; }
+.attention-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: start;
+  font-size: .875rem;
+}
+.attention-table :is(th, td) {
+  padding: .6rem .4rem;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.attention-table a { color: inherit; text-decoration: underline; }
