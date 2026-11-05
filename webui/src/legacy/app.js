@@ -1,4 +1,4 @@
-import { renderPageNumbers } from "./pagination.js";
+import { handlePageShortcut, renderPageNumbers } from "./pagination.js";
 import { refs } from "./dom-refs.js";
 import { createCollectorController } from "./collectors.js";
 import { refreshIcons } from "./icons.js";
@@ -2674,9 +2674,17 @@ function renderBoardCardPreview(card) {
   if (!preview.path || !preview.kind) {
     const empty = document.createElement("div");
     empty.className = "profile-empty";
-    empty.textContent = card.dataset.folderPath
-      ? "目录存在，但未找到可预览媒体"
-      : "未匹配到账户目录";
+    if (card.dataset.folderPath) {
+      empty.textContent = "目录存在，但未找到可预览媒体";
+    } else if (card.dataset.hasWorkRecord === "1") {
+      empty.textContent = "有作品记录，未找到对应的本地目录";
+    } else if (card.dataset.lastStatus === "failed") {
+      empty.textContent = "上次采集失败，暂无本地媒体目录";
+    } else if (card.dataset.lastStatus === "never") {
+      empty.textContent = "尚无采集记录，暂无本地媒体目录";
+    } else {
+      empty.textContent = "暂无可匹配的本地媒体目录";
+    }
     mediaWrap.appendChild(empty);
     return;
   }
@@ -3214,6 +3222,7 @@ function renderAccountBoard(items) {
     card.dataset.avatarPath = item.avatar_path || "";
     card.dataset.avatarScope = item.avatar_scope || "";
     card.dataset.latestWorkAt = item.latest_work_at || "";
+    card.dataset.hasWorkRecord = item.latest_saved_work_at ? "1" : "0";
     card.dataset.lastCheckedAt = item.last_checked_at || "";
     card.dataset.lastStatus = item.last_status || "never";
     card.dataset.previewMode = "";
@@ -5987,6 +5996,7 @@ async function copyTaskResult() {
 }
 
 function bindEvents() {
+  document.addEventListener("keydown", handlePageShortcut);
   refs.sidebarToggleBtn?.addEventListener("click", () => {
     const collapsed = !document.querySelector(".app-shell")?.classList.contains("sidebar-collapsed");
     applySidebarCollapsed(collapsed);
