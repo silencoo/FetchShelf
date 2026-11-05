@@ -258,7 +258,7 @@ async def test_collect_monitor_uses_identity_runtime_and_only_forces_explicit_cr
         return [
             {
                 "aweme_id": f"aweme-{len(captured_fetches)}",
-                "author": {"sec_uid": f"sec-{len(captured_fetches)}"},
+                "author": {"sec_uid": f"sec-{len(captured_fetches)}", "nickname": "Example"},
             }
         ]
 
@@ -307,6 +307,7 @@ async def test_collect_monitor_uses_identity_runtime_and_only_forces_explicit_cr
     ]
     assert explicit["selected_identity_id"] == "dy-monitor"
     assert automatic["selected_identity_id"] == "dy-monitor"
+    assert captured_batches[0]["items"][0]["mark"] == "Example"
     assert captured_batches[0]["identity_id"] == "dy-monitor"
     assert captured_batches[1]["identity_id"] == ""
     server.collector_store.close()

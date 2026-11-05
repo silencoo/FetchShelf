@@ -781,6 +781,12 @@ def test_account_outcomes_distinguish_empty_private_and_download_failure():
         },
         False,
     )
+    worker._account_items_diagnostic = {"api_status": 8}
+    profile = {"sec_uid": "target", "nickname": "Verified name"}
+    rejected = worker._empty_account_outcome(profile, False, "target")
+    assert rejected["outcome_code"] == "api_rejected"
+    assert rejected["context"]["profile_nickname"] == "Verified name"
+    assert "profile_nickname" not in worker._empty_account_outcome(profile, False, "other")["context"]
     download = worker._successful_account_outcome(
         {
             "item_count": 2,

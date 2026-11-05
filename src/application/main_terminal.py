@@ -830,7 +830,17 @@ class TikTok:
     def _is_deleted_nickname(cls, nickname: str) -> bool:
         return nickname.strip().lower() in cls.DELETED_ACCOUNT_HINTS
 
-    def _empty_account_outcome(self, info: dict, tiktok: bool) -> dict:
+    def _empty_account_outcome(self, info: dict, tiktok: bool, sec_user_id: str = "") -> dict:
+        outcome = self._classify_empty_account(info, tiktok)
+        profile = info.get("user", info) if tiktok else info
+        if isinstance(profile, dict) and sec_user_id:
+            actual_id = profile.get("secUid" if tiktok else "sec_uid")
+            nickname = str(profile.get("nickname") or "").strip()
+            if actual_id == sec_user_id and nickname and not self._is_deleted_nickname(nickname):
+                outcome["context"]["profile_nickname"] = nickname
+        return outcome
+
+    def _classify_empty_account(self, info: dict, tiktok: bool) -> dict:
         for diagnostic in (
             getattr(self, "_account_items_diagnostic", {}),
             getattr(self, "_account_info_diagnostic", {}),
@@ -1089,7 +1099,7 @@ class TikTok:
                 "favorite",
                 "collection",
             }:
-                outcome = self._empty_account_outcome(info or {}, tiktok)
+                outcome = self._empty_account_outcome(info or {}, tiktok, sec_user_id)
                 return outcome if return_outcome else None
             self.logger.info(
                 _(
@@ -1108,7 +1118,7 @@ class TikTok:
             **kwargs,
         )
         if not any(account_data):
-            outcome = self._empty_account_outcome(info or {}, tiktok)
+            outcome = self._empty_account_outcome(info or {}, tiktok, sec_user_id)
             return outcome if return_outcome else None
         if source:
             result = self.extractor.source_date_filter(

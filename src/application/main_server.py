@@ -4062,22 +4062,18 @@ class APIServer(TikTok, ServerRoutesMixin):
         }
         return endpoint, payload
 
-    @staticmethod
-    def _extract_collect_monitor_sec_uids(aweme_items: list[dict]) -> list[str]:
-        sec_uids = []
-        seen = set()
+    @classmethod
+    def _collect_monitor_authors(cls, aweme_items: list[dict]) -> dict[str, str]:
+        authors = {}
         for item in aweme_items:
-            if not isinstance(item, dict):
-                continue
-            author = item.get("author") or {}
+            author = item.get("author") if isinstance(item, dict) else None
             if not isinstance(author, dict):
                 continue
-            sec_uid = APIServer._normalize_string(author.get("sec_uid"))
-            if not sec_uid or sec_uid in seen:
-                continue
-            seen.add(sec_uid)
-            sec_uids.append(sec_uid)
-        return sec_uids
+            sec_uid = cls._normalize_string(author.get("sec_uid"))
+            if sec_uid and not authors.get(sec_uid):
+                name = cls._normalize_string(author.get("nickname"))
+                authors[sec_uid] = "" if cls._is_deleted_nickname(name) else name
+        return authors
 
     @classmethod
     def _collect_monitor_page_count(cls, limit: int) -> int:
@@ -4294,26 +4290,25 @@ class APIServer(TikTok, ServerRoutesMixin):
                 parameter=worker.parameter,
                 user_agent=credentials.user_agent,
             )
-            sec_uids = self._extract_collect_monitor_sec_uids(aweme_items)
+            authors = self._collect_monitor_authors(aweme_items)
+            backfill = getattr(self.parameter, "auto_backfill_mark", True)
 
             existing_rows = self._normalize_account_items(self._account_rows(False))
-            seen_urls = {
-                self._normalize_account_url(item.get("url", ""))
-                for item in existing_rows
-                if self._normalize_account_url(item.get("url", ""))
-            }
+            by_url = {self._normalize_account_url(row["url"]): row for row in existing_rows}
             new_rows = []
+            updated_marks = 0
             duplicate_accounts = 0
-            for sec_uid in sec_uids:
+            for sec_uid, nickname in authors.items():
                 account_url = f"https://www.douyin.com/user/{sec_uid}"
                 key = self._normalize_account_url(account_url)
-                if not key or key in seen_urls:
+                if key in by_url:
                     duplicate_accounts += 1
+                    if backfill and self._apply_missing_mark(by_url[key], nickname):
+                        updated_marks += 1
                     continue
-                seen_urls.add(key)
                 new_rows.append(
                     {
-                        "mark": "",
+                        "mark": nickname if backfill else "",
                         "url": account_url,
                         "tab": self._normalize_collect_tab(
                             schedule.get("default_tab")
@@ -4335,7 +4330,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                     }
                 )
 
-            if new_rows:
+            if new_rows or updated_marks:
                 # Keep monitor-added accounts at top, matching manual insertion.
                 self._set_account_rows(False, [*new_rows, *existing_rows])
                 self.parameter.settings.update(self.parameter.get_settings_data())
@@ -4345,7 +4340,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                     "ok": True,
                     "collect_id": collect_id,
                     "fetched_aweme": len(aweme_items),
-                    "sec_uid_count": len(sec_uids),
+                    "sec_uid_count": len(authors),
                     "added_accounts": len(new_rows),
                     "duplicate_accounts": duplicate_accounts,
                     "_new_rows": new_rows,
@@ -5376,7 +5371,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                     url=self._normalize_string(item.get("url")),
                     sec_uid=self._normalize_string(sec_uid),
                     mark=self._normalize_string(
-                        context.get("mark") or item.get("mark")
+                        item.get("mark") or context.get("mark") or context.get("profile_nickname")
                     ),
                     latest_seen_work_at=self._normalize_string(
                         context.get("latest_seen_work_at")
@@ -5909,6 +5904,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                 }
             ]
             selected = initial_execution
+            profile_nickname = initial_execution.get("context", {}).get("profile_nickname")
             if (
                 not initial_execution.get("ok")
                 and initial_execution.get("cross_identity")
@@ -5930,6 +5926,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                         track_progress=False,
                     )
                     retry_execution = retry_results[0]
+                    profile_nickname = retry_execution.get("context", {}).get("profile_nickname") or profile_nickname
                     attempts.append(
                         {
                             "identity_id": candidate_id,
@@ -5949,6 +5946,8 @@ class APIServer(TikTok, ServerRoutesMixin):
                     ):
                         selected = retry_execution
                         break
+            if profile_nickname:
+                selected.setdefault("context", {})["profile_nickname"] = profile_nickname
             selected["attempted_identities"] = attempts
             selected["initial_identity_id"] = initial_identity_id
             selected["_progress_status"] = initial_execution.get(
@@ -6022,6 +6021,13 @@ class APIServer(TikTok, ServerRoutesMixin):
                     ),
                 }
             )
+            context = execution.get("context", {})
+            row_index = item.get("_settings_index")
+            has_settings_row = isinstance(row_index, int) and 0 <= row_index < len(settings_rows)
+            if has_settings_row and getattr(self.parameter, "auto_backfill_mark", True):
+                name = context.get("profile_nickname") or (context.get("mark") if execution.get("ok") else "")
+                if self._apply_missing_mark(settings_rows[row_index], name):
+                    auto_filled_mark += 1
             if execution.get("terminal_status") == "skipped":
                 failed_streak = 0
                 continue
@@ -6048,17 +6054,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                 continue
             success += 1
             failed_streak = 0
-            context = execution.get("context", {})
-            row_index = item.get("_settings_index")
-            if isinstance(row_index, int) and 0 <= row_index < len(settings_rows):
-                if (
-                    getattr(self.parameter, "auto_backfill_mark", True)
-                    and self._apply_missing_mark(
-                        settings_rows[row_index],
-                        context.get("mark", ""),
-                    )
-                ):
-                    auto_filled_mark += 1
+            if has_settings_row:
                 if use_settings:
                     earliest_updated, earliest_target = self._apply_auto_update_earliest(
                         settings_rows[row_index],
