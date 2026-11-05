@@ -174,7 +174,7 @@ export function AppSelect({ ariaLabel, nativeSelect }: AppSelectProps) {
           <ChevronIcon direction="down" />
         </Select.Icon>
       </Select.Trigger>
-      <Select.Portal>
+      <Select.Portal container={nativeSelect.closest("dialog")}>
         <Select.Content
           className="app-select-content"
           collisionPadding={12}

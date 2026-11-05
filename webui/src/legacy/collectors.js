@@ -552,6 +552,15 @@ export function createCollectorController({
     refs.collectorIdentityUserAgent.value = "";
   }
 
+  function showCollectorPlatform(saved) {
+    const select = refs.collectorIdentityPlatform;
+    const readOnly = refs.collectorIdentityPlatformSaved;
+    select.disabled = saved;
+    select.closest("label").hidden = saved;
+    readOnly.value = collectorPlatformLabel(select.value);
+    readOnly.closest("label").hidden = !saved;
+  }
+
   function openCollectorIdentityDialog(identityId = "", trigger = document.activeElement) {
     const identity = state.collectorIdentities.find((item) => item.identity_id === identityId);
     refs.collectorIdentityForm.reset();
@@ -560,7 +569,7 @@ export function createCollectorController({
     refs.collectorIdentityName.value = identity?.name || "";
     refs.collectorIdentityPlatform.value = identity?.platform || "douyin";
     refs.collectorIdentityAuthMode.value = identity?.auth_mode || "anonymous";
-    refs.collectorIdentityPlatform.disabled = Boolean(identity);
+    showCollectorPlatform(Boolean(identity));
     refs.collectorIdentityWeight.value = String(identity?.weight || 1);
     refs.collectorIdentityDelay.value = String(identity?.request_delay ?? 6);
     refs.collectorIdentityConcurrency.value = String(identity?.max_concurrency || 1);
@@ -1047,7 +1056,7 @@ export function createCollectorController({
       }
       if (!currentId) {
         refs.collectorIdentityId.value = identityId;
-        refs.collectorIdentityPlatform.disabled = true;
+        showCollectorPlatform(true);
         refs.collectorDialogTitle.textContent = "编辑采集身份";
         refs.collectorDialogSaveBtn.textContent = "保存修改";
       }

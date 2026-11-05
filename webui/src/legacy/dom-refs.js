@@ -351,6 +351,7 @@ export const refs = {
   collectorIdentityId: document.getElementById("collector-identity-id"),
   collectorIdentityName: document.getElementById("collector-identity-name"),
   collectorIdentityPlatform: document.getElementById("collector-identity-platform"),
+  collectorIdentityPlatformSaved: document.getElementById("collector-identity-platform-saved"),
   collectorTikTokAuthFields: document.getElementById("collector-tiktok-auth-fields"),
   collectorIdentityAuthMode: document.getElementById("collector-identity-auth-mode"),
   collectorIdentityAuthModeHelp: document.getElementById("collector-identity-auth-mode-help"),
