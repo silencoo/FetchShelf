@@ -5630,6 +5630,31 @@ select.batch-field-select + .app-select-mount {
   padding-inline: 4px;
 }
 
+.profile-board-immersive {
+  column-gap: 8px;
+}
+
+.profile-board-immersive .profile-card {
+  margin-bottom: 8px;
+}
+
+.profile-board-immersive .profile-body {
+  min-height: 0;
+  padding: 5px 8px;
+}
+
+.profile-board-immersive .profile-body > :not(.profile-title) {
+  display: none;
+}
+
+.profile-board-immersive .profile-title {
+  margin: 0;
+}
+
+.profile-board-immersive .profile-name {
+  min-height: 0;
+}
+
 /* Monitoring, workflows, schedules, and tasks */
 
 .monitor-grid {

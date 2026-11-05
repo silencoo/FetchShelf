@@ -2387,7 +2387,7 @@ function restoreAccountBoardState() {
       state.accountBoard.pageSize = Number(saved.pageSize);
     }
     state.accountBoard.columns = Math.max(1, Math.min(12, Number(saved.columns || 4)));
-    if (["avatar", "media"].includes(saved.viewMode)) {
+    if (["avatar", "media", "immersive"].includes(saved.viewMode)) {
       state.accountBoard.viewMode = saved.viewMode;
     }
     if (["auto", "video", "image"].includes(saved.refreshKind)) {
@@ -2457,7 +2457,7 @@ function conciseAccountUrl(value) {
 }
 
 function boardColumnsCap() {
-  const compactMode = state.accountBoard.viewMode === "avatar";
+  const compactMode = state.accountBoard.viewMode !== "media";
   const viewportWidth = window.innerWidth || 1280;
   const boardWidth =
     refs.boardGrid?.clientWidth ||
@@ -2492,6 +2492,7 @@ function applyBoardColumns(persist = true) {
   }
   if (refs.boardGrid) {
     refs.boardGrid.style.setProperty("--board-columns", String(next));
+    refs.boardGrid.classList.toggle("profile-board-immersive", state.accountBoard.viewMode === "immersive");
     refs.boardGrid.classList.toggle("profile-board-compact", state.accountBoard.viewMode === "avatar");
     refs.boardGrid.classList.toggle(
       "profile-board-ultra",
