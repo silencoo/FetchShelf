@@ -6684,6 +6684,32 @@ function bindEvents() {
   });
 
   refs.accountGalleryLightboxClose.addEventListener("click", closeAccountGalleryLightbox);
+  let lastWheelAt = -Infinity;
+  let wheelDistance = 0;
+  let wheelNavigated = false;
+  refs.accountGalleryLightbox.addEventListener("close", () => {
+    lastWheelAt = -Infinity;
+  });
+  refs.accountGalleryLightbox.addEventListener("wheel", (event) => {
+    if (event.ctrlKey) return;
+    event.preventDefault();
+    if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+
+    // Treat a trackpad swipe and its momentum as one navigation gesture.
+    if (event.timeStamp - lastWheelAt > 160 || wheelDistance * event.deltaY < 0) {
+      wheelDistance = 0;
+      wheelNavigated = false;
+    }
+    lastWheelAt = event.timeStamp;
+    if (wheelNavigated) return;
+    const pixelsPerUnit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? window.innerHeight : 1;
+    wheelDistance += event.deltaY * pixelsPerUnit;
+    if (Math.abs(wheelDistance) >= 24) {
+      wheelNavigated = true;
+      moveAccountGallery(Math.sign(wheelDistance));
+    }
+  }, { passive: false });
   refs.accountGalleryLightbox.addEventListener("cancel", (event) => {
     event.preventDefault();
     closeAccountGalleryLightbox();

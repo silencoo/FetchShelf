@@ -4910,6 +4910,7 @@ select.batch-field-select + .app-select-mount {
 .account-gallery-lightbox[open] {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
+  overscroll-behavior: contain;
 }
 
 .account-gallery-lightbox::backdrop {
