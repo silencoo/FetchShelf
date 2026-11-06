@@ -5136,7 +5136,7 @@ function updateTaskAccountBulkToolbar() {
     !visibleItems.length || selectedVisibleCount === visibleItems.length;
   refs.taskAccountClearSelectionBtn.disabled = !selectedCount;
   refs.taskAccountOpenSelectedBtn.disabled = !selectedCount;
-  refs.taskAccountArchiveSelectedBtn.disabled = !selectedCount;
+  refs.taskAccountArchiveSelectedBtn.disabled = !selectedCount || state.taskAccountArchivePending;
 }
 
 function selectVisibleTaskAccounts() {
@@ -5151,29 +5151,8 @@ function clearTaskAccountSelection() {
   renderTaskAccounts(state.taskAccounts.payload || { items: [] });
 }
 
-function closeTaskAccountArchiveDialog({ restoreFocus = true } = {}) {
-  if (state.taskAccountArchive.pending) {
-    return;
-  }
-  if (refs.taskAccountArchiveDialog?.open) {
-    refs.taskAccountArchiveDialog.close();
-  }
-  const focusTarget = state.taskAccountArchive.restoreFocus;
-  state.taskAccountArchive = {
-    platform: "",
-    items: [],
-    restoreFocus: null,
-    pending: false,
-  };
-  if (restoreFocus && focusTarget instanceof HTMLElement && focusTarget.isConnected) {
-    focusTarget.focus();
-  }
-}
-
-function openTaskAccountArchiveDialog({ platform, url, mark, items, trigger }) {
-  if (!refs.taskAccountArchiveDialog) {
-    return;
-  }
+async function archiveTaskAccounts({ platform, url, mark, items, trigger }) {
+  if (state.taskAccountArchivePending) return;
   const candidates = Array.isArray(items) ? items : [{ platform, url, mark }];
   const normalizedItems = [];
   const seen = new Set();
@@ -5202,50 +5181,20 @@ function openTaskAccountArchiveDialog({ platform, url, mark, items, trigger }) {
   const samePlatformItems = normalizedItems.filter(
     (candidate) => candidate.platform === normalizedPlatform,
   );
-  const count = samePlatformItems.length;
-  const platformLabel = normalizedPlatform === "tiktok" ? "TikTok" : "抖音";
-  state.taskAccountArchive = {
-    platform: normalizedPlatform,
-    items: samePlatformItems,
-    restoreFocus: trigger instanceof HTMLElement ? trigger : null,
-    pending: false,
-  };
-  refs.taskAccountArchiveTitle.textContent =
-    count === 1
-      ? `将账号移出 ${platformLabel} 采集名单`
-      : `批量移出 ${platformLabel} 采集账号`;
-  refs.taskAccountArchiveSummary.textContent =
-    count === 1 ? samePlatformItems[0].mark : `已选择 ${count} 个账号`;
-  refs.taskAccountArchiveSummary.title =
-    count === 1 ? samePlatformItems[0].url : "";
-  refs.taskAccountArchiveStatus.textContent =
-    count === 1
-      ? "该账号会移入删除区；任务历史和已经下载的媒体不会被删除。"
-      : `这 ${count} 个账号会一次性移入删除区；任务历史和媒体文件不会被删除。`;
-  refs.taskAccountArchiveConfirmBtn.textContent =
-    count === 1 ? "移入删除区" : `移出 ${count} 个账号`;
-  refs.taskAccountArchiveCloseBtn.disabled = false;
-  refs.taskAccountArchiveCancelBtn.disabled = false;
-  refs.taskAccountArchiveConfirmBtn.disabled = false;
-  refs.taskAccountArchiveDialog.showModal();
-  refreshIcons(refs.taskAccountArchiveDialog);
-  refs.taskAccountArchiveCancelBtn.focus();
-}
-
-async function confirmTaskAccountArchive() {
-  const { platform, items } = state.taskAccountArchive;
-  if (!platform || !items.length || state.taskAccountArchive.pending) {
-    return;
-  }
-  const archivedItems = [...items];
+  const archivedItems = samePlatformItems;
   const isBatch = archivedItems.length > 1;
-  state.taskAccountArchive.pending = true;
-  refs.taskAccountArchiveStatus.textContent = isBatch
-    ? `正在备份配置并移出 ${archivedItems.length} 个账号…`
-    : "正在备份配置并移入删除区…";
-  refs.taskAccountArchiveCloseBtn.disabled = true;
-  refs.taskAccountArchiveCancelBtn.disabled = true;
-  refs.taskAccountArchiveConfirmBtn.disabled = true;
+  const taskId = state.selectedTaskId;
+  state.taskAccountArchivePending = true;
+  updateTaskAccountBulkToolbar();
+  refs.taskAccountList.querySelectorAll(".task-account-archive").forEach((button) => {
+    button.disabled = true;
+  });
+  const previousMarkup = trigger?.innerHTML;
+  if (trigger) {
+    trigger.disabled = true;
+    trigger.setAttribute("aria-busy", "true");
+    trigger.textContent = "移出中…";
+  }
   try {
     const result = await fetchJson(
       isBatch ? "/ui/api/accounts/archive-batch" : "/ui/api/accounts/archive",
@@ -5253,45 +5202,38 @@ async function confirmTaskAccountArchive() {
         method: "POST",
         headers: headerOptions(true),
         body: JSON.stringify({
-          platform,
+          platform: normalizedPlatform,
           ...(isBatch
             ? { urls: archivedItems.map((item) => item.url) }
             : { url: archivedItems[0].url }),
-          reason: `任务 ${state.selectedTaskId || "-"} 失败后人工确认：账号不活跃或已注销`,
+          reason: `任务 ${taskId || "-"}：手动移出采集名单`,
         }),
       },
     );
     syncAccountTablesFromPayload(result);
+    state.accountBoardDirty = true;
     archivedItems.forEach((item) => state.taskAccountSelected.delete(item.key));
-    updateTaskAccountBulkToolbar();
-    state.taskAccountArchive.pending = false;
-    closeTaskAccountArchiveDialog({ restoreFocus: false });
     await loadTaskAccounts();
-    refs.taskAccountList.focus({ preventScroll: true });
-    const archivedCount = Number(result.archived_count || 0);
-    if (isBatch) {
-      setApiStatus(
-        archivedCount
-          ? `已将 ${archivedCount} 个账号移入删除区`
-          : "所选账号已不在采集名单中",
-        "ok",
-      );
-    } else {
-      setApiStatus(
-        result.archived
-          ? `已将 ${archivedItems[0].mark} 移入删除区`
-          : `${archivedItems[0].mark} 已不在采集名单中`,
-        "ok",
-      );
+    if (state.selectedTaskId === taskId && state.activeTab === "workbench") {
+      refs.taskAccountList.focus({ preventScroll: true });
     }
+    const archivedCount = Number(result.archived_count || 0);
+    setApiStatus(isBatch
+      ? archivedCount ? `已将 ${archivedCount} 个账号移入删除区` : "所选账号已不在采集名单中"
+      : result.archived ? `已将 ${archivedItems[0].mark} 移入删除区` : `${archivedItems[0].mark} 已不在采集名单中`,
+    "ok");
   } catch (error) {
-    state.taskAccountArchive.pending = false;
-    refs.taskAccountArchiveStatus.textContent = `移出失败：${error.message}`;
-    refs.taskAccountArchiveCloseBtn.disabled = false;
-    refs.taskAccountArchiveCancelBtn.disabled = false;
-    refs.taskAccountArchiveConfirmBtn.disabled = false;
-    refs.taskAccountArchiveConfirmBtn.focus();
-    setApiStatus(`异常: ${error.message}`, "error");
+    setApiStatus(`移出失败：${error.message}，可重试`, "error");
+  } finally {
+    state.taskAccountArchivePending = false;
+    if (trigger?.isConnected) {
+      trigger.innerHTML = previousMarkup;
+      trigger.removeAttribute("aria-busy");
+    }
+    refs.taskAccountList.querySelectorAll(".task-account-archive").forEach((button) => {
+      button.disabled = false;
+    });
+    updateTaskAccountBulkToolbar();
   }
 }
 
@@ -5508,13 +5450,14 @@ function renderTaskAccounts(payload) {
       if (configured) {
         const archiveAction = document.createElement("button");
         archiveAction.type = "button";
+        archiveAction.disabled = state.taskAccountArchivePending;
         archiveAction.className = "btn ghost danger task-account-archive";
         archiveAction.setAttribute("aria-label", `将账号移出采集名单：${accountName}`);
         const archiveIcon = document.createElement("i");
         archiveIcon.dataset.lucide = "trash-2";
         archiveAction.append(archiveIcon, document.createTextNode("移出名单"));
         archiveAction.addEventListener("click", () => {
-          openTaskAccountArchiveDialog({
+          void archiveTaskAccounts({
             platform,
             url: accountUrl,
             mark: accountName,
@@ -7407,7 +7350,7 @@ function bindEvents() {
   });
 
   refs.taskAccountArchiveSelectedBtn.addEventListener("click", () => {
-    openTaskAccountArchiveDialog({
+    void archiveTaskAccounts({
       items: selectedTaskAccountItems(),
       trigger: refs.taskAccountArchiveSelectedBtn,
     });
@@ -7434,24 +7377,7 @@ function bindEvents() {
     }
   });
 
-  refs.taskAccountArchiveCloseBtn.addEventListener("click", () => {
-    closeTaskAccountArchiveDialog();
-  });
-  refs.taskAccountArchiveCancelBtn.addEventListener("click", () => {
-    closeTaskAccountArchiveDialog();
-  });
-  refs.taskAccountArchiveConfirmBtn.addEventListener("click", () => {
-    confirmTaskAccountArchive();
-  });
-  refs.taskAccountArchiveDialog.addEventListener("cancel", (event) => {
-    event.preventDefault();
-    closeTaskAccountArchiveDialog();
-  });
-  refs.taskAccountArchiveDialog.addEventListener("click", (event) => {
-    if (event.target === refs.taskAccountArchiveDialog) {
-      closeTaskAccountArchiveDialog();
-    }
-  });
+
 
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && state.activeTab === "workbench") {

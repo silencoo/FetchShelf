@@ -48,12 +48,7 @@ export const state = {
   },
   taskAccountSelected: new Map(),
   taskAccountVisible: [],
-  taskAccountArchive: {
-    platform: "",
-    items: [],
-    restoreFocus: null,
-    pending: false,
-  },
+  taskAccountArchivePending: false,
   overviewLoading: false,
   overviewRefreshTimer: null,
   settingsData: {},

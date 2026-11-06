@@ -168,7 +168,7 @@ def test_task_account_rows_offer_safe_external_navigation():
     assert 'attemptedIdentityIds.join(" → ")' in script
     assert "account.recovered_by_identity" in script
     assert ".task-account-diagnostic-grid" in styles
-    assert 'id="task-account-archive-dialog"' in index
+    assert 'id="task-account-archive-dialog"' not in index
     assert 'id="task-account-select-page-btn"' in index
     assert 'id="task-account-clear-selection-btn"' in index
     assert 'id="task-account-open-selected-btn"' in index
@@ -181,7 +181,8 @@ def test_task_account_rows_offer_safe_external_navigation():
     assert "function selectVisibleTaskAccounts()" in script
     assert "function clearTaskAccountSelection()" in script
     assert "selectedTaskAccountItems().map((item) => item.url)" in script
-    assert "closeTaskAccountArchiveDialog" in script
+    assert "async function archiveTaskAccounts(" in script
+    assert 'id="deleted-accounts-dialog"' in index
     assert ".task-account-bulk-toolbar" in styles
     assert ".task-account-select" in styles
     assert ".task-account-actions" in styles

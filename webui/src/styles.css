@@ -3711,24 +3711,20 @@ select.batch-field-select + .app-select-mount {
   }
 }
 
-.deleted-accounts-dialog,
-.task-account-archive-dialog {
+.deleted-accounts-dialog {
   width: min(560px, calc(100vw - 32px));
 }
 
-.deleted-accounts-dialog .collector-dialog-section,
-.task-account-archive-dialog .collector-dialog-section {
+.deleted-accounts-dialog .collector-dialog-section {
   border-color: var(--danger-line);
   background: var(--danger-soft);
 }
 
-.deleted-accounts-dialog .collector-dialog-section h3,
-.task-account-archive-dialog .collector-dialog-section h3 {
+.deleted-accounts-dialog .collector-dialog-section h3 {
   color: var(--text-strong);
 }
 
-.deleted-accounts-dialog .collector-dialog-section p,
-.task-account-archive-dialog .collector-dialog-section p {
+.deleted-accounts-dialog .collector-dialog-section p {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.55;
