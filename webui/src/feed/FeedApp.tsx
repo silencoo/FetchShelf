@@ -112,6 +112,12 @@ function LayerCard({
       aria-hidden={!isTop}
       onPointerDown={(event) => {
         const target = event.target as HTMLElement;
+        if (!event.isPrimary || cardRef.current?.querySelector("[data-zoom-active]")) {
+          if (drag.current.active) settle(false);
+          drag.current.id = -1;
+          drag.current.active = false;
+          return;
+        }
         if (event.pointerType === "mouse" || target.closest(".fa-chips, .fa-seek, .fa-carousel")) {
           return;
         }
@@ -119,6 +125,12 @@ function LayerCard({
       }}
       onPointerMove={(event) => {
         const state = drag.current;
+        if (cardRef.current?.querySelector("[data-zoom-active]")) {
+          if (state.active) settle(false);
+          state.id = -1;
+          state.active = false;
+          return;
+        }
         if (event.pointerId !== state.id) {
           return;
         }

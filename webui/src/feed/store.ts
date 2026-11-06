@@ -183,6 +183,7 @@ class Preferences extends Observable {
   sound = readPreference("feed.sound", true);
   autoNext = readPreference("feed.autonext", false);
   showPauseIcon = readPreference("feed.pause_icon", true);
+  pinchZoom = readPreference("feed.pinch_zoom", true);
 
   setSound(value: boolean) {
     this.sound = value;
@@ -199,6 +200,12 @@ class Preferences extends Observable {
   setShowPauseIcon(value: boolean) {
     this.showPauseIcon = value;
     writePreference("feed.pause_icon", value);
+    this.emit();
+  }
+
+  setPinchZoom(value: boolean) {
+    this.pinchZoom = value;
+    writePreference("feed.pinch_zoom", value);
     this.emit();
   }
 }

@@ -37,3 +37,12 @@ failed fallback images, and recovery when a cover changes. Its images are synthe
 `python scripts/check_feed_sharing.py` checks file selection, authentication,
 file types, cancellation, and share fallbacks with a mocked native share API.
 Real iPhone share-sheet/app handoff needs a device test over HTTPS.
+
+Pinch zoom is enabled by default and can be disabled in Me. It transforms the
+existing media element, hides controls while enlarged, and keeps fitted
+one-finger feed/carousel scrolling native. Do not resize the pager or replace
+its snap targets when clearing the screen. Returning to 1× restores navigation.
+`python scripts/check_feed_zoom.py --video /path/to/a-small-fixture.mp4` uses the
+same browser options and Vite server. Chromium checks real touch input through
+CDP; desktop WebKit checks synthetic touch events, so iPhone hardware still
+needs a gesture check.

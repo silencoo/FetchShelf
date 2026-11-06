@@ -385,6 +385,41 @@
   touch-action: pan-y;
 }
 
+/* Direct media zoom: no toolbar or indicators, and no moving snap targets. */
+.fa-poster,
+.fa-video-host,
+.fa-carousel-item[data-current="true"] > img,
+.fa-carousel-item[data-current="true"] > video {
+  transform: var(--media-zoom, none);
+  transform-origin: center;
+}
+
+.fa-stage[data-zoom-active],
+.fa-stage[data-zoom-active] .fa-surface,
+.fa-stage[data-zoom-active] .fa-carousel {
+  touch-action: none;
+}
+
+.fa-pager:has(.fa-stage[data-zoom-active]) {
+  overflow-y: hidden;
+}
+
+.fa-stage[data-zoom-active] .fa-carousel {
+  overflow-x: hidden;
+}
+
+.fa:has(.fa-stage[data-zoomed]) :is(.fa-topbar, .fa-tabbar, .fa-nav, .fa-sound-chip, .fa-pager-arrows),
+.fa-slide:has(.fa-stage[data-zoomed]) :is(.fa-caption, .fa-rail, .fa-center-icon, .fa-center-spinner,
+  .fa-seek, .fa-seek-time, .fa-fullscreen, .fa-speed-chip, .fa-media-error, .fa-carousel-arrow,
+  .fa-carousel-count, .fa-dots, .fa-burst) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.fa-slide:has(.fa-stage[data-zoomed]) .fa-stage-wrap::after {
+  opacity: 0;
+}
+
 .fa-center-icon,
 .fa-center-spinner {
   position: absolute;

@@ -928,6 +928,11 @@ export function MeView({ actions, visible }: { actions: ViewActions; visible: bo
             onChange={(event) => preferences.setShowPauseIcon(event.target.checked)}
           />
         </label>
+        <label className="fa-switch-row">
+          <span>双指缩放<small>放大时自动清屏，缩回原大小恢复浏览</small></span>
+          <input type="checkbox" role="switch" checked={preferences.pinchZoom}
+            onChange={(event) => preferences.setPinchZoom(event.target.checked)} />
+        </label>
         <div className="fa-setting-row">
           <span>
             媒体库

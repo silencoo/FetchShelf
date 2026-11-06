@@ -14,6 +14,7 @@ import {
 } from "react";
 
 import { api, avatarUrl, fileUrl, thumbUrl } from "./api";
+import { useMediaZoom } from "./useMediaZoom";
 import { formatCount, formatDuration, formatRelativeTime, initialOf, splitCaption } from "./format";
 import {
   BookmarkIcon,
@@ -83,6 +84,7 @@ function useSurfaceGestures(options: {
   onTap(): void;
   onDoubleTap(x: number, y: number): void;
   onLongPress?(active: boolean): void;
+  blocked?(): boolean;
 }) {
   const latest = useRef(options);
   latest.current = options;
@@ -120,6 +122,13 @@ function useSurfaceGestures(options: {
 
   return {
     onPointerDown(event: ReactPointerEvent<HTMLElement>) {
+      if (!event.isPrimary || latest.current.blocked?.()) {
+        endPress();
+        window.clearTimeout(gesture.current.tapTimer);
+        gesture.current.suppressClick = true;
+        gesture.current.lastTap = 0;
+        return;
+      }
       if (event.pointerType === "mouse" && event.button !== 0) {
         return;
       }
@@ -132,7 +141,7 @@ function useSurfaceGestures(options: {
       window.clearTimeout(state.timer);
       if (latest.current.onLongPress) {
         state.timer = window.setTimeout(() => {
-          if (!state.moved) {
+          if (!state.moved && !latest.current.blocked?.()) {
             state.pressed = true;
             latest.current.onLongPress?.(true);
           }
@@ -140,6 +149,7 @@ function useSurfaceGestures(options: {
       }
     },
     onPointerMove(event: ReactPointerEvent<HTMLElement>) {
+      if (latest.current.blocked?.()) { endPress(); return; }
       const state = gesture.current;
       if (event.pointerId !== state.id) {
         return;
@@ -158,6 +168,7 @@ function useSurfaceGestures(options: {
       gesture.current.id = -1;
     },
     onClick(event: ReactMouseEvent<HTMLElement>) {
+      if (latest.current.blocked?.()) return;
       const state = gesture.current;
       if (state.suppressClick) {
         state.suppressClick = false;
@@ -200,11 +211,16 @@ function useSwipeLeft(onSwipe: () => void) {
   const gesture = useRef({ id: -1, x: 0, y: 0, horizontal: false });
   return {
     onPointerDown(event: ReactPointerEvent<HTMLElement>) {
+      if (!event.isPrimary || event.currentTarget.querySelector("[data-zoom-active]")) {
+        gesture.current.id = -1;
+        return;
+      }
       if (event.pointerType !== "mouse") {
         gesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY, horizontal: false };
       }
     },
     onPointerMove(event: ReactPointerEvent<HTMLElement>) {
+      if (event.currentTarget.querySelector("[data-zoom-active]")) { gesture.current.id = -1; return; }
       const state = gesture.current;
       if (event.pointerId === state.id) {
         const dx = event.clientX - state.x;
@@ -215,7 +231,7 @@ function useSwipeLeft(onSwipe: () => void) {
     },
     onPointerUp(event: ReactPointerEvent<HTMLElement>) {
       const state = gesture.current;
-      if (event.pointerId === state.id && state.horizontal && event.clientX - state.x < -56) {
+      if (!event.currentTarget.querySelector("[data-zoom-active]") && event.pointerId === state.id && state.horizontal && event.clientX - state.x < -56) {
         latest.current();
       }
       state.id = -1;
@@ -473,6 +489,9 @@ function VideoSlide({
   const hostRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const zoom = useMediaZoom(boxRef, preferences.pinchZoom, isActive, post.key);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [paused, setPaused] = useState(false);
   const [fast, setFast] = useState(false);
@@ -515,7 +534,7 @@ function VideoSlide({
     } else if (event === "paused") {
       setPaused(mediaPool.isPaused() || mediaPool.blocked);
     } else if (event === "ended") {
-      onEndedRef.current();
+      if (!zoomRef.current.isBlocked()) onEndedRef.current();
     }
   }, []);
 
@@ -571,6 +590,7 @@ function VideoSlide({
   }, [isActive, surfaceRef, togglePause]);
 
   const gestures = useSurfaceGestures({
+    blocked: zoom.isBlocked,
     onTap: togglePause,
     onDoubleTap(x, y) {
       add(x, y);
@@ -696,7 +716,7 @@ function CarouselItem({
     return <div className="fa-carousel-item" />;
   }
   return (
-    <div className="fa-carousel-item">
+    <div className="fa-carousel-item" data-current={index === current}>
       {item.kind === "image" ? (
         <img
           src={fileUrl(item.path)}
@@ -743,6 +763,7 @@ function ImageSlide({
   const boxRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(0);
+  const zoom = useMediaZoom(boxRef, preferences.pinchZoom, isActive, `${post.key}:${current}`);
   const [paused, setPaused] = useState(false);
   const { bursts, add } = useHeartBursts();
   const count = post.media.length;
@@ -773,7 +794,7 @@ function ImageSlide({
       setPaused(false);
       return;
     }
-    if (paused) {
+    if (paused || zoom.engaged) {
       return;
     }
     const timer = window.setTimeout(() => {
@@ -787,7 +808,7 @@ function ImageSlide({
       }
     }, IMAGE_SECONDS * 1000);
     return () => window.clearTimeout(timer);
-  }, [count, current, goTo, isActive, onEnded, paused]);
+  }, [count, current, goTo, isActive, onEnded, paused, zoom.engaged]);
 
   const togglePause = useCallback(() => {
     const next = !mediaPool.isPaused();
@@ -801,7 +822,7 @@ function ImageSlide({
         togglePause,
         seek() {},
         slide(delta) {
-          if (count < 2) {
+          if (count < 2 || boxRef.current?.hasAttribute("data-zoom-active")) {
             return false;
           }
           goTo(currentRef.current + delta);
@@ -812,6 +833,7 @@ function ImageSlide({
   }, [count, goTo, isActive, surfaceRef, togglePause]);
 
   const gestures = useSurfaceGestures({
+    blocked: zoom.isBlocked,
     onTap: togglePause,
     onDoubleTap(x, y) {
       add(x, y);
@@ -1070,7 +1092,7 @@ export function Pager({
 
   const goTo = useCallback((index: number) => {
     const scroller = scrollerRef.current;
-    if (!scroller || !scroller.clientHeight) {
+    if (!scroller || !scroller.clientHeight || scroller.querySelector("[data-zoom-active]")) {
       return;
     }
     scroller.scrollTo({
@@ -1114,6 +1136,7 @@ export function Pager({
         return;
       }
       event.preventDefault();
+      if (scroller.querySelector("[data-zoom-active]")) return;
       const now = performance.now();
       const delta = event.deltaY * (event.deltaMode === 1 ? 40 : 1);
       const magnitude = Math.abs(delta);
@@ -1149,6 +1172,7 @@ export function Pager({
         // Mid-rotation the old offset means nothing against the new height.
         if (
           !scroller ||
+          scroller.querySelector("[data-zoom-active]") ||
           !scroller.clientHeight ||
           scroller.clientHeight !== heightRef.current ||
           settlingRef.current
