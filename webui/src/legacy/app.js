@@ -904,6 +904,7 @@ function mapSettingsToForm(settings) {
     "dynamic_cover",
     "static_cover",
     "auto_backfill_mark",
+    "auto_archive_restricted_accounts",
     "tiktok_bridge_fallback_enabled",
   ];
   for (const name of boolFields) {
@@ -911,7 +912,7 @@ function mapSettingsToForm(settings) {
     if (!element) {
       continue;
     }
-    element.checked = Boolean(settings?.[name]);
+    element.checked = Boolean(settings?.[name] ?? (name === "auto_archive_restricted_accounts"));
   }
 
   setAccountRows("douyin", settings?.accounts_urls || []);
@@ -943,6 +944,7 @@ function collectSettingsPayload() {
     dynamic_cover: refs.settingsForm.elements.namedItem("dynamic_cover").checked,
     static_cover: refs.settingsForm.elements.namedItem("static_cover").checked,
     auto_backfill_mark: refs.settingsForm.elements.namedItem("auto_backfill_mark").checked,
+    auto_archive_restricted_accounts: refs.settingsForm.elements.namedItem("auto_archive_restricted_accounts").checked,
     tiktok_bridge_fallback_enabled: refs.settingsForm.elements.namedItem(
       "tiktok_bridge_fallback_enabled",
     ).checked,

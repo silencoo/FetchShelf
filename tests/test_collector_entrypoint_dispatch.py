@@ -683,12 +683,17 @@ async def test_verification_preserves_unconfirmed_accounts_and_concurrent_edits(
     server.parameter.settings = SimpleNamespace(update=lambda data: None)
     server.parameter.get_settings_data = lambda: {}
     async def execute(target_key, **kwargs):
+        from src.collector.account_state import confirmed_douyin_restriction
         if target_key == "edited":
             active[-1]["mark"] = "new mark"
             active.append({"url": "added"})
-        profile = {"sec_uid": target_key, "uid": "1", "nickname": "账号已注销" if target_key == "removed" else "creator"}
+        profile = {"sec_uid": target_key, "uid": "1", "nickname": "creator"}
+        if target_key == "removed":
+            profile.update(user_deleted=True, special_state_info={
+                "title": "账号已经注销", "content": "用户已将自己账号注销"})
         return {"sec_user_id": "" if target_key == "unresolved" else target_key,
-                "info": {} if target_key == "incomplete" else profile}, "", "auto"
+                "info": {} if target_key == "incomplete" else profile,
+                "account_state": confirmed_douyin_restriction(profile, target_key, {"api_status": 0})}, "", "auto"
     server._execute_collector_operation = execute
     result = await server._verify_accounts({"use_settings": True, "move_deleted": True})
     assert result["unverified"] == 2

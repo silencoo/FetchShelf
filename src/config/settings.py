@@ -1,4 +1,6 @@
 from json import dump, load
+from os import fsync, replace, unlink
+from tempfile import NamedTemporaryFile
 from json.decoder import JSONDecodeError
 from platform import system
 from shutil import move
@@ -93,6 +95,7 @@ class Settings:
         "max_pages": 0,
         "request_delay": 6.0,
         "auto_backfill_mark": True,
+        "auto_archive_restricted_accounts": True,
         "run_command": "",
         "ffmpeg": "",
         "live_qualities": "",
@@ -221,13 +224,20 @@ class Settings:
 
     def update(self, settings: dict | SimpleNamespace):
         """更新配置文件"""
-        with self.path.open("w", encoding=self.encode) as f:
-            dump(
-                settings if isinstance(settings, dict) else vars(settings),
-                f,
-                indent=4,
-                ensure_ascii=False,
-            )
+        temporary = None
+        try:
+            with NamedTemporaryFile(mode="w", encoding=self.encode,
+                                    dir=self.path.parent, prefix=".settings-", delete=False) as f:
+                temporary = f.name
+                dump(settings if isinstance(settings, dict) else vars(settings),
+                     f, indent=4, ensure_ascii=False)
+                f.flush()
+                fsync(f.fileno())
+            replace(temporary, self.path)
+            temporary = None
+        finally:
+            if temporary is not None:
+                unlink(temporary)
         self.console.info(
             _("保存配置成功！"),
         )

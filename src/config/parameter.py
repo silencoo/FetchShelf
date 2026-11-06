@@ -208,6 +208,9 @@ class Parameter:
         self.request_delay = self.__check_request_delay(request_delay)
         configure_wait(self.request_delay)
         self.auto_backfill_mark = self.check_bool_true(auto_backfill_mark)
+        self.auto_archive_restricted_accounts = self.check_bool_true(
+            kwargs.get("auto_archive_restricted_accounts", True)
+        )
         self.run_command = self.__check_run_command(run_command)
         self.ffmpeg = self.__generate_ffmpeg_object(ffmpeg)
         self.live_qualities = self.__check_live_qualities(live_qualities)
@@ -359,6 +362,7 @@ class Parameter:
             "max_pages": self.__check_max_pages,
             "request_delay": self.__set_request_delay,
             "auto_backfill_mark": self.check_bool_true,
+            "auto_archive_restricted_accounts": self.check_bool_true,
             "run_command": self.__check_run_command,
             "ffmpeg": self.__generate_ffmpeg_object,
             "live_qualities": self.__check_live_qualities,
@@ -1059,6 +1063,7 @@ class Parameter:
             "max_pages": self.max_pages,
             "request_delay": self.request_delay,
             "auto_backfill_mark": self.auto_backfill_mark,
+            "auto_archive_restricted_accounts": self.auto_archive_restricted_accounts,
             "run_command": " ".join(self.run_command[::-1]),
             "ffmpeg": self.ffmpeg.path or "",
             "timeout": self.timeout,

@@ -105,6 +105,7 @@ class Settings(BaseModel):
     max_pages: int | None = None
     request_delay: float | None = None
     auto_backfill_mark: bool | None = None
+    auto_archive_restricted_accounts: bool | None = None
     run_command: str | None = None
     ffmpeg: str | None = None
     live_qualities: str | None = None

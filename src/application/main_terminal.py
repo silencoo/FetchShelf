@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 # from ..custom import failure_handling
 from ..custom import suspend
+from ..collector.account_state import confirmed_douyin_restriction
 from ..downloader import Downloader
 from ..extract import Extractor
 from ..interface import (
@@ -635,6 +636,7 @@ class TikTok:
     def _reset_account_diagnostics(self) -> None:
         self._account_info_diagnostic = {}
         self._account_items_diagnostic = {}
+        self._confirmed_account_state = None
 
     @staticmethod
     def _api_request_diagnostic(api: API) -> dict:
@@ -831,6 +833,9 @@ class TikTok:
         return nickname.strip().lower() in cls.DELETED_ACCOUNT_HINTS
 
     def _empty_account_outcome(self, info: dict, tiktok: bool, sec_user_id: str = "") -> dict:
+        if not tiktok and (state := getattr(self, "_confirmed_account_state", None)):
+            if state.get("target_sec_uid") == sec_user_id:
+                return self._restricted_account_outcome(state)
         outcome = self._classify_empty_account(info, tiktok)
         profile = info.get("user", info) if tiktok else info
         if isinstance(profile, dict) and sec_user_id:
@@ -840,6 +845,16 @@ class TikTok:
                 outcome["context"]["profile_nickname"] = nickname
         return outcome
 
+    def _restricted_account_outcome(self, state: dict) -> dict:
+        return self._account_outcome(
+            ok=False,
+            code=f"account_{state['state']}",
+            reason=state["reason"],
+            category="account_unavailable",
+            terminal_status="skipped",
+            context={"account_state": state},
+        )
+
     def _classify_empty_account(self, info: dict, tiktok: bool) -> dict:
         for diagnostic in (
             getattr(self, "_account_items_diagnostic", {}),
@@ -848,7 +863,7 @@ class TikTok:
             if outcome := self._request_failure_outcome(diagnostic):
                 return outcome
         meta = self._account_profile_meta(info, tiktok)
-        if self._is_deleted_nickname(meta["nickname"]):
+        if tiktok and self._is_deleted_nickname(meta["nickname"]):
             return self._account_outcome(
                 ok=False,
                 code="account_deleted",
@@ -1106,6 +1121,10 @@ class TikTok:
                     "如果账号发布作品均为共创作品且该账号均不是作品作者时，请配置已登录的 Cookie 后重新运行程序，其余情况请无视该提示！"
                 )
             )
+        if (not tiktok and return_outcome
+                and getattr(self.parameter, "auto_archive_restricted_accounts", True)
+                and (state := getattr(self, "_confirmed_account_state", None))):
+            return self._restricted_account_outcome(state)
         acquirer = self._get_account_data_tiktok if tiktok else self._get_account_data
         account_data, earliest, latest = await acquirer(
             cookie=cookie,
@@ -1341,6 +1360,18 @@ class TikTok:
         proxy: str = None,
         sec_user_id: Union[str, list[str]] = ...,
     ):
+        self._confirmed_account_state = None
+        if isinstance(sec_user_id, str) and sec_user_id:
+            collector = User(self.parameter, cookie, proxy, sec_user_id)
+            profile = await collector.run()
+            self._account_info_diagnostic = TikTok._api_request_diagnostic(collector)
+            self._confirmed_account_state = confirmed_douyin_restriction(
+                profile, sec_user_id, self._account_info_diagnostic
+            )
+            if profile:
+                return profile
+        # Keep the abbreviated endpoint as a name/UID fallback only. Its results
+        # cannot authorize automatic archiving.
         collector = Info(
             self.parameter,
             cookie,

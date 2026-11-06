@@ -32,6 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from uvicorn import Config, Server
 
+from ..collector.account_state import validate_archive_evidence
 from ..custom import (
     __VERSION__,
     PROJECT_ROOT,
@@ -2025,6 +2026,9 @@ class APIServer(TikTok, ServerRoutesMixin):
             return "visibility"
         if code in {
             "account_deleted",
+            "account_banned",
+            "account_muted",
+            "account_follow_restricted",
             "profile_unavailable",
             "account_unavailable",
         }:
@@ -2389,6 +2393,29 @@ class APIServer(TikTok, ServerRoutesMixin):
             "deleted_accounts_tiktok": self._account_rows(True, deleted=True),
         }
 
+    def _auto_archive_restricted_account(self, execution: dict, *, tiktok: bool) -> None:
+        if tiktok or not getattr(self.parameter, "auto_archive_restricted_accounts", True):
+            return
+        context = execution.setdefault("context", {})
+        evidence = validate_archive_evidence(
+            context.get("account_state"), execution.get("sec_uid", "")
+        )
+        if not evidence:
+            return
+        try:
+            result = self._archive_account_configuration(
+                platform="douyin",
+                url=execution["item"]["url"],
+                reason=f"自动归档：{evidence['reason']}",
+            )
+        except Exception as error:
+            # Preserve the collection outcome and active row if persistence fails.
+            context["auto_archive_error"] = type(error).__name__
+            self.logger.warning(f"自动归档未完成：{type(error).__name__}")
+            return
+        context["auto_archived"] = bool(result["archived"])
+        context["auto_archive_reason"] = evidence["reason"]
+
     def _archive_account_configuration(
         self,
         *,
@@ -2503,9 +2530,15 @@ class APIServer(TikTok, ServerRoutesMixin):
             if self._normalize_account_url(item.get("url", ""))
             not in archived_url_set
         ]
-        self._set_account_rows(tiktok, remaining_rows)
-        self._set_account_rows(tiktok, [*archived_rows, *deleted_rows], deleted=True)
-        self.parameter.settings.update(self.parameter.get_settings_data())
+        previous_deleted = [dict(item) for item in self._account_rows(tiktok, deleted=True)]
+        try:
+            self._set_account_rows(tiktok, remaining_rows)
+            self._set_account_rows(tiktok, [*archived_rows, *deleted_rows], deleted=True)
+            self.parameter.settings.update(self.parameter.get_settings_data())
+        except Exception:
+            self._set_account_rows(tiktok, active_rows)
+            self._set_account_rows(tiktok, previous_deleted, deleted=True)
+            raise
 
         assignment_removed = 0
         for normalized_url in removed_by_url:
@@ -3757,7 +3790,7 @@ class APIServer(TikTok, ServerRoutesMixin):
         target_sec_uid = self._normalize_string(sec_user_id)
         if target_sec_uid and user["sec_uid"] != target_sec_uid:
             return None, _("账号 sec_uid 校验不一致")
-        if self._is_deleted_nickname(user["nickname"]):
+        if tiktok and self._is_deleted_nickname(user["nickname"]):
             return False, _("账号已注销或不可访问")
         return True, ""
 
@@ -5588,6 +5621,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                     self.collector_store.confirm_pending_target(identity_id)
                 results.append(execution)
                 execution["sec_uid"] = sec_user_id
+                self._auto_archive_restricted_account(execution, tiktok=tiktok)
                 execution["_progress_status"] = self._normalize_string(
                     execution.get("terminal_status")
                 ) or ("success" if execution.get("ok") else "failed")
@@ -5605,6 +5639,10 @@ class APIServer(TikTok, ServerRoutesMixin):
                                 execution.get("failure_category")
                             ),
                             "retryable": bool(execution.get("retryable")),
+                            "context": {
+                                key: value for key, value in execution.get("context", {}).items()
+                                if key in {"account_state", "auto_archived", "auto_archive_reason", "auto_archive_error"}
+                            },
                         },
                     )
                 if (
@@ -5985,7 +6023,8 @@ class APIServer(TikTok, ServerRoutesMixin):
                 ),
                 "context": {
                     key: execution.get("context", {}).get(key)
-                    for key in ("item_count", "download")
+                    for key in ("item_count", "download", "account_state", "auto_archived",
+                                "auto_archive_reason", "auto_archive_error")
                     if key in execution.get("context", {})
                 },
             }
@@ -6026,11 +6065,17 @@ class APIServer(TikTok, ServerRoutesMixin):
                 }
             )
             context = execution.get("context", {})
-            row_index = item.get("_settings_index")
-            has_settings_row = isinstance(row_index, int) and 0 <= row_index < len(settings_rows)
+            # Archiving and settings edits replace the rows while network I/O awaits.
+            # Resolve against the current list, never resurrect a removed snapshot.
+            current_rows = (self.parameter.accounts_urls_tiktok if tiktok
+                            else self.parameter.accounts_urls)
+            settings_row = next((row for row in current_rows
+                                 if self._normalize_account_url(row.url)
+                                 == self._normalize_account_url(item["url"])), None)
+            has_settings_row = settings_row is not None
             if has_settings_row and getattr(self.parameter, "auto_backfill_mark", True):
                 name = context.get("profile_nickname") or (context.get("mark") if execution.get("ok") else "")
-                if self._apply_missing_mark(settings_rows[row_index], name):
+                if self._apply_missing_mark(settings_row, name):
                     auto_filled_mark += 1
             if execution.get("terminal_status") == "skipped":
                 failed_streak = 0
@@ -6061,14 +6106,14 @@ class APIServer(TikTok, ServerRoutesMixin):
             if has_settings_row:
                 if use_settings:
                     earliest_updated, earliest_target = self._apply_auto_update_earliest(
-                        settings_rows[row_index],
+                        settings_row,
                         earliest_days,
                     )
                     if earliest_updated:
                         auto_updated_earliest += 1
                         self.logger.info(
                             _("已更新账号 earliest: {target} -> {date}").format(
-                                target=getattr(settings_rows[row_index], "mark", "")
+                                target=getattr(settings_row, "mark", "")
                                 or item["url"],
                                 date=earliest_target,
                             )
@@ -6099,6 +6144,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                 "failed": failed,
                 "skipped": skipped,
                 "failed_streak_max": failed_streak_max,
+                "auto_archived": sum(bool(item.get("context", {}).get("auto_archived")) for item in item_results),
                 "mark_backfilled": auto_filled_mark,
                 "earliest_updated": auto_updated_earliest,
                 "failures": failures,
@@ -6715,7 +6761,8 @@ class APIServer(TikTok, ServerRoutesMixin):
                     sec_user_id=sec_user_id,
                 )
                 return (
-                    {"sec_user_id": sec_user_id, "info": info},
+                    {"sec_user_id": sec_user_id, "info": info,
+                     "account_state": getattr(worker, "_confirmed_account_state", None)},
                     int(bool(info)),
                     int(not bool(info)),
                 )
@@ -6733,7 +6780,11 @@ class APIServer(TikTok, ServerRoutesMixin):
                 )
             )
             sec_user_id = execution["sec_user_id"]
-            if sec_user_id:
+            restriction = (validate_archive_evidence(execution.get("account_state"), sec_user_id)
+                           if not tiktok else None)
+            if restriction:
+                exists, reason = False, restriction["reason"]
+            elif sec_user_id:
                 exists, reason = self._verify_user_info_state(execution["info"], sec_user_id, tiktok)
             else:
                 exists, reason = None, _("链接无法提取账号 ID")
