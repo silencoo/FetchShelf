@@ -6041,6 +6041,24 @@ async function copyTaskResult() {
 }
 
 function bindEvents() {
+  document.querySelectorAll(".workbench-collapsible > summary").forEach((summary) => {
+    summary.addEventListener("click", (event) => {
+      // Busy actions disable their button immediately; keep that click from
+      // also activating the enclosing native disclosure.
+      if (event.target.closest("button")) event.preventDefault();
+    }, { capture: true });
+  });
+  const revealTaskCenter = () => {
+    document.getElementById("workbench-task-center").open = true;
+  };
+  document.querySelectorAll('a[href="#workbench-task-center"]').forEach((link) => {
+    link.addEventListener("click", revealTaskCenter);
+  });
+  window.addEventListener("hashchange", () => {
+    if (window.location.hash === "#workbench-task-center") revealTaskCenter();
+  });
+  if (window.location.hash === "#workbench-task-center") revealTaskCenter();
+
   document.addEventListener("keydown", handlePageShortcut);
   refs.sidebarToggleBtn?.addEventListener("click", () => {
     const collapsed = !document.querySelector(".app-shell")?.classList.contains("sidebar-collapsed");
