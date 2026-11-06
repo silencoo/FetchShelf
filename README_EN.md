@@ -18,6 +18,7 @@ Docker-first Douyin / TikTok collection, download, and media management.
 - Task progress, history, pause, resume, and stop controls
 - Searchable and sortable account dashboard
 - Paginated masonry media browser with image and video lightbox previews
+- Immersive full-screen feed of downloaded posts (`/ui/feed`), with profiles, likes, saves and follows that stay on your own server
 - Settings, Cookie, collector identity, proxy, and routing management
 - FastAPI documentation and endpoints
 

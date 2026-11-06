@@ -617,3 +617,47 @@ def test_webui_source_keeps_compact_account_tables_and_collapsible_raw_editor():
     ) in styles
     assert "#settings-raw-editor {" in styles
     assert "resize: none !important;" in styles
+
+
+def test_immersive_feed_is_a_lazy_full_screen_tab():
+    index = SOURCE_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    app = SOURCE_ROOT.joinpath("src", "legacy", "app.js").read_text(encoding="utf-8")
+    entry = SOURCE_ROOT.joinpath("src", "main.tsx").read_text(encoding="utf-8")
+
+    assert 'data-tab-target="feed"' in index
+    assert 'data-tab-panel="feed"' in index
+    assert 'id="feed-root"' in index
+    # The panel must sit outside the console layout to cover the whole screen.
+    assert index.index('id="panel-feed"') > index.index("</main>")
+    # A home-screen launch runs without browser chrome.
+    assert 'name="apple-mobile-web-app-capable"' in index
+    assert 'name="apple-mobile-web-app-status-bar-style"' in index
+
+    # Only opening the tab should pay for the player.
+    assert 'import("../feed/feed-main.tsx")' in app
+    assert "feed-main" not in entry
+
+    built = STATIC_ROOT.joinpath("index.html").read_text(encoding="utf-8")
+    assert 'data-tab-target="feed"' in built
+    assert "feed-main" not in built
+    assets = STATIC_ROOT.joinpath("assets")
+    assert list(assets.glob("feed-main-*.js")) and list(assets.glob("feed-main-*.css"))
+
+
+def test_feed_keeps_ios_playback_requirements():
+    player = SOURCE_ROOT.joinpath("src", "feed", "player.ts").read_text(encoding="utf-8")
+    styles = SOURCE_ROOT.joinpath("src", "feed", "feed.css").read_text(encoding="utf-8")
+    main = SOURCE_ROOT.joinpath("src", "feed", "feed-main.tsx").read_text(encoding="utf-8")
+
+    # Inline, muted first playback is what iOS allows without a gesture.
+    assert 'setAttribute("playsinline", "")' in player
+    assert "video.muted = true" in player
+    # Recycling one small pool is what keeps sound on from swipe to swipe.
+    assert "POOL_SIZE = 3" in player
+    assert "unlock(event" in player
+    # Native snapping gives real momentum; one flick must not skip posts.
+    assert "scroll-snap-type: y mandatory" in styles
+    assert "scroll-snap-stop: always" in styles
+    # Edge to edge only while the feed is open, so the console layout is untouched.
+    assert "viewport-fit=cover" in main
+    assert "env(safe-area-inset-bottom" in styles

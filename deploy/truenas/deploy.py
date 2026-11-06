@@ -47,6 +47,11 @@ def atomic_json(path, data):
     temp.replace(path)
 
 
+def skip_rebuildable_cache(member):
+    """The feed index rebuilds itself from the library; marks live in their own file."""
+    return None if Path(member.name).name.startswith("ui_feed_index.sqlite3") else member
+
+
 def prune_backups(root, keep=2):
     """Only prune verified backups created here; never follow symlinks."""
     if keep < 1:
@@ -173,7 +178,7 @@ def deploy(args, state):
             run("docker", "stop", "--time", "120", CONTAINER)
             stopped = True
         with tarfile.open(backup / "settings.tar.gz", "w:gz") as archive:
-            archive.add(settings, arcname="settings")
+            archive.add(settings, arcname="settings", filter=skip_rebuildable_cache)
         with tarfile.open(backup / "settings.tar.gz") as archive:
             archive.getmembers()
         previous["complete"] = True

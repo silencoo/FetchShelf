@@ -31,6 +31,33 @@ import {
   TASK_TEMPLATES,
 } from "./task-templates.js";
 
+const FEED_PATH = "/ui/feed";
+let feedModule = null;
+let feedLoading = null;
+
+function exitFeed() {
+  if (window.location.pathname === FEED_PATH) {
+    window.history.replaceState(null, "", "/ui");
+  }
+  switchTab(state.tabBeforeFeed || "workbench");
+}
+
+// The immersive feed is loaded on first use, so the console stays light.
+async function openFeed() {
+  feedLoading ??= import("../feed/feed-main.tsx");
+  try {
+    feedModule = await feedLoading;
+  } catch (error) {
+    feedLoading = null;
+    setApiStatus("沉浸浏览加载失败，请刷新页面", "error");
+    switchTab(state.tabBeforeFeed || "workbench", { load: false });
+    throw error;
+  }
+  if (state.activeTab === "feed") {
+    feedModule.activateFeed(document.getElementById("feed-root"), exitFeed);
+  }
+}
+
 function switchTab(tab, { load = true } = {}) {
   const fallbackTab = "workbench";
   const nextTab = refs.tabButtons.some((button) => button.dataset.tabTarget === tab)
@@ -39,6 +66,13 @@ function switchTab(tab, { load = true } = {}) {
   if (state.activeTab === "profiles" && nextTab !== "profiles") {
     persistAccountBoardState();
   }
+  if (state.activeTab === "feed" && nextTab !== "feed") {
+    feedModule?.deactivateFeed(exitFeed);
+  }
+  if (nextTab === "feed" && state.activeTab !== "feed") {
+    state.tabBeforeFeed = state.activeTab;
+  }
+  document.documentElement.classList.toggle("feed-active", nextTab === "feed");
   state.activeTab = nextTab;
   document.querySelectorAll(".tab-panel").forEach((panel) => {
     const isHidden = panel.dataset.tabPanel !== nextTab;
@@ -89,6 +123,8 @@ async function loadTabData(tab, refresh = false) {
       ]);
     case "workbench":
       return Promise.allSettled([loadOverview(), loadTaskList(), loadSchedules(), loadCollectorIdentities()]);
+    case "feed":
+      return openFeed();
   }
 }
 
@@ -7506,6 +7542,9 @@ async function bootstrap() {
   try {
     activeTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY) || "workbench";
   } catch {}
+  if (window.location.pathname === FEED_PATH) {
+    activeTab = "feed";
+  }
   switchTab(activeTab, { load: false });
   let isCollapsed = false;
   try {

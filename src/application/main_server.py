@@ -7052,6 +7052,8 @@ class APIServer(TikTok, ServerRoutesMixin):
         try:
             await server.serve()
         finally:
+            if feed_service := getattr(self, "_feed_service", None):
+                feed_service.close()
             await self._get_collector_login_browser().cleanup()
             await self._stop_ui_schedules()
             await self._stop_ui_task_workers()

@@ -338,6 +338,30 @@ svg {
   display: none !important;
 }
 
+.feed-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000;
+}
+
+.feed-root {
+  position: absolute;
+  inset: 0;
+}
+
+html.feed-active,
+html.feed-active body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: #000;
+}
+
+html.feed-active .app-shell {
+  visibility: hidden;
+}
+
 .skip-link {
   position: fixed;
   top: 10px;

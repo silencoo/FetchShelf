@@ -120,3 +120,15 @@ def test_backup_pruning_ignores_invalid_and_linked_markers(tmp_path):
     (tmp_path / "release-0" / "backup.json").symlink_to(tmp_path / "release-1" / "backup.json")
     nas.prune_backups(tmp_path, keep=1)
     assert {path.name for path in tmp_path.iterdir()} == {"release-2", "release-invalid", "release-0"}
+
+
+def test_backups_skip_the_rebuildable_feed_index_but_keep_personal_marks():
+    import tarfile
+
+    def member(name):
+        return tarfile.TarInfo(f"settings/{name}")
+
+    for cache in ("ui_feed_index.sqlite3", "ui_feed_index.sqlite3-wal", "ui_feed_index.sqlite3-shm"):
+        assert nas.skip_rebuildable_cache(member(cache)) is None
+    for kept in ("ui_feed_state.sqlite3", "settings.json", "ui_task_runtime.sqlite3"):
+        assert nas.skip_rebuildable_cache(member(kept)) is not None

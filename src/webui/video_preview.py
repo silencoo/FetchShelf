@@ -1,4 +1,5 @@
 from functools import lru_cache
+from io import BytesIO
 from pathlib import Path
 from subprocess import DEVNULL, PIPE, run
 
@@ -23,3 +24,21 @@ def video_preview(path: Path, mtime_ns: int, size: int, second: int = 0) -> byte
     if not result.stdout:
         raise ValueError("No video frame available.")
     return result.stdout
+
+
+@lru_cache(maxsize=256)
+def image_preview(path: Path, mtime_ns: int, size: int, width: int = 480) -> bytes:
+    """Downscale a photo for grids, so phones never decode full-size originals."""
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(path) as image:
+            # DCT scaling makes large JPEGs cheap to decode at thumbnail size.
+            image.draft("RGB", (width * 2, width * 2))
+            upright = ImageOps.exif_transpose(image)
+            upright.thumbnail((width, width * 2))
+            output = BytesIO()
+            upright.convert("RGB").save(output, "JPEG", quality=80)
+    except Image.DecompressionBombError as error:
+        raise ValueError("Image is too large to preview.") from error
+    return output.getvalue()

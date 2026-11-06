@@ -83,6 +83,7 @@ from ..webui.files import (
 from ..webui.profile_avatar import choose_face_cover, generate_face_avatar
 from ..webui.preferences import BoardPreferences, BoardPreferenceStore
 from ..webui.video_preview import video_preview
+from .feed_routes import register_feed_routes
 from ..webui_security import (
     redact_webui_json_text,
     redact_webui_value,
@@ -118,6 +119,7 @@ class ServerRoutesMixin:
     def setup_routes(self):
         preview_slots = Semaphore(2)
         cover_slot = self._account_board_cover_slot()
+        register_feed_routes(self, token_dependency)
 
         # Construct lazily: route-only test harnesses need no settings directory.
         board_preferences = None

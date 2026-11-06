@@ -113,6 +113,7 @@ export const state = {
   rawSettingsSource: {},
   rawSettingsSecretsIncluded: false,
   activeTab: "workbench",
+  tabBeforeFeed: "",
   selectionAnchors: {
     active: {
       douyin: null,

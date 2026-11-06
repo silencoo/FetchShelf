@@ -8,6 +8,10 @@
       content="FetchShelf 的 Docker 下载、账户监控与媒体管理控制台。"
     />
     <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FetchShelf" />
     <link
       rel="icon"
       type="image/png"
@@ -50,9 +54,10 @@
       })();
     </script>
     <title>下载工作台 · FetchShelf</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-DonF0gvx.js"></script>
+    <script type="module" crossorigin src="/ui/static/assets/index-UfQ7kIs2.js"></script>
+    <link rel="modulepreload" crossorigin href="/ui/static/assets/jsx-runtime-CNVhjzSW.js">
     <link rel="modulepreload" crossorigin href="/ui/static/assets/preload-helper-D9BqOEs6.js">
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-C0uNzgAG.css">
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-BiU_WPZr.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -166,6 +171,19 @@
               <i class="nav-icon" data-lucide="users" aria-hidden="true"></i>
               <span class="nav-label">账户看板</span>
               <span class="nav-description">头像、媒体与账户目录</span>
+            </button>
+            <button
+              id="tab-feed"
+              class="tab-btn"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-feed"
+              data-tab-target="feed"
+            >
+              <i class="nav-icon" data-lucide="clapperboard" aria-hidden="true"></i>
+              <span class="nav-label">沉浸浏览</span>
+              <span class="nav-description">像短视频 App 一样刷作品</span>
             </button>
           </div>
         </nav>
@@ -2220,6 +2238,16 @@
         </main>
       </div>
     </div>
+
+    <section
+      id="panel-feed"
+      class="feed-panel tab-panel hidden-panel"
+      role="tabpanel"
+      aria-labelledby="tab-feed"
+      data-tab-panel="feed"
+    >
+      <div id="feed-root" class="feed-root"></div>
+    </section>
 
     <dialog
       id="account-gallery-dialog"
