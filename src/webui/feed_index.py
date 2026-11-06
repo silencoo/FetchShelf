@@ -1267,9 +1267,13 @@ class FeedWorker:
     def _sync_detail_table(
         self, source: sqlite3.Connection, uid: str, table: str, watermark: int,
     ) -> bool:
-        """Copy new rows in short statements; returns False when preempted."""
+        """Copy new observations, including updates to current post rows."""
+        fields = {row[1] for row in source.execute(f"PRAGMA table_info({_quote(table)})")}
+        # Legacy append-only databases use rowid. Current metadata tables have
+        # a monotonic revision so updates remain visible without duplicate rows.
+        cursor_column = "_revision" if "_revision" in fields else "rowid"
         quoted = _quote(table)
-        newest = source.execute(f"SELECT MAX(rowid) FROM {quoted}").fetchone()[0] or 0
+        newest = source.execute(f"SELECT MAX({cursor_column}) FROM {quoted}").fetchone()[0] or 0
         if newest <= watermark:
             return True
         columns = ", ".join(_quote(column) for column in _DETAIL_COLUMNS)
@@ -1279,7 +1283,7 @@ class FeedWorker:
             # Each fetch is its own read transaction: the shared lock ends
             # before the next batch, so crawl commits never wait for long.
             rows = source.execute(
-                f"SELECT rowid, {columns} FROM {quoted} WHERE rowid > ? ORDER BY rowid LIMIT ?",
+                f"SELECT {cursor_column}, {columns} FROM {quoted} WHERE {cursor_column} > ? ORDER BY {cursor_column} LIMIT ?",
                 (last, self.DETAIL_BATCH),
             ).fetchall()
             if not rows:

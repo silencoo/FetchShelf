@@ -941,6 +941,19 @@ const Slide = memo(function Slide({
   );
 });
 
+// Snap positions belong to track slots, not virtual media or the moving footer.
+// Memoization keeps a long feed's lightweight markers out of per-swipe renders.
+const PagerSnapPoints = memo(function PagerSnapPoints({ count, height }: { count: number; height: number }) {
+  return Array.from({ length: count }, (_, index) => (
+    <div
+      key={index}
+      className="fa-pager-snap"
+      aria-hidden="true"
+      style={{ top: index * height, height }}
+    />
+  ));
+});
+
 export function Pager({
   list,
   initialIndex = 0,
@@ -1308,6 +1321,10 @@ export function Pager({
           className="fa-pager-track"
           style={{ height: Math.max(1, count + (hasFooter ? 1 : 0)) * height }}
         >
+          {/* Keep snap targets mounted independently of the virtualized media.
+              Removing targets during iOS momentum can re-snap across the empty
+              track (even to the footer), then cascade as more slides mount. */}
+          <PagerSnapPoints count={count + (hasFooter ? 1 : 0)} height={height} />
           {slides}
           {hasFooter && height > 0 ? (
             <div className="fa-slide fa-slide-end" style={{ top: count * height, height }}>

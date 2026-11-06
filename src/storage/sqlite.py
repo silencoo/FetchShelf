@@ -10,6 +10,7 @@ from rich import print
 from ..custom import ERROR
 from ..translation import _
 from .sql import BaseSQLLogger
+from . import post_metadata
 
 __all__ = ["SQLLogger"]
 
@@ -42,8 +43,20 @@ class SQLLogger(BaseSQLLogger):
     async def __aenter__(self):
         self.db = await connect(self.path)
         self.cursor = await self.db.cursor()
-        await self.update_sheet()
-        await self.create()
+        try:
+            await self.update_sheet()
+            await self.create()
+            if self.is_post_metadata:
+                await self.db.execute("BEGIN IMMEDIATE")
+                try:
+                    await post_metadata.prepare(self.db, self.name)
+                    await self.db.commit()
+                except BaseException:
+                    await self.db.rollback()
+                    raise
+        except BaseException:
+            await self.db.close()
+            raise
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -56,7 +69,20 @@ class SQLLogger(BaseSQLLogger):
         await self.cursor.execute(create_sql)
         await self.db.commit()
 
+    @property
+    def is_post_metadata(self):
+        return {"作品ID", "作品描述", "采集时间"}.issubset(self.title_line)
+
     async def _save(self, data, *args, **kwargs):
+        if self.is_post_metadata:
+            await self.db.execute("BEGIN IMMEDIATE")
+            try:
+                await post_metadata.save(self.db, self.name, self.title_line, data)
+                await self.db.commit()
+            except BaseException:
+                await self.db.rollback()
+                raise
+            return
         insert_sql = f"""REPLACE INTO {self.name} ({
             ", ".join(self.title_line)
         }) VALUES ({", ".join(["?" for _ in self.title_line])});"""
@@ -73,8 +99,19 @@ class SQLLogger(BaseSQLLogger):
         old_sheet = "_".join(mark)
         if await self.__check_sheet_exists(old_sheet):
             try:
+                await self.db.execute("BEGIN IMMEDIATE")
                 await self.cursor.execute(self.UPDATE_SQL.format(old_name=old_sheet, new_name=new_sheet))
+                if await self.__check_sheet_exists("_post_metadata_tables"):
+                    await self.db.execute(
+                        "UPDATE _post_metadata_tables SET table_name=? WHERE table_name=?",
+                        (new_sheet, old_sheet),
+                    )
+                    await self.db.execute(
+                        "UPDATE _post_metadata_history SET table_name=? WHERE table_name=?",
+                        (new_sheet, old_sheet),
+                    )
             except OperationalError as e:
+                await self.db.rollback()
                 print(
                     Text(
                         " ".join(
