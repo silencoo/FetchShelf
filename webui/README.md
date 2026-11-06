@@ -33,3 +33,7 @@ Desktop WebKit tests snap geometry; physical iPhone inertia still needs a device
 `python scripts/check_feed_covers.py` uses the same Vite server and browser options
 to check Discover/profile cover fallbacks: missing files, unreadable images,
 failed fallback images, and recovery when a cover changes. Its images are synthetic.
+
+`python scripts/check_feed_sharing.py` checks file selection, authentication,
+file types, cancellation, and share fallbacks with a mocked native share API.
+Real iPhone share-sheet/app handoff needs a device test over HTTPS.

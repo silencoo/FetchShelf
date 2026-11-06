@@ -469,6 +469,7 @@ function VideoSlide({
   onEnded(): void;
   surfaceRef: MutableRefObject<SlideControls | null>;
 }) {
+  useObservable(preferences);
   const hostRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
@@ -617,7 +618,7 @@ function VideoSlide({
       <img className="fa-poster" src={thumbUrl(post.cover)} alt="" decoding="async" />
       <div className="fa-video-host" ref={hostRef} />
       <div className="fa-surface fa-surface-video" {...gestures} />
-      {paused ? (
+      {paused && preferences.showPauseIcon ? (
         <span className="fa-center-icon">
           <PlayIcon size={72} />
         </span>
@@ -842,7 +843,7 @@ function ImageSlide({
           />
         ))}
       </div>
-      {paused ? (
+      {paused && preferences.showPauseIcon ? (
         <span className="fa-center-icon">
           <PauseIcon size={64} />
         </span>

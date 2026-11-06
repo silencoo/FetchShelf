@@ -182,6 +182,7 @@ function writePreference(key: string, value: boolean) {
 class Preferences extends Observable {
   sound = readPreference("feed.sound", true);
   autoNext = readPreference("feed.autonext", false);
+  showPauseIcon = readPreference("feed.pause_icon", true);
 
   setSound(value: boolean) {
     this.sound = value;
@@ -192,6 +193,12 @@ class Preferences extends Observable {
   setAutoNext(value: boolean) {
     this.autoNext = value;
     writePreference("feed.autonext", value);
+    this.emit();
+  }
+
+  setShowPauseIcon(value: boolean) {
+    this.showPauseIcon = value;
+    writePreference("feed.pause_icon", value);
     this.emit();
   }
 }

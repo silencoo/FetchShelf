@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { api, fileUrl } from "./api";
+import { MediaShareAction } from "./MediaShareAction";
 import { formatCount, formatRelativeTime, initialOf, splitCaption } from "./format";
 import {
   CloseIcon,
@@ -366,7 +367,7 @@ export function ShareSheet({
   onHideAuthor(post: Post): void;
 }) {
   useObservable(preferences);
-  const position = Math.min(carouselPositions.get(post.key) ?? 0, post.media.length - 1);
+  const [position] = useState(() => Math.min(carouselPositions.get(post.key) ?? 0, post.media.length - 1));
   const item = post.media[position] ?? post.media[0];
   const shareUrl = post.share_url;
 
@@ -405,12 +406,13 @@ export function ShareSheet({
   return (
     <Sheet title="分享与更多" onClose={onClose}>
       <div className="fa-actions-grid">
+        {item ? <MediaShareAction key={item.path} item={item} onShared={onClose} /> : null}
         {shareUrl && typeof navigator.share === "function" ? (
           <button type="button" className="fa-action" onClick={() => void nativeShare()}>
             <span>
               <ExternalIcon size={22} />
             </span>
-            系统分享
+            分享链接
           </button>
         ) : null}
         {shareUrl ? (

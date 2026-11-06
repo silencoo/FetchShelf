@@ -919,6 +919,15 @@ export function MeView({ actions, visible }: { actions: ViewActions; visible: bo
             onChange={(event) => preferences.setAutoNext(event.target.checked)}
           />
         </label>
+        <label className="fa-switch-row">
+          <span>暂停图标<small>暂停时在画面中央显示图标</small></span>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={preferences.showPauseIcon}
+            onChange={(event) => preferences.setShowPauseIcon(event.target.checked)}
+          />
+        </label>
         <div className="fa-setting-row">
           <span>
             媒体库

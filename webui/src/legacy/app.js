@@ -7485,7 +7485,22 @@ function startOverviewPolling() {
   }, 10000);
 }
 
+function restoreWorkbenchSections() {
+  for (const section of document.querySelectorAll("details.workbench-collapsible[id]")) {
+    const key = `webui.workbench.${section.id}.open`;
+    section.open = readStoredBoolean(key, section.open);
+    section.addEventListener("toggle", () => {
+      try {
+        localStorage.setItem(key, String(section.open));
+      } catch {
+        // Collapsing still works when browser storage is unavailable.
+      }
+    });
+  }
+}
+
 async function bootstrap() {
+  restoreWorkbenchSections();
   state.token = readStoredToken();
   refs.tokenInput.value = state.token;
   refreshIcons(document);

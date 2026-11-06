@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;background:#000"><div id="root" class="fa"></div>
+<script type="module">
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {ShareSheet} from '../src/feed/Sheets';
+import {carouselPositions} from '../src/feed/Pager';
+import {state} from '../src/legacy/state';
+import '../src/feed/feed.css';
+state.token = 'share-test-token';
+const root = createRoot(document.getElementById('root'));
+let sequence = 0;
+window.showShareFixture = (kind = 'images') => {
+  const post = {key:'share-test',kind,caption:'分享测试',share_url:'https://example.test/post',
+    author:{name:'Test account',platform:'douyin',url:'https://example.test/author'},
+    cover:'first.jpeg',media:kind==='video' ? [{kind:'video',path:'movie.mp4'}]
+      : [{kind:'image',path:'first.jpeg'},{kind:'image',path:'selected_2.jpeg'}]};
+  carouselPositions.set(post.key, kind==='video' ? 0 : 1);
+  root.render(React.createElement(ShareSheet, {key:++sequence,post,
+    onClose:()=>root.render(React.createElement('p',null,'Closed')),onHideAuthor:()=>{}}));
+};
+window.showShareFixture();
+</script></body></html>
