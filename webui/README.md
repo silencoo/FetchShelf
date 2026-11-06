@@ -38,6 +38,15 @@ failed fallback images, and recovery when a cover changes. Its images are synthe
 file types, cancellation, and share fallbacks with a mocked native share API.
 Real iPhone share-sheet/app handoff needs a device test over HTTPS.
 
+Video sharing also offers a PNG screenshot and a screenshot download. Capture
+the visible video synchronously when the feed's Share button is pressed, before
+opening the sheet; PNG encoding can finish asynchronously. Keep that captured
+file for retries so later playback or seeking cannot change it. Paused playback
+must stay paused. Screenshots use the video's original dimensions without UI
+overlays. `python scripts/check_feed_screenshot.py --video /path/to/changing.mp4`
+checks capture timing, pixel preservation, paused frames, save, and error/retry
+behavior in WebKit and Chromium using the same Vite server/browser options.
+
 Pinch zoom is enabled by default and can be disabled in Me. It transforms the
 existing media element, hides controls while enlarged, and keeps fitted
 one-finger feed/carousel scrolling native. Do not resize the pager or replace

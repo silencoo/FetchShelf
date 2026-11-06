@@ -15,6 +15,7 @@ import {
 
 import { api, avatarUrl, fileUrl, thumbUrl } from "./api";
 import { useMediaZoom } from "./useMediaZoom";
+import { captureVideoSnapshot, type VideoSnapshot } from "./videoSnapshot";
 import { formatCount, formatDuration, formatRelativeTime, initialOf, splitCaption } from "./format";
 import {
   BookmarkIcon,
@@ -48,7 +49,7 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
 export interface PagerActions {
   openProfile(post: Post): void;
   openPanel(post: Post, tab: "comments" | "details"): void;
-  openShare(post: Post): void;
+  openShare(post: Post, snapshot?: VideoSnapshot): void;
   openTag(tag: string): void;
   openMusic(title: string): void;
 }
@@ -447,7 +448,13 @@ const Rail = memo(function Rail({
         type="button"
         className="fa-rail-btn"
         aria-label="分享与更多操作"
-        onClick={() => actions.openShare(post)}
+        onClick={(event) => {
+          const item = post.media[carouselPositions.get(post.key) ?? 0] ?? post.media[0];
+          const video = event.currentTarget.closest(".fa-slide")?.querySelector<HTMLVideoElement>(
+            ".fa-video-host video, .fa-carousel-item[data-current='true'] video",
+          ) ?? null;
+          actions.openShare(post, item?.kind === "video" ? captureVideoSnapshot(video) : undefined);
+        }}
       >
         <span className="fa-rail-icon">
           <ShareIcon size={28} />

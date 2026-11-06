@@ -12,21 +12,27 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /** Download only on request, then hand the actual file to the OS share sheet. */
-export function MediaShareAction({ item, onShared }: { item: MediaItem; onShared(): void }) {
-  const [file, setFile] = useState<File | null>(null);
+type Props = { onShared(): void } & (
+  { item: MediaItem; screenshot?: never } | { item?: never; screenshot: File }
+);
+
+export function MediaShareAction({ item, screenshot, onShared }: Props) {
+  const [file, setFile] = useState<File | null>(screenshot ?? null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const operation = useRef<AbortController | null>(null);
   useEffect(() => () => operation.current?.abort(), []);
+  const retryLabel = screenshot ? "分享截图" : "继续分享";
+  const fallback = screenshot ? "保存截图" : "下载媒体";
 
   const share = async () => {
     if (operation.current && !operation.current.signal.aborted) return;
     if (!window.isSecureContext) {
-      setMessage("系统文件分享需要 HTTPS，请使用 HTTPS 地址打开；也可以先下载媒体。");
+      setMessage(`系统文件分享需要 HTTPS，请使用 HTTPS 地址打开；也可以先${fallback}。`);
       return;
     }
     if (typeof navigator.share !== "function" || typeof navigator.canShare !== "function") {
-      setMessage("此浏览器暂不支持文件分享，请先下载媒体，再从照片或文件 App 分享。");
+      setMessage(`此浏览器暂不支持文件分享，请先${fallback}，再从照片或文件 App 分享。`);
       return;
     }
     const controller = new AbortController();
@@ -36,6 +42,7 @@ export function MediaShareAction({ item, onShared }: { item: MediaItem; onShared
     try {
       let ready = file;
       if (!ready) {
+        if (!item) throw new Error("截图尚未准备好，请重试。");
         setMessage("正在准备媒体，较大的视频可能需要一些时间…");
         const response = await fetch(fileUrl(item.path), {
           headers: headerOptions(false), signal: controller.signal,
@@ -49,15 +56,18 @@ export function MediaShareAction({ item, onShared }: { item: MediaItem; onShared
         const type = MIME_TYPES[extension] || blob.type;
         ready = new File([blob], name, { type });
         if (!navigator.canShare({ files: [ready] })) {
-          throw new Error("此设备无法分享这个文件格式，请先下载媒体。");
+          throw new Error(`此设备无法分享这个文件格式，请先${fallback}。`);
         }
         setFile(ready);
         // Safari's tap permission may expire while a large file downloads.
         // A fresh tap on the ready button must invoke share without an await.
         if (!navigator.userActivation?.isActive) {
-          setMessage("媒体已准备好，请点“继续分享”选择 App。");
+          setMessage(`媒体已准备好，请点“${retryLabel}”选择 App。`);
           return;
         }
+      }
+      if (!navigator.canShare({ files: [ready] })) {
+        throw new Error(`此设备无法分享这个文件格式，请先${fallback}。`);
       }
       setMessage("");
       await navigator.share({ files: [ready] });
@@ -68,9 +78,9 @@ export function MediaShareAction({ item, onShared }: { item: MediaItem; onShared
         // Closing the native sheet is cancellation, not a failed download.
         setMessage("");
       } else if (error instanceof Error && error.name === "NotAllowedError") {
-        setMessage("请再次点“继续分享”；如果仍无法打开，可先下载媒体。");
+        setMessage(`请再次点“${retryLabel}”；如果仍无法打开，可先${fallback}。`);
       } else {
-        setMessage(error instanceof Error ? error.message : "暂时无法分享，请重试或下载媒体。");
+        setMessage(error instanceof Error ? error.message : `暂时无法分享，请重试或${fallback}。`);
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -83,7 +93,7 @@ export function MediaShareAction({ item, onShared }: { item: MediaItem; onShared
   return <>
     <button type="button" className="fa-action" onClick={() => void share()} disabled={busy} aria-busy={busy}>
       <span><ShareIcon size={22} /></span>
-      {busy ? "准备分享…" : file ? "继续分享" : item.kind === "video" ? "分享视频" : "分享图片"}
+      {busy ? "准备分享…" : screenshot ? "分享截图" : file ? "继续分享" : item?.kind === "video" ? "分享视频" : "分享图片"}
     </button>
     {message ? <p className="fa-share-status" role="status">{message}</p> : null}
   </>;

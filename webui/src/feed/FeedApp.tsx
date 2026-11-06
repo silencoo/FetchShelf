@@ -19,6 +19,7 @@ import {
 import { Pager, type PagerActions, type PagerHandle } from "./Pager";
 import { mediaPool } from "./player";
 import { PostPanel, ShareSheet } from "./Sheets";
+import type { VideoSnapshot } from "./videoSnapshot";
 import { marks, PostList, preferences, toast, toaster, useObservable } from "./store";
 import type { IndexStatus, Post } from "./types";
 import {
@@ -213,7 +214,7 @@ export function FeedApp({ active, onExit }: { active: boolean; onExit(): void })
   const [visited, setVisited] = useState<Set<HomeTab>>(() => new Set<HomeTab>(["foryou"]));
   const [layers, setLayers] = useState<Layer[]>([]);
   const [panel, setPanel] = useState<{ post: Post; tab: "comments" | "details" } | null>(null);
-  const [share, setShare] = useState<Post | null>(null);
+  const [share, setShare] = useState<{ post: Post; snapshot?: VideoSnapshot } | null>(null);
   const [needsToken, setNeedsToken] = useState(false);
   const [soundUnlocked, setSoundUnlocked] = useState(mediaPool.unlocked);
   const [status, setStatus] = useState<IndexStatus | null>(null);
@@ -361,7 +362,7 @@ export function FeedApp({ active, onExit }: { active: boolean; onExit(): void })
     () => ({
       openProfile: (post) => openProfile({ key: post.author.key, name: post.author.name }),
       openPanel: (post, panelTab) => setPanel({ post, tab: panelTab }),
-      openShare: (post) => setShare(post),
+      openShare: (post, snapshot) => setShare({ post, snapshot }),
       openTag: (tag) => openSearch({ q: tag, mode: "tag" }),
       openMusic: (title) => openSearch({ q: title, mode: "music" }),
     }),
@@ -702,7 +703,7 @@ export function FeedApp({ active, onExit }: { active: boolean; onExit(): void })
           />
         ) : null}
         {share ? (
-          <ShareSheet post={share} onClose={() => setShare(null)} onHideAuthor={hideAuthor} />
+          <ShareSheet post={share.post} snapshot={share.snapshot} onClose={() => setShare(null)} onHideAuthor={hideAuthor} />
         ) : null}
         {toaster.message ? (
           <div className="fa-toast" role="status">

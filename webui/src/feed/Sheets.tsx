@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { api, fileUrl } from "./api";
 import { MediaShareAction } from "./MediaShareAction";
+import { ScreenshotShareAction } from "./ScreenshotShareAction";
+import type { VideoSnapshot } from "./videoSnapshot";
 import { formatCount, formatRelativeTime, initialOf, splitCaption } from "./format";
 import {
   CloseIcon,
@@ -359,10 +361,12 @@ async function copyText(text: string) {
 
 export function ShareSheet({
   post,
+  snapshot,
   onClose,
   onHideAuthor,
 }: {
   post: Post;
+  snapshot?: VideoSnapshot;
   onClose(): void;
   onHideAuthor(post: Post): void;
 }) {
@@ -407,6 +411,7 @@ export function ShareSheet({
     <Sheet title="分享与更多" onClose={onClose}>
       <div className="fa-actions-grid">
         {item ? <MediaShareAction key={item.path} item={item} onShared={onClose} /> : null}
+        {snapshot ? <ScreenshotShareAction snapshot={snapshot} onShared={onClose} /> : null}
         {shareUrl && typeof navigator.share === "function" ? (
           <button type="button" className="fa-action" onClick={() => void nativeShare()}>
             <span>
