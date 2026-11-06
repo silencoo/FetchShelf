@@ -164,6 +164,32 @@ def test_following_is_empty_until_someone_is_followed(harness):
     assert get(harness, "/ui/api/feed/posts", source="following")["items"] == []
 
 
+@pytest.mark.parametrize("source", ["account", "likes", "saves"])
+def test_profile_posts_refresh_renamed_files_before_returning_links(harness, source):
+    account = "douyin::https://example.test/ann"
+    key = "1:20260103100000:i"
+    put_mark(harness, "like", key)
+    put_mark(harness, "save", key)
+    folder = harness.root / "UID1_Ann_发布作品"
+    for path in folder.iterdir():
+        path.rename(path.with_name(path.name.replace("-Ann-", "-Renamed-")))
+
+    # The grid can request posts before the parallel profile request refreshes
+    # the index. It must never publish the cached, now missing filenames.
+    items = get(harness, "/ui/api/feed/posts", source=source, account=account)["items"]
+    assert items
+    for post in items:
+        assert (harness.root / post["cover"]).is_file()
+        assert all((harness.root / media["path"]).is_file() for media in post["media"])
+    photos = next(post for post in items if post["key"] == key)
+    assert photos["liked"] and photos["saved"]
+    response = harness.client.get(
+        "/ui/api/feed/thumb", params={"path": photos["cover"]}, headers=HEADERS,
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+
+
 def test_marks_survive_a_rebuild_of_the_index(harness):
     key = "1:20260101100000:v"
     put_mark(harness, "like", key)

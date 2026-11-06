@@ -325,6 +325,12 @@ class FeedService:
             "error": status.error,
         }
 
+    def refresh_account_files(self, account: str) -> None:
+        try:
+            self.worker.sync_account_now(account)
+        except OSError as error:
+            self._log(f"Feed account refresh skipped: {type(error).__name__}")
+
     def list_posts(
         self,
         *,
@@ -336,6 +342,10 @@ class FeedService:
         cursor: dict,
         limit: int,
     ) -> dict:
+        # The profile and its grid load in parallel. Refresh here as well so a
+        # grid cannot keep old filenames after a collector nickname rename.
+        if account and source in {"account", "likes", "saves"}:
+            self.refresh_account_files(account)
         index = self.index
         state = self.state
         hidden = state.targets("hide")
@@ -610,10 +620,7 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         token: str = Depends(token_dependency),
     ):
         feed = service()
-        try:
-            feed.worker.sync_account_now(key)
-        except OSError as error:
-            feed._log(f"Feed account refresh skipped: {type(error).__name__}")
+        feed.refresh_account_files(key)
         account = feed.index.account(key)
         if account is None:
             raise HTTPException(status_code=404, detail="Account not found.")
