@@ -176,13 +176,18 @@ def test_deleted_nickname_is_not_enough_for_manual_verification(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_batch_archives_immediately_and_updates_current_remaining_row(tmp_path):
+async def test_batch_archives_immediately_and_updates_current_remaining_row(tmp_path, monkeypatch):
     from src.collector import CollectorStore, AESGCMSecretCodec
     server = archive_server(tmp_path)
     server.collector_store = CollectorStore(tmp_path / 'collector.sqlite3', codec=AESGCMSecretCodec(b'x' * 32))
     server.parameter.accounts_urls.append(SimpleNamespace(
         url='https://www.douyin.com/user/keep', mark='', enable=True))
+    from src.tools import Cleaner
+    from src.application import main_server
+    server.parameter.root = tmp_path
+    server.parameter.CLEANER = Cleaner()
     server.parameter.earliest_update_days = 3
+    monkeypatch.setattr(main_server, 'choose_face_cover', lambda *args: None)
     server.parameter.auto_backfill_mark = True
     persisted = []
     server._persist_account_runtime_updates = lambda **kw: persisted.append(kw)
@@ -192,6 +197,9 @@ async def test_batch_archives_immediately_and_updates_current_remaining_row(tmp_
             return server._restricted_account_outcome(execution()['context']['account_state'])
         assert len(server.parameter.deleted_accounts) == 1  # Before next account finishes.
         assert len(server.parameter.accounts_urls) == 1
+        folder = tmp_path / 'UID123_Updated name'
+        folder.mkdir()
+        (folder / 'a.jpg').write_bytes(b'new downloaded media')
         return {'mark': 'Updated name'}
     server.check_sec_user_id = check
     server.deal_account_detail = collect
@@ -203,4 +211,6 @@ async def test_batch_archives_immediately_and_updates_current_remaining_row(tmp_
     assert server.parameter.accounts_urls[0].mark == 'Updated name'
     assert len(server.parameter.accounts_urls) == 1
     assert persisted[-1]['mark_updated'] == 1
+    assert result.data['covers']['pinned'] == 1
+    assert server._load_account_board_pins()['douyin::https://www.douyin.com/user/keep']['path'] == 'UID123_Updated name/a.jpg'
     server.collector_store.close()

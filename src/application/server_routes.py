@@ -117,7 +117,7 @@ def token_dependency(
 class ServerRoutesMixin:
     def setup_routes(self):
         preview_slots = Semaphore(2)
-        cover_slot = Semaphore(1)
+        cover_slot = self._account_board_cover_slot()
 
         # Construct lazily: route-only test harnesses need no settings directory.
         board_preferences = None

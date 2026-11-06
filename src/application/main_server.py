@@ -1,5 +1,6 @@
 from asyncio import (
     Event,
+    Semaphore,
     Queue,
     CancelledError,
     create_task,
@@ -109,7 +110,7 @@ from ..webui.files import (
     serialize_entry,
 )
 from ..webui.account_backfill import attach_settings_index_by_url
-from ..webui.profile_avatar import generate_face_avatar
+from ..webui.profile_avatar import choose_face_cover, generate_face_avatar
 from ..webui.task_journal import ACTIVE_TASK_STATUSES, TaskJournal
 from .main_terminal import TikTok
 from .server_routes import (
@@ -2652,6 +2653,98 @@ class APIServer(TikTok, ServerRoutesMixin):
             temporary.replace(pin_file)
         finally:
             temporary.unlink(missing_ok=True)
+
+    def _account_board_cover_slot(self):
+        # Share the CPU slot with dashboard-triggered face selection.
+        if not hasattr(self, "_board_cover_semaphore"):
+            self._board_cover_semaphore = Semaphore(1)
+        return self._board_cover_semaphore
+
+    async def _ensure_scraped_account_cover(self, platform, url, root, folder_index):
+        async with self._account_board_cover_slot():
+            key = self._account_pin_key(platform, url)
+            before = self._load_account_board_pins().get(key)
+            current = self._coerce_media_relpath(root, (before or {}).get("path", ""))
+            if current and before.get("source") != "pending":
+                return "unchanged"
+            row = self._find_active_account_row(platform, url)
+            if not row or not row.get("enable", True):
+                return "unchanged"
+
+            def select():
+                folder = self._indexed_account_folder(row, folder_index)
+                images, videos = self._collect_media_relpaths(root, folder, {})
+                if not images and not videos:
+                    return None
+                fallback = current or choice(images or videos)
+                selected = choose_face_cover(root, images, videos, fallback, "auto", True)
+                return ({**selected, "source": "face_auto"} if selected else
+                        {"path": fallback, "source": "fallback"})
+
+            selected = await to_thread(select)
+            if not selected:
+                return "no_media"
+            # Selection yields to page requests, settings edits and other scrapes.
+            # Never overwrite a manual pin or reintroduce an archived account.
+            pins = self._load_account_board_pins()
+            latest = pins.get(key)
+            if latest != before and not (before is None and latest and latest.get("source") == "pending"):
+                return "unchanged"
+            row = self._find_active_account_row(platform, url)
+            if not row or not row.get("enable", True):
+                return "unchanged"
+            if not self._coerce_media_relpath(root, selected["path"]):
+                return "no_media"
+            pins[key] = selected
+            self._save_account_board_pins(pins)
+            return "pinned"
+
+    async def _pin_scraped_account_covers(self, platform, urls, *, progress=None, pause_control=None):
+        counts = {"pinned": 0, "unchanged": 0, "no_media": 0, "failed": 0}
+        requested = set(urls)
+        rows = {row["url"]: row for row in self._active_account_rows(platform)
+                if row["url"] in requested and row.get("enable", True)}
+        if not rows:
+            return counts
+        try:
+            root = self._scope_root("download").expanduser().resolve()
+            pins = self._load_account_board_pins()
+
+            def pending_urls():
+                return [url for url in rows if
+                        pins.get(self._account_pin_key(platform, url), {}).get("source") == "pending"
+                        or not self._coerce_media_relpath(root, pins.get(
+                            self._account_pin_key(platform, url), {}).get("path", ""))]
+
+            pending = await to_thread(pending_urls)
+            counts["unchanged"] = len(rows) - len(pending)
+            if not pending:
+                return counts
+            folder_index = await to_thread(self._board_folder_index, root)
+        except Exception as error:
+            self.logger.warning(f"准备账号封面失败：{type(error).__name__}")
+            counts["failed"] = len(rows)
+            return counts
+        control = pause_control if isinstance(pause_control, dict) else {}
+        for index, url in enumerate(pending, 1):
+            if callable(control.get("checkpoint")):
+                await control["checkpoint"]()
+            if callable(progress):
+                progress(_("正在固定账号封面 {current}/{total}").format(current=index, total=len(pending)))
+            if callable(control.get("unit_started")):
+                control["unit_started"]()
+            try:
+                outcome = await self._ensure_scraped_account_cover(platform, url, root, folder_index)
+                counts[outcome] += 1
+            except CancelledError:
+                raise
+            except Exception as error:
+                counts["failed"] += 1
+                self.logger.warning(f"固定账号封面失败：{type(error).__name__}")
+            finally:
+                if callable(control.get("unit_finished")):
+                    control["unit_finished"]()
+        return counts
 
     def _account_board_avatar_file(self) -> Path:
         return self.parameter.settings.path.parent.joinpath("account_profile_avatars.json")
@@ -6133,6 +6226,12 @@ class APIServer(TikTok, ServerRoutesMixin):
             earliest_updated=auto_updated_earliest,
             tiktok=tiktok,
         )
+        cover_counts = await self._pin_scraped_account_covers(
+            platform,
+            [item["url"] for item in items if item["enable"]],
+            progress=report_progress,
+            pause_control=pause_control,
+        )
         report_progress(_("账号批次执行完成"))
         return DataResponse(
             message=message,
@@ -6146,6 +6245,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                 "skipped": skipped,
                 "failed_streak_max": failed_streak_max,
                 "auto_archived": sum(bool(item.get("context", {}).get("auto_archived")) for item in item_results),
+                "covers": cover_counts,
                 "mark_backfilled": auto_filled_mark,
                 "earliest_updated": auto_updated_earliest,
                 "failures": failures,
