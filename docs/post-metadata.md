@@ -47,3 +47,26 @@ row changes commit or roll back together. Legacy archives are excluded from feed
 discovery because their names do not start with the account UID prefix.
 
 Future removal of old archives or merging export tables is a separate migration.
+
+## Remove redundant historical observations
+
+For an explicitly requested history cleanup, use the offline copy builder:
+
+```sh
+python -m scripts.clean_post_metadata /path/to/DetailData.db /path/to/cleaned.db
+```
+
+The source is never modified. The output keeps one current row per post ID in
+each detail table, reconstructs meaningful content-change snapshots from old
+observations and existing snapshots, and removes the raw legacy archive tables.
+Counter-only, URL-only and timestamp-only observations disappear. Unknown post
+IDs in active tables and unrelated tables are retained. An unregistered or
+unresolvable legacy archive aborts cleanup rather than silently losing history.
+
+The tool compacts the output, checks SQLite integrity, and verifies uniqueness.
+It writes counts to `cleaned.report.json`. Pause collection first and verify the
+source did not change before swapping files with the service stopped. Keep the
+original as a rollback copy. Reset the feed index's `meta_tables.last_rowid`
+watermarks to zero when swapping so legacy row-ID changes cannot hide updates.
+Rollback copies are outside the active database and require separate removal
+before their disk space is reclaimed.
