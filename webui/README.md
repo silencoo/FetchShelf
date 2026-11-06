@@ -29,3 +29,7 @@ To check this contract with Playwright installed, start Vite on port 5178 and ru
 `--baseline` restores the old snap geometry and should fail the distant-offset
 regression. The fixture uses synthetic media and no production account data.
 Desktop WebKit tests snap geometry; physical iPhone inertia still needs a device check.
+
+`python scripts/check_feed_covers.py` uses the same Vite server and browser options
+to check Discover/profile cover fallbacks: missing files, unreadable images,
+failed fallback images, and recovery when a cover changes. Its images are synthetic.

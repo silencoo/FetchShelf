@@ -224,7 +224,7 @@ def test_hidden_accounts_leave_discovery_and_can_be_restored(harness):
     assert bob in authors
 
 
-def test_avatar_prefers_generated_then_pinned_then_newest(harness):
+def test_avatar_prefers_generated_then_pinned_then_newest(harness, monkeypatch):
     server = harness.server
     ann = "douyin::https://example.test/ann"
     account = lambda: get(harness, "/ui/api/feed/account", key=ann)["avatar"]
@@ -234,6 +234,10 @@ def test_avatar_prefers_generated_then_pinned_then_newest(harness):
     server._save_account_board_pins({ann: {"path": pinned, "source": "manual", "second": 3}})
     assert account() == {"scope": "download", "path": pinned, "second": 3}
 
+    project = harness.tmp / "project"
+    (project / "profile_avatars").mkdir(parents=True)
+    make_image(project / "profile_avatars/ann.png")
+    monkeypatch.setattr(server, "_scope_root", lambda scope: project if scope == "project" else harness.root)
     server._load_account_board_avatars = lambda: {ann: "profile_avatars/ann.png"}
     server._account_board_avatar_file().write_text("{}", encoding="utf-8")
     assert account() == {"scope": "project", "path": "profile_avatars/ann.png", "second": 0}
@@ -495,3 +499,62 @@ def test_state_store_keeps_first_time_and_ranks_affinity(tmp_path):
     with pytest.raises(ValueError):
         state.set_mark("boost", "p1", True)
     assert state.clear("follow") == 1
+
+
+@pytest.mark.parametrize("rename_folder", [False, True])
+def test_discover_repairs_old_pin_preserving_photo_number(harness, rename_folder):
+    key = "douyin::https://example.test/ann"
+    old = "UID1_Ann_发布作品/2026-01-03 10.00.00-图集-Ann-photos_2.jpeg"
+    pin = {"path": old, "source": "manual", "second": 2}
+    harness.server._save_account_board_pins({key: pin})
+    # Prime the pin cache, then rename without changing the pin settings file.
+    assert harness.service.avatar_for(key, old)["path"] == old
+    original = harness.root / old
+    renamed = original.with_name(original.name.replace("-Ann-", "-Renamed-"))
+    original.rename(renamed)
+    if rename_folder:
+        folder = renamed.parent.with_name("UID1_Renamed_发布作品")
+        renamed.parent.rename(folder)
+        renamed = folder / renamed.name
+    expected = renamed.relative_to(harness.root).as_posix()
+    # Use the current cover's folder even before the background scan updates files.
+    result = harness.service.avatar_for(key, expected.replace("_2.jpeg", "_1.jpeg"))
+    assert result == {"scope": "download", "path": expected, "second": 2}
+    assert harness.server._load_account_board_pins()[key] == {**pin, "path": expected}
+    response = harness.client.get("/ui/api/feed/thumb", params={"path": result["path"]}, headers=HEADERS)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+
+
+@pytest.mark.parametrize("failure", ["missing", "ambiguous", "other_account", "outside", "symlink"])
+def test_invalid_pin_falls_back_without_changing_selection(harness, failure):
+    key = "douyin::https://example.test/ann"
+    folder = harness.root / "UID1_Ann_发布作品"
+    fallback = (folder / "2026-01-03 10.00.00-图集-Ann-photos_1.jpeg").relative_to(harness.root).as_posix()
+    old = folder / "2026-01-03 10.00.00-图集-Ann-photos_2.jpeg"
+    old.unlink()
+    if failure == "ambiguous":
+        for nickname in ("New", "Another"):
+            make_image(old.with_name(old.name.replace("-Ann-", f"-{nickname}-")))
+    elif failure == "symlink":
+        external = harness.tmp / "outside.jpeg"
+        make_image(external)
+        old.symlink_to(external)
+    path = old.relative_to(harness.root).as_posix()
+    if failure == "other_account":
+        path = path.replace("UID1_", "UID2_")
+    elif failure == "outside":
+        path = "../outside.jpeg"
+        make_image(harness.tmp / "outside.jpeg")
+    pin = {"path": path, "source": "manual", "second": 3}
+    harness.server._save_account_board_pins({key: pin})
+    assert harness.service.avatar_for(key, fallback) == {"scope": "download", "path": fallback, "second": 0}
+    assert harness.server._load_account_board_pins()[key] == pin
+
+
+def test_missing_generated_avatar_and_missing_fallback_do_not_return_bad_urls(harness):
+    key = "douyin::https://example.test/ann"
+    harness.server._load_account_board_avatars = lambda: {key: "profile_avatars/deleted.png"}
+    assert harness.service.avatar_for(key, "deleted.jpeg") is None
+    fallback = "UID1_Ann_发布作品/2026-01-03 10.00.00-图集-Ann-photos_1.jpeg"
+    assert harness.service.avatar_for(key, fallback)["path"] == fallback

@@ -2742,7 +2742,9 @@ function renderBoardCardPreview(card) {
     avatarBtn.disabled = !card.dataset.mediaPath;
   }
   for (const galleryBtn of galleryButtons) {
-    galleryBtn.disabled = !card.dataset.folderPath;
+    // The gallery also provides account details and the platform homepage
+    // when no media has been downloaded. Keep that entry point available.
+    galleryBtn.disabled = !card.dataset.url;
   }
   if (filesBtn) {
     filesBtn.disabled = !card.dataset.folderPath;
@@ -3314,7 +3316,7 @@ function renderAccountBoard(items) {
     mediaWrap.type = "button";
     mediaWrap.className = "profile-media-wrap profile-gallery-trigger";
     mediaWrap.dataset.action = "board-open-gallery";
-    mediaWrap.setAttribute("aria-label", `打开 ${item.mark || "该账户"} 的媒体 Gallery`);
+    mediaWrap.setAttribute("aria-label", `打开 ${item.mark || "该账户"} 的账户 Gallery`);
 
     const body = document.createElement("div");
     body.className = "profile-body";

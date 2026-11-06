@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;background:#121214"><div id="root" class="fa"></div>
+<script type="module">
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {AccountCover} from '../src/feed/AccountCover';
+import '../src/feed/feed.css';
+const root = createRoot(document.getElementById('root'));
+window.coverFixture = (path, cover) => {
+  const account = {cover, avatar:{scope:'download', path, second:0}};
+  root.render(React.createElement('div', {style:{padding:12, width:'min(100vw, 440px)', boxSizing:'border-box'}},
+    React.createElement('article', {className:'fa-account-tile', style:{height:560}},
+      React.createElement(AccountCover, {account, className:'fa-account-cover', width:360, lazy:true}),
+      React.createElement('span', {className:'fa-tile-shade'}),
+      React.createElement('span', {className:'fa-account-info'}, '预览测试 · 爱吃麻辣烫')),
+    React.createElement('section', {className:'fa-hero', style:{height:200}},
+      React.createElement(AccountCover, {account, className:'fa-hero-cover', width:480}))));
+};
+window.coverFixture('chosen.jpeg', 'current.jpeg');
+</script></body></html>

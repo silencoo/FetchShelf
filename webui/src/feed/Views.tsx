@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { api, avatarUrl, thumbUrl } from "./api";
+import { AccountCover } from "./AccountCover";
 import { formatCount, formatDuration, formatRelativeTime, initialOf } from "./format";
 import { useMediaQuery } from "./hooks";
 import {
@@ -306,18 +307,7 @@ function AccountTile({ account, actions }: { account: Account; actions: ViewActi
         aria-label={`打开 ${account.name} 的主页`}
         onClick={() => actions.openProfile({ key: account.key, name: account.name })}
       >
-        {account.cover ? (
-          <img
-            className="fa-account-cover"
-            src={thumbUrl(account.avatar?.scope === "download" ? account.avatar.path : account.cover, {
-              w: 360,
-              second: account.avatar?.scope === "download" ? account.avatar.second : 0,
-            })}
-            alt=""
-            loading="lazy"
-            decoding="async"
-          />
-        ) : null}
+        <AccountCover account={account} className="fa-account-cover" width={360} lazy />
         <span className="fa-tile-shade" />
         <span className="fa-account-info">
           <AccountAvatar avatar={account.avatar} name={account.name} size={34} />
@@ -533,7 +523,6 @@ export function ProfileView({
 
   const name = account?.name ?? initialName ?? "";
   const followed = account ? marks.isFollowed(account) : false;
-  const coverUrl = account?.cover ? thumbUrl(account.avatar?.scope === "download" ? account.avatar.path : account.cover, { w: 480, second: account.avatar?.scope === "download" ? account.avatar.second : 0 }) : "";
   const lastChecked = account?.last_checked_at ? new Date(account.last_checked_at) : null;
   return (
     <div className="fa-view fa-profile" ref={scrollerRef}>
@@ -555,7 +544,7 @@ export function ProfileView({
         }
       />
       <section className="fa-hero">
-        {coverUrl ? <img className="fa-hero-cover" src={coverUrl} alt="" /> : null}
+        {account ? <AccountCover account={account} className="fa-hero-cover" width={480} /> : null}
         <div className="fa-hero-body">
           <AccountAvatar avatar={account?.avatar} name={name} size={92} />
           <h3>{name}</h3>

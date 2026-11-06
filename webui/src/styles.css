@@ -6993,10 +6993,6 @@ select.batch-field-select + .app-select-mount {
     padding: 10px 11px;
   }
 
-  .account-gallery-header-actions > a {
-    display: none;
-  }
-
   .account-gallery-toolbar {
     align-items: stretch;
     padding: 8px 11px;

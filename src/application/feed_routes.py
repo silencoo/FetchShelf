@@ -21,6 +21,7 @@ from ..webui.feed_index import (
     AccountSource,
     FeedIndex,
     FeedWorker,
+    _scan_media_names,
     decode_cursor,
     encode_cursor,
     media_kind,
@@ -179,14 +180,72 @@ class FeedService:
             self._covers_signature = key
         return self._covers
 
+    def _valid_cover(self, scope: str, path: str) -> bool:
+        if not path:
+            return False
+        root = self.server._scope_root(scope)
+        try:
+            target = resolve_within_root(root, path)
+            self.server._ensure_public_file_scope_path(scope, root, target)
+            allowed = IMAGE_SUFFIXES | VIDEO_SUFFIXES if scope == "download" else IMAGE_SUFFIXES
+            return target.suffix.lower() in allowed and target.is_file()
+        except (OSError, ValueError, RuntimeError, HTTPException):
+            return False
+
+    def _recover_cover_pin(self, account_key: str, pin: dict, cover_path: str) -> str:
+        """Repair older stale pins only when the same media item is unambiguous."""
+        old = Path(pin["path"])
+        current = Path(cover_path)
+        if len(old.parts) < 2 or len(current.parts) < 2:
+            return ""
+        uid = uid_from_folder(old.parts[0])
+        if uid.startswith("f") or uid != uid_from_folder(current.parts[0]):
+            return ""
+        parsed = parse_media_name(old.name)
+        if not parsed.time_key:
+            return ""
+        try:
+            folder = resolve_within_root(self.media_root(), current.parts[0])
+        except (ValueError, OSError, RuntimeError):
+            return ""
+        matches = []
+        for name in _scan_media_names(folder):
+            candidate = parse_media_name(Path(name).name)
+            if (candidate.time_key, candidate.kind, candidate.index, Path(name).suffix.lower()) != (
+                parsed.time_key, parsed.kind, parsed.index, old.suffix.lower()
+            ):
+                continue
+            path = (Path(current.parts[0]) / name).as_posix()
+            if self._valid_cover("download", path):
+                matches.append(path)
+                if len(matches) > 1:
+                    return ""
+        if not matches:
+            return ""
+        repaired = matches[0]
+        # Reload before saving so other accounts' selections are retained.
+        try:
+            pins = self.server._load_account_board_pins()
+            if pins.get(account_key) == pin:
+                pins[account_key] = {**pin, "path": repaired}
+                self.server._save_account_board_pins(pins)
+                self._covers_signature = None
+        except (OSError, ValueError):
+            pass  # A read-only settings directory must not break browsing.
+        return repaired
+
     def avatar_for(self, account_key: str, cover_path: str) -> dict | None:
         pins, avatars = self._cover_sources()
-        if avatars.get(account_key):
+        if self._valid_cover("project", avatars.get(account_key, "")):
             return {"scope": "project", "path": avatars[account_key], "second": 0}
         pin = pins.get(account_key)
         if pin and pin.get("path"):
-            return {"scope": "download", "path": pin["path"], "second": pin.get("second", 0)}
-        if cover_path:
+            path = pin["path"]
+            if not self._valid_cover("download", path):
+                path = self._recover_cover_pin(account_key, pin, cover_path)
+            if path:
+                return {"scope": "download", "path": path, "second": pin.get("second", 0)}
+        if self._valid_cover("download", cover_path):
             return {"scope": "download", "path": cover_path, "second": 0}
         return None
 

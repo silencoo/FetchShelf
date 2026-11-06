@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from ..tools import Retry
 from ..translation import _
+from ..webui.cover_pins import remap_cover_pins
 
 if TYPE_CHECKING:
     from ..config import Parameter
@@ -25,6 +26,8 @@ class Cache:
         self.root = parameter.root  # 作品文件保存根目录
         self.mark = mark
         self.name = name
+        self.settings = parameter.settings
+        self._media_renames: list[tuple[str, str]] = []
 
     async def update_cache(
         self,
@@ -36,15 +39,21 @@ class Cache:
         mark: str,
     ):
         if d := await self.has_cache(id_):
-            self.__check_file(
-                solo_mode,
-                prefix,
-                suffix,
-                id_,
-                name,
-                mark,
-                d,
-            )
+            self._media_renames = []
+            try:
+                self.__check_file(solo_mode, prefix, suffix, id_, name, mark, d)
+            finally:
+                # Apply the successful moves in order (account folder, work
+                # folder, then filename), once per account rather than per file.
+                try:
+                    remap_cover_pins(
+                        self.settings.path.parent / "account_profile_pins.json",
+                        self._media_renames,
+                        self.settings.encode,
+                    )
+                except (OSError, ValueError, TypeError, AttributeError) as error:
+                    self.log.warning(f"Could not update renamed cover references: {error}")
+                self._media_renames = []
         data = (
             id_,
             name,
@@ -219,6 +228,10 @@ class Cache:
     ) -> bool:
         try:
             old_.rename(new_)
+            self._media_renames.append((
+                old_.relative_to(self.root).as_posix(),
+                new_.relative_to(self.root).as_posix(),
+            ))
             return True
         except PermissionError as e:
             self.console.error(
