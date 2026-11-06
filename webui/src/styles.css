@@ -1013,7 +1013,7 @@ svg {
 .overview-grid {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 3fr);
+  grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 5fr);
 }
 
 .overview-domain-crawl {
@@ -1107,7 +1107,7 @@ svg {
 }
 
 .overview-stat dd {
-  overflow-wrap: anywhere;
+  white-space: nowrap;
   margin: 5px 0 0;
   color: var(--text-strong);
   font-size: clamp(17px, 1.55vw, 23px);
@@ -1119,6 +1119,27 @@ svg {
 
 .overview-stat-primary dd {
   font-size: clamp(19px, 1.75vw, 27px);
+}
+
+.overview-domain-media {
+  container-type: inline-size;
+}
+
+/* Reflow by the panel's actual width, including sidebar and browser zoom. */
+@container (max-width: 480px) {
+  .overview-media-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 14px;
+  }
+
+  .overview-media-metrics .overview-stat:nth-child(odd) {
+    border-inline-start: 0;
+    padding-inline-start: 0;
+  }
+
+  .overview-media-metrics .overview-stat:nth-child(even) {
+    padding-inline-end: 0;
+  }
 }
 
 .overview-domain-meta {

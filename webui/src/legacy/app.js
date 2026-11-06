@@ -1,3 +1,4 @@
+import { boardPreferenceKeys, createBoardPreferences } from "./board-preferences.js";
 import { handlePageShortcut, renderPageNumbers } from "./pagination.js";
 import { refs } from "./dom-refs.js";
 import { createCollectorController } from "./collectors.js";
@@ -64,7 +65,7 @@ function switchTab(tab, { load = true } = {}) {
   if (load) void loadTabData(nextTab);
 }
 
-function loadTabData(tab, refresh = false) {
+async function loadTabData(tab, refresh = false) {
   switch (tab) {
     case "control": {
       const requests = [ensureSettings(refresh), loadCollectorIdentities()];
@@ -75,6 +76,7 @@ function loadTabData(tab, refresh = false) {
       updateFilesAccountContext();
       return loadFiles();
     case "profiles":
+      await boardPreferences.load();
       if (refresh || state.accountBoardDirty) return loadAccountBoard(false);
       break;
     case "monitor":
@@ -2400,6 +2402,46 @@ function restoreAccountBoardState() {
   } catch {}
 }
 
+function legacyBoardPreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BOARD_STATE_STORAGE_KEY) || "{}");
+    const mode = localStorage.getItem(BOARD_VIEW_MODE_STORAGE_KEY);
+    const columns = localStorage.getItem(BOARD_COLUMNS_STORAGE_KEY);
+    if (mode) saved.viewMode = mode;
+    if (columns) saved.columns = Number(columns);
+    return Object.fromEntries(boardPreferenceKeys.filter((key) => saved[key] !== undefined)
+      .map((key) => [key, saved[key]]));
+  } catch { return {}; }
+}
+
+const boardPreferences = createBoardPreferences((preferences) => {
+  let changed = false;
+  for (const key of boardPreferenceKeys) {
+    if (preferences[key] !== undefined && state.accountBoard[key] !== preferences[key]) {
+      state.accountBoard[key] = preferences[key];
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  refs.boardViewMode.value = state.accountBoard.viewMode;
+  refs.boardPageSize.value = String(state.accountBoard.pageSize);
+  refs.boardRefreshKind.value = state.accountBoard.refreshKind;
+  refs.boardPlatform.value = state.accountBoard.platform;
+  refs.boardStatusFilter.value = state.accountBoard.status;
+  refs.boardSort.value = state.accountBoard.sort;
+  state.accountBoard.page = 1;
+  state.accountBoard.restoreScrollY = null;
+  state.accountBoardDirty = true;
+  applyBoardColumns(true);
+  try { localStorage.setItem(BOARD_VIEW_MODE_STORAGE_KEY, state.accountBoard.viewMode); } catch {}
+  persistAccountBoardState();
+}, legacyBoardPreferences());
+
+function saveBoardPreference(key) {
+  persistAccountBoardState();
+  boardPreferences.save(key);
+}
+
 function jumpToValidatedPage(input, pages, onValid, onInvalid) {
   const requested = Number(input?.value || 0);
   if (!Number.isInteger(requested) || requested < 1 || requested > pages) {
@@ -2482,7 +2524,6 @@ function applyBoardColumns(persist = true) {
   const cap = boardColumnsCap();
   const inputColumns = Number(state.accountBoard.columns || 4);
   const next = Math.max(1, Math.min(inputColumns, cap));
-  state.accountBoard.columns = next;
   if (refs.boardDensity) {
     refs.boardDensity.max = String(cap);
     refs.boardDensity.value = String(next);
@@ -2501,7 +2542,7 @@ function applyBoardColumns(persist = true) {
   }
   if (persist) {
     try {
-      localStorage.setItem(BOARD_COLUMNS_STORAGE_KEY, String(next));
+      localStorage.setItem(BOARD_COLUMNS_STORAGE_KEY, String(inputColumns));
     } catch {}
   }
 }
@@ -6044,6 +6085,7 @@ function bindEvents() {
         setApiStatus(`令牌验证失败: ${error.message}`, "error");
         return;
       }
+      if (previousToken !== nextToken) boardPreferences.reset();
       const persisted = persistToken(nextToken);
       setApiStatus(
         nextToken
@@ -6489,6 +6531,7 @@ function bindEvents() {
 
   refs.boardPlatform.addEventListener("change", () => {
     state.accountBoard.platform = refs.boardPlatform.value || "douyin";
+    saveBoardPreference("platform");
     state.accountBoard.page = 1;
     loadAccountBoard(true);
   });
@@ -6513,22 +6556,26 @@ function bindEvents() {
 
   refs.boardStatusFilter.addEventListener("change", () => {
     state.accountBoard.status = refs.boardStatusFilter.value || "all";
+    saveBoardPreference("status");
     state.accountBoard.page = 1;
     loadAccountBoard(true);
   });
 
   refs.boardSort.addEventListener("change", () => {
     state.accountBoard.sort = refs.boardSort.value || "configured";
+    saveBoardPreference("sort");
     state.accountBoard.page = 1;
     loadAccountBoard(true);
   });
 
   refs.boardRefreshKind.addEventListener("change", () => {
     state.accountBoard.refreshKind = refs.boardRefreshKind.value || "auto";
+    saveBoardPreference("refreshKind");
   });
 
   refs.boardViewMode.addEventListener("change", () => {
     state.accountBoard.viewMode = refs.boardViewMode.value || "avatar";
+    saveBoardPreference("viewMode");
     try {
       localStorage.setItem(BOARD_VIEW_MODE_STORAGE_KEY, state.accountBoard.viewMode);
     } catch {}
@@ -6543,8 +6590,11 @@ function bindEvents() {
     applyBoardColumns(true);
   });
 
+  refs.boardDensity.addEventListener("change", () => saveBoardPreference("columns"));
+
   refs.boardPageSize.addEventListener("change", () => {
     state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");
+    saveBoardPreference("pageSize");
     state.accountBoard.page = 1;
     loadAccountBoard(true);
   });
@@ -7427,6 +7477,14 @@ function startTaskPolling() {
     }
   }, TASK_POLL_ACTIVE_MS);
 }
+
+function syncVisibleBoardPreferences() {
+  if (!document.hidden && state.activeTab === "profiles" && !document.querySelector("dialog[open]")) {
+    void loadTabData("profiles");
+  }
+}
+window.addEventListener("focus", syncVisibleBoardPreferences);
+document.addEventListener("visibilitychange", syncVisibleBoardPreferences);
 
 function startOverviewPolling() {
   setInterval(() => {

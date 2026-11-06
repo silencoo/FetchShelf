@@ -3595,6 +3595,8 @@ class APIServer(TikTok, ServerRoutesMixin):
     def _configuration_snapshot_files(self) -> list[tuple[Path, str]]:
         return [
             (self.parameter.settings.path, "settings.json"),
+            (self.parameter.settings.path.with_name("ui_board_preferences.json"),
+             "ui_board_preferences.json"),
             (self.collector_store.path, "collector_pool.sqlite3"),
             (self.task_journal.path, "ui_task_runtime.sqlite3"),
         ]

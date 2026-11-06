@@ -81,6 +81,7 @@ from ..webui.files import (
     serialize_entry,
 )
 from ..webui.profile_avatar import choose_face_cover, generate_face_avatar
+from ..webui.preferences import BoardPreferences, BoardPreferenceStore
 from ..webui.video_preview import video_preview
 from ..webui_security import (
     redact_webui_json_text,
@@ -117,6 +118,32 @@ class ServerRoutesMixin:
     def setup_routes(self):
         preview_slots = Semaphore(2)
         cover_slot = Semaphore(1)
+
+        # Construct lazily: route-only test harnesses need no settings directory.
+        board_preferences = None
+
+        def preference_store():
+            nonlocal board_preferences
+            if board_preferences is None:
+                board_preferences = BoardPreferenceStore(
+                    self.parameter.settings.path.with_name("ui_board_preferences.json"),
+                )
+            return board_preferences
+
+        @self.server.get("/ui/api/preferences/account-board", tags=[_("配置")])
+        async def webui_board_preferences(
+            response: Response, token: str = Depends(token_dependency),
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            return {"preferences": preference_store().read()}
+
+        @self.server.patch("/ui/api/preferences/account-board", tags=[_("配置")])
+        async def webui_board_preferences_update(
+            payload: BoardPreferences, response: Response,
+            initialize: bool = Query(False), token: str = Depends(token_dependency),
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            return {"preferences": preference_store().update(payload, initialize=initialize)}
 
         @self.server.exception_handler(RequestValidationError)
         async def safe_request_validation_error(
