@@ -6731,14 +6731,30 @@ select.batch-field-select + .app-select-mount {
     min-height: 40px;
   }
 
+  .files-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    align-items: end;
+  }
+
+  .files-toolbar .field {
+    min-width: 0;
+  }
+
+  .files-toolbar :is(input, select, .app-select-trigger, .btn) {
+    min-height: 44px;
+  }
+
+  .files-toolbar input {
+    font-size: 16px;
+  }
+
   .batch-toolbar,
-  .files-toolbar,
   .board-toolbar {
     align-items: stretch;
   }
 
   .batch-toolbar > *,
-  .files-toolbar > *,
   .board-toolbar > * {
     flex: 1 1 140px;
   }

@@ -50,9 +50,9 @@
       })();
     </script>
     <title>下载工作台 · FetchShelf</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-B4JuXnyp.js"></script>
+    <script type="module" crossorigin src="/ui/static/assets/index-BjpZG8jw.js"></script>
     <link rel="modulepreload" crossorigin href="/ui/static/assets/preload-helper-D9BqOEs6.js">
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-aU4ho1Tf.css">
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-BTFiykQc.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -873,14 +873,6 @@
                 <option value="project">项目目录</option>
               </select>
             </label>
-            <label class="field compact grow">
-              <span>直接跳转</span>
-              <input id="files-path" type="text" placeholder="输入相对路径，留空返回根目录" />
-            </label>
-            <label class="field compact grow">
-              <span>搜索当前目录</span>
-              <input id="files-search" type="search" placeholder="输入文件名" />
-            </label>
             <label class="field compact">
               <span>每页</span>
               <select id="files-page-size">
@@ -890,13 +882,21 @@
                 <option value="96">96 项</option>
               </select>
             </label>
-            <button id="files-search-clear-btn" type="button" class="btn ghost">
-              <i data-lucide="x" aria-hidden="true"></i>
-              清除
-            </button>
+            <label class="field compact grow">
+              <span>直接跳转</span>
+              <input id="files-path" type="text" placeholder="输入相对路径，留空返回根目录" />
+            </label>
             <button id="files-open-btn" type="button" class="btn">
               <i data-lucide="corner-down-right" aria-hidden="true"></i>
               跳转
+            </button>
+            <label class="field compact grow">
+              <span>搜索当前目录</span>
+              <input id="files-search" type="search" placeholder="输入文件名" />
+            </label>
+            <button id="files-search-clear-btn" type="button" class="btn ghost">
+              <i data-lucide="x" aria-hidden="true"></i>
+              清除
             </button>
           </div>
 
