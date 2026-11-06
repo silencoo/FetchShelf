@@ -147,7 +147,6 @@ export const refs = {
   boardRefreshKind: document.getElementById("board-refresh-kind"),
   boardViewMode: document.getElementById("board-view-mode"),
   boardDensity: document.getElementById("board-density"),
-  boardDensityLabel: document.getElementById("board-density-label"),
   boardPageNumbers: document.getElementById("board-page-numbers"),
   boardPageInput: document.getElementById("board-page-input"),
   boardPageJumpBtn: document.getElementById("board-page-jump-btn"),

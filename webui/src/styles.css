@@ -6726,8 +6726,11 @@ select.batch-field-select + .app-select-mount {
     order: -1;
   }
 
-  .file-location-action {
-    flex: 1 1 120px;
+  .file-location-bar .file-location-action {
+    min-width: 0;
+    min-height: 44px;
+    flex: 1 1 0;
+    padding-inline: 7px;
   }
 
   .file-list-columns {

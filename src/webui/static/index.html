@@ -50,9 +50,9 @@
       })();
     </script>
     <title>下载工作台 · FetchShelf</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-y7SqeVCQ.js"></script>
+    <script type="module" crossorigin src="/ui/static/assets/index-CGmqLPY6.js"></script>
     <link rel="modulepreload" crossorigin href="/ui/static/assets/preload-helper-D9BqOEs6.js">
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-CMBy9mIs.css">
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-CPa0RVHh.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -840,15 +840,6 @@
           aria-labelledby="tab-files"
           data-tab-panel="files"
         >
-          <div class="card-head page-actions-only">
-            <div class="card-actions">
-              <button id="files-refresh-btn" type="button" class="btn ghost">
-                <i data-lucide="refresh-cw" aria-hidden="true"></i>
-                刷新
-              </button>
-            </div>
-          </div>
-
           <div class="file-location-bar">
             <button id="files-home-btn" type="button" class="btn ghost file-location-action">
               <i data-lucide="house" aria-hidden="true"></i>
@@ -862,6 +853,10 @@
             <button id="files-up-btn" type="button" class="btn ghost file-location-action">
               <i data-lucide="arrow-up" aria-hidden="true"></i>
               上一级
+            </button>
+            <button id="files-refresh-btn" type="button" class="btn ghost file-location-action">
+              <i data-lucide="refresh-cw" aria-hidden="true"></i>
+              刷新
             </button>
           </div>
 
@@ -1023,7 +1018,6 @@
               <span>卡片密度</span>
               <input id="board-density" type="range" min="1" max="12" value="4" />
             </label>
-            <span id="board-density-label" class="badge">4 列</span>
 
           </div>
           <div id="board-status" class="status-line">切换到该标签页后自动加载</div>
@@ -1035,7 +1029,7 @@
               <input id="board-page-input" type="number" min="1" value="1" inputmode="numeric" />
               <button id="board-page-jump-btn" type="button" class="btn ghost">前往</button>
             </div>
-            <span id="board-meta" class="badge">第 1 / 1 页</span>
+            <span id="board-meta" class="sr-only">第 1 / 1 页</span>
           </div>
         </section>
 

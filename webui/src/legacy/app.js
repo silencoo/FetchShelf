@@ -396,7 +396,13 @@ function renderAccountRows(platform) {
         />
       </td>
       <td>
-        <input data-field="tab" type="text" value="${escapeAttr(item.tab)}" placeholder="post/favorite/collection" />
+        <select data-field="tab" aria-label="作品类型" title="post：发布作品；favorite：喜欢作品">
+          ${!["post", "favorite"].includes(item.tab)
+            ? `<option value="${escapeAttr(item.tab)}" selected disabled>${escapeHtml(item.tab)}（现有值）</option>`
+            : ""}
+          <option value="post" ${item.tab === "post" ? "selected" : ""}>post</option>
+          <option value="favorite" ${item.tab === "favorite" ? "selected" : ""}>favorite</option>
+        </select>
       </td>
       <td>
         <input data-field="earliest" type="text" value="${escapeAttr(item.earliest)}" placeholder="YYYY/MM/DD" />
@@ -2528,9 +2534,7 @@ function applyBoardColumns(persist = true) {
     refs.boardDensity.max = String(cap);
     refs.boardDensity.value = String(next);
   }
-  if (refs.boardDensityLabel) {
-    refs.boardDensityLabel.textContent = `${next} 列`;
-  }
+  refs.boardDensity?.setAttribute("aria-valuetext", `${next} 列`);
   if (refs.boardGrid) {
     refs.boardGrid.style.setProperty("--board-columns", String(next));
     refs.boardGrid.classList.toggle("profile-board-immersive", state.accountBoard.viewMode === "immersive");
@@ -6218,7 +6222,7 @@ function bindEvents() {
   const bindAccountBodies = (body, section = "active") => {
     body.addEventListener("input", (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLInputElement)) {
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) {
         return;
       }
       const row = target.closest("tr");
