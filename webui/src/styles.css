@@ -603,13 +603,38 @@ html.feed-active .app-shell {
   gap: 6px;
 }
 
-.sidebar-runtime-status .badge {
-  width: 100%;
+.runtime-indicator {
+  display: flex;
   min-width: 0;
-  justify-content: flex-start;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.runtime-indicator::before {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 0.55em;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.runtime-indicator.ok::before {
+  background: var(--text-success);
+}
+
+.runtime-indicator.warn {
+  color: var(--text-warning);
+}
+
+.runtime-indicator.error {
+  color: var(--text-danger);
 }
 
 .magic-metrics-root,
@@ -815,6 +840,15 @@ html.feed-active .app-shell {
 
 .tab-panel {
   min-width: 0;
+}
+
+/* The tab is a layout container; its sections own their visible frames. */
+.workspace-content > .card.tab-panel {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  padding: 0;
 }
 
 .card-head {
@@ -6228,9 +6262,8 @@ select.batch-field-select + .app-select-mount {
     padding: 0;
   }
 
-  .sidebar-runtime-status .badge {
-    width: auto;
-    justify-content: center;
+  .sidebar-runtime-status .runtime-indicator + .runtime-indicator {
+    margin-left: 8px;
   }
 
   .brand-name {
