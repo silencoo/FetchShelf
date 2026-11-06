@@ -6049,6 +6049,13 @@ class APIServer(TikTok, ServerRoutesMixin):
         failed_streak = 0
         failed_streak_max = 0
         route_results = []
+        # No awaits below: index the current rows once after workers finish.
+        # Archiving/settings edits may have replaced the original snapshot.
+        current_rows = (self.parameter.accounts_urls_tiktok if tiktok
+                        else self.parameter.accounts_urls)
+        current_by_url = {}
+        for row in current_rows:
+            current_by_url.setdefault(self._normalize_account_url(row.url), row)
         for execution in item_results:
             item = execution["item"]
             route_results.append(
@@ -6065,13 +6072,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                 }
             )
             context = execution.get("context", {})
-            # Archiving and settings edits replace the rows while network I/O awaits.
-            # Resolve against the current list, never resurrect a removed snapshot.
-            current_rows = (self.parameter.accounts_urls_tiktok if tiktok
-                            else self.parameter.accounts_urls)
-            settings_row = next((row for row in current_rows
-                                 if self._normalize_account_url(row.url)
-                                 == self._normalize_account_url(item["url"])), None)
+            settings_row = current_by_url.get(self._normalize_account_url(item["url"]))
             has_settings_row = settings_row is not None
             if has_settings_row and getattr(self.parameter, "auto_backfill_mark", True):
                 name = context.get("profile_nickname") or (context.get("mark") if execution.get("ok") else "")
