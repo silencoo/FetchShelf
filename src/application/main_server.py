@@ -31,7 +31,7 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
-from uvicorn import Config, Server
+from uvicorn import Config
 
 from ..collector.account_state import validate_archive_evidence
 from ..custom import (
@@ -112,6 +112,7 @@ from ..webui.files import (
 from ..webui.account_backfill import attach_settings_index_by_url
 from ..webui.profile_avatar import choose_face_cover, generate_face_avatar
 from ..webui.task_journal import ACTIVE_TASK_STATUSES, TaskJournal
+from ..webui.local_https import https_config, serve_listeners
 from .main_terminal import TikTok
 from .server_routes import (
     ServerRoutesMixin,
@@ -7045,12 +7046,12 @@ class APIServer(TikTok, ServerRoutesMixin):
             port=port,
             log_level=log_level,
         )
-        server = Server(config)
+        tls_config = https_config(config, self.parameter.settings.path.parent)
         await self._configure_collector_leases()
         await self._start_ui_task_workers()
         await self._start_ui_schedules()
         try:
-            await server.serve()
+            await serve_listeners(config, tls_config)
         finally:
             if feed_service := getattr(self, "_feed_service", None):
                 feed_service.close()

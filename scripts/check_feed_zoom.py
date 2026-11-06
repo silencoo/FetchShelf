@@ -62,24 +62,43 @@ def check(engine, args):
         page.wait_for_timeout(25)
 
     def pinch(start, end):
-        touch('touchStart', [(195-start, 320), (195+start, 320)])
+        bounds = stage.bounding_box()
+        cx, cy = bounds['x'] + bounds['width'] / 2, bounds['y'] + bounds['height'] / 2
+        touch('touchStart', [(cx-start, cy), (cx+start, cy)])
         for i in range(1, 7):
             distance = start + (end-start)*i/6
-            touch('touchMove', [(195-distance, 320), (195+distance, 320)])
+            touch('touchMove', [(cx-distance, cy), (cx+distance, cy)])
         touch('touchEnd', [])
 
     active = page.locator('.fa-slide.is-active')
     stage = active.locator('.fa-stage')
+
+    def pager_geometry():
+        return page.locator('.fa-pager').first.evaluate('(e)=>[e.clientHeight,e.scrollTop]')
+
+    def full_display():
+        bounds = stage.bounding_box()
+        viewport = page.viewport_size
+        assert bounds == {'x': 0, 'y': 0, 'width': viewport['width'], 'height': viewport['height']}, bounds
+        assert page.evaluate('''() => !!document.elementFromPoint(innerWidth / 2, innerHeight - 12)
+          ?.closest('.fa-stage[data-zoomed]')'''), 'Bottom navigation area must accept media gestures'
+
     try:
         page.goto(args.url + '/ui/feed')
+        # Include the iPhone home-indicator inset in the previously black strip.
+        page.add_style_tag(content='.fa { --fa-safe-bottom: 34px; }')
         page.wait_for_function("document.querySelector('.fa-slide.is-active video')?.paused === false")
         page.wait_for_timeout(350)  # Let initial viewport measurement/player binding settle.
         page.wait_for_function("() => { window.originalVideo=document.querySelector('.fa-slide.is-active video'); return originalVideo && !originalVideo.paused; }")
         active.locator('.fa-surface-video').tap(position={'x': 150, 'y': 220})
         page.wait_for_function('originalVideo.paused')
         before = page.evaluate('originalVideo.currentTime')
+        fitted_bounds = stage.bounding_box()
+        pager_before = pager_geometry()
         pinch(45, 120)
         expect(stage).to_have_attribute('data-zoomed', '')
+        full_display()
+        assert pager_geometry() == pager_before
         expect(page.locator('.fa-tabbar')).not_to_be_visible()
         expect(active.locator('.fa-rail')).not_to_be_visible()
         expect(active.locator('.fa-caption')).not_to_be_visible()
@@ -87,8 +106,8 @@ def check(engine, args):
         assert page.evaluate('originalVideo === document.querySelector(".fa-slide.is-active video") && originalVideo.paused')
         assert abs(page.evaluate('originalVideo.currentTime') - before) < .1
         transform = stage.get_attribute('style')
-        touch('touchStart', [(195, 320)])
-        touch('touchMove', [(125, 390)])
+        touch('touchStart', [(195, 820)])
+        touch('touchMove', [(125, 750)])
         touch('touchEnd', [])
         assert stage.get_attribute('style') != transform
         page.keyboard.press('ArrowDown')
@@ -96,6 +115,8 @@ def check(engine, args):
         page.screenshot(path=f'/tmp/feed-zoom-{engine.name}-video.png')
         pinch(120, 35)
         expect(stage).not_to_have_attribute('data-zoomed', '')
+        assert stage.bounding_box() == fitted_bounds
+        assert pager_geometry() == pager_before
         expect(page.locator('.fa-tabbar')).to_be_visible()
         assert not marks
         assert page.locator('.fa-layer').count() == 0
@@ -108,11 +129,15 @@ def check(engine, args):
         else:
             page.locator('.fa-pager').first.evaluate('(e)=>e.scrollTo({top:e.clientHeight,behavior:"instant"})')
         expect(active.locator('.fa-carousel')).to_be_visible()
+        page.wait_for_function("() => { const e=document.querySelector('.fa-pager'); return Math.abs(e.scrollTop-e.clientHeight)<0.5; }")
         carousel = active.locator('.fa-carousel')
         carousel.evaluate('(e)=>e.scrollTo({left:e.clientWidth,behavior:"instant"})')
         expect(active.locator('.fa-carousel-count')).to_have_text('2/2')
+        pager_before = pager_geometry()
         pinch(45, 110)
         expect(stage).to_have_attribute('data-zoomed', '')
+        full_display()
+        assert pager_geometry() == pager_before
         selected = active.locator('.fa-carousel-item[data-current="true"] img')
         assert selected.get_attribute('src').endswith('photo_1.jpeg')
         assert selected.evaluate('(e)=>getComputedStyle(e).transform') != 'none'
@@ -121,6 +146,7 @@ def check(engine, args):
         page.screenshot(path=f'/tmp/feed-zoom-{engine.name}-photo.png')
         pinch(110, 35)
         expect(stage).not_to_have_attribute('data-zoomed', '')
+        assert pager_geometry() == pager_before
         page.get_by_role('button', name='我', exact=True).filter(visible=True).click()
         switch = page.get_by_role('switch', name='双指缩放', exact=False)
         expect(switch).to_be_checked(); switch.uncheck()
@@ -137,8 +163,20 @@ def check(engine, args):
         assert page.evaluate('document.querySelector(".fa-slide.is-active video").paused') is False
         page.set_viewport_size({'width': 844, 'height': 390})
         expect(stage).not_to_have_attribute('data-zoom-active', '')
+        for size in ({'width': 844, 'height': 390}, {'width': 1280, 'height': 800}):
+            page.set_viewport_size(size)
+            page.wait_for_timeout(400)
+            pager_before = pager_geometry()
+            pinch(30, 75)
+            expect(stage).to_have_attribute('data-zoomed', '')
+            full_display()
+            assert pager_geometry() == pager_before
+            page.screenshot(path=f'/tmp/feed-zoom-{engine.name}-{size["width"]}.png')
+            page.keyboard.press('Escape')
+            expect(stage).not_to_have_attribute('data-zoomed', '')
+            assert pager_geometry() == pager_before
         assert not errors, errors
-        print(engine.name, 'PASS: pinch/pan, clean screen, stable paused/playing video, no accidental navigation/like, swipe recovery, selected photo, timer held, persisted switch, rotation reset')
+        print(engine.name, 'PASS: full-display zoom including safe area, bottom-area pan, stable pager geometry, landscape/desktop, paused/playing video, swipe recovery, selected photo, timer held, persisted switch, rotation reset')
     finally:
         browser.close()
 

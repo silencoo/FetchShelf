@@ -408,6 +408,13 @@
   overflow-x: hidden;
 }
 
+.fa-stage[data-zoomed] {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #000;
+}
+
 .fa:has(.fa-stage[data-zoomed]) :is(.fa-topbar, .fa-tabbar, .fa-nav, .fa-sound-chip, .fa-pager-arrows),
 .fa-slide:has(.fa-stage[data-zoomed]) :is(.fa-caption, .fa-rail, .fa-center-icon, .fa-center-spinner,
   .fa-seek, .fa-seek-time, .fa-fullscreen, .fa-speed-chip, .fa-media-error, .fa-carousel-arrow,

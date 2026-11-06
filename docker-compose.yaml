@@ -18,10 +18,14 @@ services:
       FETCHSHELF_ENCIPHER_PATH: /app/settings/encipher.py
       FETCHSHELF_API_TOKEN: ${FETCHSHELF_API_TOKEN:-}
       FETCHSHELF_IDENTITY_KEY: ${FETCHSHELF_IDENTITY_KEY:-}
+      FETCHSHELF_AUTO_HTTPS: ${FETCHSHELF_AUTO_HTTPS:-0}
+      FETCHSHELF_HTTPS_HOSTS: ${FETCHSHELF_HTTPS_HOSTS:-localhost}
+      FETCHSHELF_HTTPS_PORT: "5557"
       NVIDIA_VISIBLE_DEVICES: void
 
     ports:
       - "${WEBUI_PORT:-5555}:5555"
+      - "${FETCHSHELF_HTTPS_PORT:-5557}:5557"
 
     volumes:
       - "${SETTINGS_DIR:-./settings}:/app/settings"

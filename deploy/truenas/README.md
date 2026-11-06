@@ -59,6 +59,28 @@ and `--build-arg http_proxy=http://127.0.0.1:7890`
 `--build-arg https_proxy=http://127.0.0.1:7890`. These are build-only options;
 they do not change the application's network or proxy configuration.
 
+## Optional automatic local HTTPS
+
+Set `FETCHSHELF_AUTO_HTTPS=1`, `FETCHSHELF_HTTPS_PORT=5557`, and
+`FETCHSHELF_HTTPS_HOSTS=192.168.0.2` (replace with your NAS address; multiple
+IP addresses/hostnames may be comma-separated) in the private deployment `.env`.
+Redeploy, then open `https://NAS_ADDRESS:5557/ui/feed`. HTTP stays available.
+For Docker the port setting selects the host port; the container listens on 5557.
+When running Python directly, set these environment variables in the shell;
+the port is the listener port and must differ from HTTP.
+
+The app generates a self-signed certificate and private key in
+`settings/.secrets/https/`, reuses them on restart, and renews the certificate
+on startup when its names change or fewer than 30 days remain. Keep that
+directory private; it is included in settings backups and blocked by the file API.
+Both listeners share the same app, authentication, and task workers.
+
+Browsers will show a certificate warning until trust is configured. This mode
+does not install trust on any device or promise that bypassing the warning will
+enable native sharing. Check sharing on the actual device; HTTPS has separate
+browser storage, so you may need to enter the existing API token again and set
+your preferences there. No public domain, ACME service, or HTTP redirect is used.
+
 ## Status and rollback
 
 ```bash

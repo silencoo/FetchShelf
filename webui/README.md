@@ -41,7 +41,9 @@ Real iPhone share-sheet/app handoff needs a device test over HTTPS.
 Pinch zoom is enabled by default and can be disabled in Me. It transforms the
 existing media element, hides controls while enlarged, and keeps fitted
 one-finger feed/carousel scrolling native. Do not resize the pager or replace
-its snap targets when clearing the screen. Returning to 1× restores navigation.
+its snap targets when clearing the screen. Only the zoomed media stage expands
+over the navigation and safe-area space; its transform compensates for the new
+fit so the content stays under the fingers. Returning to 1× restores navigation.
 `python scripts/check_feed_zoom.py --video /path/to/a-small-fixture.mp4` uses the
 same browser options and Vite server. Chromium checks real touch input through
 CDP; desktop WebKit checks synthetic touch events, so iPhone hardware still

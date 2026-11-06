@@ -23,23 +23,27 @@ export function useMediaZoom(
     let pinching = false;
     let handling = false;
     let scrollTop = 0;
+    let fittedFrame: DOMRect | null = null;
     let start: { distance: number; scale: number; x: number; y: number; cx: number; cy: number } | null = null;
     let pan: { id: number; cx: number; cy: number; x: number; y: number } | null = null;
 
-    const limitPan = () => {
+    const geometry = () => {
       const media = stage.querySelector<HTMLImageElement | HTMLVideoElement>(
         ".fa-video-host video, .fa-carousel-item[data-current='true'] img, .fa-carousel-item[data-current='true'] video",
       );
-      const width = stage.clientWidth, height = stage.clientHeight;
+      const viewport = stage.getBoundingClientRect();
+      const frame = fittedFrame ?? viewport;
       const naturalWidth = media instanceof HTMLVideoElement ? media.videoWidth : media?.naturalWidth;
       const naturalHeight = media instanceof HTMLVideoElement ? media.videoHeight : media?.naturalHeight;
-      const fit = naturalWidth && naturalHeight ? Math.min(width / naturalWidth, height / naturalHeight) : 1;
-      x = clamp(x, Math.max(0, ((naturalWidth || width) * fit * scale - width) / 2));
-      y = clamp(y, Math.max(0, ((naturalHeight || height) * fit * scale - height) / 2));
+      const width = naturalWidth || frame.width, height = naturalHeight || frame.height;
+      const fit = Math.min(frame.width / width, frame.height / height);
+      const expandedFit = Math.min(viewport.width / width, viewport.height / height);
+      return { viewport, width: width * fit, height: height * fit, ratio: fit / expandedFit,
+        dx: frame.left + frame.width / 2 - viewport.left - viewport.width / 2,
+        dy: frame.top + frame.height / 2 - viewport.top - viewport.height / 2 };
     };
 
     const render = () => {
-      limitPan();
       const zoomed = scale >= FIT_THRESHOLD;
       const next = zoomed || pinching || handling;
       if (next && !locked.current) scrollTop = pager?.scrollTop ?? 0;
@@ -47,16 +51,23 @@ export function useMediaZoom(
       setEngaged(next);
       stage.toggleAttribute("data-zoom-active", next);
       stage.toggleAttribute("data-zoomed", zoomed);
-      stage.style.setProperty("--media-zoom", `translate3d(${x}px, ${y}px, 0) scale(${scale})`);
+      // Expanding only the stage leaves pager/snap geometry untouched. Compensate
+      // for its new contain-fit and center so the media stays under the fingers.
+      if (!zoomed && !next) fittedFrame = null;
+      const { viewport, width, height, ratio, dx, dy } = geometry();
+      x = clamp(x + dx, Math.max(0, (width * scale - viewport.width) / 2)) - dx;
+      y = clamp(y + dy, Math.max(0, (height * scale - viewport.height) / 2)) - dy;
+      stage.style.setProperty("--media-zoom", `translate3d(${x + dx}px, ${y + dy}px, 0) scale(${scale * ratio})`);
     };
 
     const point = (touch: Touch) => {
-      const rect = stage.getBoundingClientRect();
+      const rect = fittedFrame ?? stage.getBoundingClientRect();
       return { x: touch.clientX - rect.left - rect.width / 2, y: touch.clientY - rect.top - rect.height / 2 };
     };
 
     const begin = (touches: TouchList) => {
       if (touches.length >= 2) {
+        fittedFrame ??= stage.getBoundingClientRect();
         const a = point(touches[0]), b = point(touches[1]);
         start = { distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), scale, x, y,
           cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };

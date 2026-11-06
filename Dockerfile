@@ -117,7 +117,7 @@ LABEL org.opencontainers.image.source="https://github.com/silencoo/FetchShelf" \
       org.opencontainers.image.created="${BUILD_DATE}"
 
 # 暴露端口
-EXPOSE 5555
+EXPOSE 5555 5557
 
 # 创建挂载点
 VOLUME ["/app/settings", "/app/downloads"]
