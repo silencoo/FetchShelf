@@ -1892,6 +1892,26 @@
     bottom: 16px;
   }
 
+  .fa-fullscreen {
+    top: auto;
+    right: 12px;
+    bottom: 22px;
+    left: auto;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    transform: none;
+  }
+
+  .fa-fullscreen span {
+    display: none;
+  }
+
+  .fa-stage-wrap:has(.fa-fullscreen) .fa-caption {
+    right: 72px;
+  }
+
   .fa-rail,
   .fa-layer-player .fa-rail {
     position: static;

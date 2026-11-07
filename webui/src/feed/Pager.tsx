@@ -654,8 +654,8 @@ function VideoSlide({
       {status === "error" ? <span className="fa-media-error">这条视频暂时无法播放</span> : null}
       {fast ? <span className="fa-speed-chip">2 倍速播放中</span> : null}
       {landscape && isActive ? (
-        <button type="button" className="fa-fullscreen" onClick={enterFullscreen}>
-          <FullscreenIcon size={15} /> 全屏观看
+        <button type="button" className="fa-fullscreen" aria-label="全屏观看" title="全屏观看" onClick={enterFullscreen}>
+          <FullscreenIcon size={15} /> <span>全屏观看</span>
         </button>
       ) : null}
       <Bursts bursts={bursts} box={boxRef.current} />
