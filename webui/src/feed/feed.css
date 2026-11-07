@@ -2086,6 +2086,11 @@
   .fa-slide-inner {
     padding: 16px 0;
   }
+
+  /* Keep wide media and its action rail out of the navigation column. */
+  .fa-pager-wrap:has(> .fa-pager-arrows) .fa-slide-inner {
+    padding-right: 80px;
+  }
 }
 
 @media (min-width: 1100px) {
