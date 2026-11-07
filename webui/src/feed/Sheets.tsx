@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { api, fileUrl } from "./api";
 import { MediaShareAction } from "./MediaShareAction";
@@ -23,23 +23,96 @@ function Sheet({
   onClose,
   children,
   docked = false,
+  anchor,
 }: {
   title: ReactNode;
   onClose(): void;
   children: ReactNode;
   docked?: boolean;
+  anchor?: HTMLElement;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const drag = useRef({ y: 0, dy: 0, active: false });
 
   useEffect(() => {
     panelRef.current?.focus({ preventScroll: true });
-  }, []);
+    return () => {
+      if (anchor?.isConnected) anchor.focus({ preventScroll: true });
+    };
+  }, [anchor]);
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const panel = panelRef.current;
+    if (!anchor || !root || !panel) return;
+    const wide = window.matchMedia("(min-width: 700px)");
+    const viewport = window.visualViewport;
+    const position = () => {
+      if (!wide.matches || !anchor.isConnected) return;
+      const bounds = root.getBoundingClientRect();
+      const target = anchor.getBoundingClientRect();
+      const gap = 12;
+      const leftEdge = Math.max(bounds.left, viewport?.offsetLeft ?? 0) + gap;
+      const topEdge = Math.max(bounds.top, viewport?.offsetTop ?? 0) + gap;
+      const rightEdge = Math.min(bounds.right, (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth)) - gap;
+      const bottomEdge = Math.min(bounds.bottom, (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)) - gap;
+      panel.style.setProperty("--fa-share-max-width", `${Math.max(0, rightEdge - leftEdge)}px`);
+      panel.style.setProperty("--fa-share-max-height", `${Math.max(0, bottomEdge - topEdge)}px`);
+      const { width, height } = panel.getBoundingClientRect();
+      const preferredLeft = target.left - gap - width >= leftEdge
+        ? target.left - gap - width
+        : target.right + gap;
+      const left = Math.max(leftEdge, Math.min(preferredLeft, rightEdge - width));
+      const top = Math.max(topEdge, Math.min(target.top + target.height / 2 - height / 2, bottomEdge - height));
+      panel.style.setProperty("--fa-share-left", `${left - bounds.left}px`);
+      panel.style.setProperty("--fa-share-top", `${top - bounds.top}px`);
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(root);
+    observer.observe(panel);
+    observer.observe(anchor);
+    wide.addEventListener("change", position);
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    viewport?.addEventListener("resize", position);
+    viewport?.addEventListener("scroll", position);
+    return () => {
+      observer.disconnect();
+      wide.removeEventListener("change", position);
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+      viewport?.removeEventListener("resize", position);
+      viewport?.removeEventListener("scroll", position);
+    };
+  }, [anchor]);
 
   return (
-    <div className={`fa-sheet-root${docked ? " is-docked" : ""}`}>
+    <div ref={rootRef} className={`fa-sheet-root${docked ? " is-docked" : ""}${anchor ? " is-anchored" : ""}`}>
       <button type="button" className="fa-sheet-scrim" aria-label="关闭" onClick={onClose} />
-      <div className="fa-sheet" ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true">
+      <div className="fa-sheet" ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId}
+        onKeyDown={(event) => {
+          if (!anchor) return;
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onClose();
+          } else if (event.key === "Tab") {
+            const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+              'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), [tabindex="0"]',
+            )).filter((element) => element.getClientRects().length);
+            const first = controls[0];
+            const last = controls[controls.length - 1];
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+              event.preventDefault();
+              last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first?.focus();
+            }
+          }
+        }}>
         <div
           className="fa-sheet-grip"
           onPointerDown={(event) => {
@@ -71,7 +144,7 @@ function Sheet({
           <span />
         </div>
         <header className="fa-sheet-head">
-          <div className="fa-sheet-title">{title}</div>
+          <div className="fa-sheet-title" id={titleId}>{title}</div>
           <button type="button" className="fa-icon-btn" aria-label="关闭" onClick={onClose}>
             <CloseIcon size={20} />
           </button>
@@ -362,11 +435,13 @@ async function copyText(text: string) {
 export function ShareSheet({
   post,
   snapshot,
+  anchor,
   onClose,
   onHideAuthor,
 }: {
   post: Post;
   snapshot?: VideoSnapshot;
+  anchor?: HTMLElement;
   onClose(): void;
   onHideAuthor(post: Post): void;
 }) {
@@ -408,7 +483,7 @@ export function ShareSheet({
   };
 
   return (
-    <Sheet title="分享与更多" onClose={onClose}>
+    <Sheet title="分享与更多" onClose={onClose} anchor={anchor}>
       <div className="fa-actions-grid">
         {item ? <MediaShareAction key={item.path} item={item} onShared={onClose} /> : null}
         {snapshot ? <ScreenshotShareAction snapshot={snapshot} onShared={onClose} /> : null}

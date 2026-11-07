@@ -2203,6 +2203,25 @@
   }
 }
 
+/* Share menus follow the tapped rail button on tablets and desktops. */
+@media (min-width: 700px) {
+  .fa-sheet-root.is-anchored .fa-sheet {
+    inset: var(--fa-share-top, 12px) auto auto var(--fa-share-left, 12px);
+    width: min(360px, var(--fa-share-max-width, calc(100% - 24px)));
+    min-height: 0;
+    max-height: var(--fa-share-max-height, calc(100% - 24px));
+    margin: 0;
+    padding-top: 8px;
+    border-radius: 16px;
+    transform: none;
+    animation: fa-fade 0.15s ease-out;
+  }
+
+  .fa-sheet-root.is-anchored .fa-sheet-grip {
+    display: none;
+  }
+}
+
 /* -------------------------------------------------------------------- motion */
 
 @keyframes fa-pop {

@@ -463,10 +463,7 @@ html.feed-active .app-shell {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-
-:root[data-theme="dark"] .brand-logo {
-  filter: grayscale(1) brightness(1.5) contrast(1.15);
+  border-radius: 22%;
 }
 
 .nav-kicker,

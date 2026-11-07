@@ -49,7 +49,7 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
 export interface PagerActions {
   openProfile(post: Post): void;
   openPanel(post: Post, tab: "comments" | "details"): void;
-  openShare(post: Post, snapshot?: VideoSnapshot): void;
+  openShare(post: Post, snapshot?: VideoSnapshot, anchor?: HTMLElement): void;
   openTag(tag: string): void;
   openMusic(title: string): void;
 }
@@ -453,7 +453,7 @@ const Rail = memo(function Rail({
           const video = event.currentTarget.closest(".fa-slide")?.querySelector<HTMLVideoElement>(
             ".fa-video-host video, .fa-carousel-item[data-current='true'] video",
           ) ?? null;
-          actions.openShare(post, item?.kind === "video" ? captureVideoSnapshot(video) : undefined);
+          actions.openShare(post, item?.kind === "video" ? captureVideoSnapshot(video) : undefined, event.currentTarget);
         }}
       >
         <span className="fa-rail-icon">
