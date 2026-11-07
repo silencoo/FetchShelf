@@ -498,6 +498,9 @@ function renderDeletedRows(platform) {
         <button data-action="restore-row" class="btn ghost icon-btn-text" type="button">
           <i data-lucide="refresh-cw"></i><span>撤销</span>
         </button>
+        <button data-action="open-row-gallery" class="btn ghost account-action-icon" type="button" title="查看本地媒体" aria-label="查看本地媒体：${escapeAttr(item.mark || item.url)}">
+          <i data-lucide="folder-open"></i>
+        </button>
       </td>
     `;
     fragment.appendChild(tr);
@@ -5233,7 +5236,9 @@ async function archiveTaskAccounts({ platform, url, mark, items, trigger }) {
   if (trigger) {
     trigger.disabled = true;
     trigger.setAttribute("aria-busy", "true");
-    trigger.textContent = "移出中…";
+    if (!trigger.classList.contains("account-action-icon")) {
+      trigger.textContent = "移出中…";
+    }
   }
   try {
     const result = await fetchJson(
@@ -5471,31 +5476,47 @@ function renderTaskAccounts(payload) {
     const actions = document.createElement("div");
     actions.className = "task-account-actions";
     const action = accountUrl ? document.createElement("a") : document.createElement("span");
-    action.className = "btn ghost task-account-open";
+    action.className = accountUrl ? "btn ghost task-account-open account-action-icon" : "task-account-open";
     if (accountUrl) {
       action.href = accountUrl;
       action.target = "_blank";
       action.rel = "noopener noreferrer";
       action.setAttribute("aria-label", `在新标签页打开账号：${accountName}`);
+      action.title = "打开账号主页";
       const actionIcon = document.createElement("i");
       actionIcon.dataset.lucide = "external-link";
-      action.append(actionIcon, document.createTextNode("打开账号"));
+      action.appendChild(actionIcon);
     } else {
       action.setAttribute("aria-disabled", "true");
       action.textContent = "无可用链接";
     }
 
     actions.appendChild(action);
+    if (accountUrl) {
+      const galleryAction = document.createElement("button");
+      galleryAction.type = "button";
+      galleryAction.className = "btn ghost task-account-gallery account-action-icon";
+      galleryAction.title = "查看本地媒体";
+      galleryAction.setAttribute("aria-label", `查看本地媒体：${accountName}`);
+      const galleryIcon = document.createElement("i");
+      galleryIcon.dataset.lucide = "folder-open";
+      galleryAction.appendChild(galleryIcon);
+      galleryAction.addEventListener("click", () => {
+        openAccountGallery({ dataset: { platform, url: accountUrl, mark: accountName } }, galleryAction);
+      });
+      actions.appendChild(galleryAction);
+    }
     if (status === "failed" && accountUrl) {
       if (configured) {
         const archiveAction = document.createElement("button");
         archiveAction.type = "button";
         archiveAction.disabled = state.taskAccountArchivePending;
-        archiveAction.className = "btn ghost danger task-account-archive";
+        archiveAction.className = "btn ghost danger task-account-archive account-action-icon";
+        archiveAction.title = "移出采集名单";
         archiveAction.setAttribute("aria-label", `将账号移出采集名单：${accountName}`);
         const archiveIcon = document.createElement("i");
         archiveIcon.dataset.lucide = "trash-2";
-        archiveAction.append(archiveIcon, document.createTextNode("移出名单"));
+        archiveAction.appendChild(archiveIcon);
         archiveAction.addEventListener("click", () => {
           void archiveTaskAccounts({
             platform,
@@ -6303,6 +6324,13 @@ function bindEvents() {
       }
       const platform = row.dataset.platform || "douyin";
       const index = Number(row.dataset.index || "0");
+      if (action === "open-row-gallery" && section === "deleted") {
+        const item = state.deletedRows[accountRowsKey(platform)][index];
+        if (item?.url) {
+          openAccountGallery({ dataset: { platform, url: item.url, mark: item.mark } }, actionTarget);
+        }
+        return;
+      }
       if (action === "open-row") {
         const rows =
           section === "deleted"

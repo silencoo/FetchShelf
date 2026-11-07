@@ -835,8 +835,10 @@ def test_account_board_can_sort_by_matched_folder_update_time(
     assert page["items"][2]["folder_updated_at"] == ""
 
 
+@pytest.mark.parametrize("archived", [False, True])
+@pytest.mark.parametrize("platform", ["douyin", "tiktok"])
 def test_account_board_gallery_is_recursive_filterable_and_account_scoped(
-    tmp_path: Path,
+    tmp_path: Path, archived: bool, platform: str,
 ):
     account_url = "https://www.douyin.com/user/gallery-account"
     account_dir = tmp_path / "UID123_GalleryAccount_发布作品"
@@ -852,10 +854,10 @@ def test_account_board_gallery_is_recursive_filterable_and_account_scoped(
     utime(video_path, (1_900_000_000, 1_900_000_000))
 
     server = APIServer.__new__(APIServer)
-    server._find_active_account_row = lambda platform, url: (
-        {"url": account_url, "mark": "GalleryAccount"}
-        if url == account_url
-        else None
+    server._account_rows = lambda tiktok, deleted=False: (
+        [{"url": account_url, "mark": "GalleryAccount"}]
+        if deleted == archived and tiktok == (platform == "tiktok")
+        else []
     )
     server._scope_root = lambda scope: tmp_path
     server._account_board_dirs = lambda root: [account_dir]
@@ -863,13 +865,13 @@ def test_account_board_gallery_is_recursive_filterable_and_account_scoped(
     server._account_board_mark_candidates = lambda mark, index: [account_dir]
 
     gallery = server._build_account_board_gallery(
-        "douyin",
+        platform,
         account_url,
         1,
         24,
     )
     images = server._build_account_board_gallery(
-        "douyin",
+        platform,
         account_url,
         1,
         24,
@@ -889,11 +891,23 @@ def test_account_board_gallery_is_recursive_filterable_and_account_scoped(
 
     with pytest.raises(LookupError, match="account_not_found"):
         server._build_account_board_gallery(
-            "douyin",
+            platform,
             "https://www.douyin.com/user/not-configured",
             1,
             24,
         )
+
+    with pytest.raises(LookupError, match="account_not_found"):
+        server._build_account_board_gallery(
+            "tiktok" if platform == "douyin" else "douyin", account_url, 1, 24,
+        )
+
+    server._account_board_dirs = lambda root: []
+    server._account_board_mark_candidates = lambda mark, index: []
+    empty = server._build_account_board_gallery(platform, account_url, 1, 24)
+    assert empty["folder_found"] is False
+    assert empty["total"] == 0
+    assert empty["items"] == []
 
 
 @pytest.mark.asyncio

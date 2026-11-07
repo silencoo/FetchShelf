@@ -2007,15 +2007,37 @@ html.feed-active .app-shell {
 }
 
 .task-account-actions {
-  display: grid;
-  min-width: 92px;
+  display: flex;
+  flex-wrap: wrap;
+  max-width: 110px;
   align-self: center;
   gap: 5px;
 }
 
-.task-account-actions .btn {
-  width: 100%;
+.btn.account-action-icon {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
   justify-content: center;
+}
+
+.btn.account-action-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (pointer: coarse) {
+  .btn.account-action-icon {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .task-account-actions {
+    max-width: 142px;
+  }
 }
 
 .task-account-archive {
@@ -6427,8 +6449,6 @@ select.batch-field-select + .app-select-mount {
   .task-account-actions {
     grid-column: 3;
     justify-self: start;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    min-width: min(100%, 210px);
   }
 
   .task-account-bulk-toolbar {

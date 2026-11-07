@@ -3202,6 +3202,14 @@ class APIServer(TikTok, ServerRoutesMixin):
         normalized_platform = self._normalize_board_platform(platform)
         account_url = self._normalize_string(url)
         row = self._find_active_account_row(normalized_platform, account_url)
+        if not row and account_url:
+            # Archiving removes an account from the board, not its saved media.
+            row = next((
+                item for item in self._account_rows(
+                    normalized_platform == "tiktok", deleted=True,
+                )
+                if self._normalize_string(item.get("url")) == account_url
+            ), None)
         if not row:
             raise LookupError("account_not_found")
 
