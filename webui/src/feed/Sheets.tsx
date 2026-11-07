@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 
 import { api, fileUrl } from "./api";
 import { MediaShareAction } from "./MediaShareAction";
+import { ImageCopyAction } from "./ImageCopyAction";
 import { ScreenshotShareAction } from "./ScreenshotShareAction";
 import type { VideoSnapshot } from "./videoSnapshot";
 import { formatCount, formatRelativeTime, initialOf, splitCaption } from "./format";
@@ -485,6 +486,7 @@ export function ShareSheet({
   return (
     <Sheet title="分享与更多" onClose={onClose} anchor={anchor}>
       <div className="fa-actions-grid">
+        {item?.kind === "image" ? <ImageCopyAction key={`copy-${item.path}`} item={item} onCopied={onClose} /> : null}
         {item ? <MediaShareAction key={item.path} item={item} onShared={onClose} /> : null}
         {snapshot ? <ScreenshotShareAction snapshot={snapshot} onShared={onClose} /> : null}
         {shareUrl && typeof navigator.share === "function" ? (

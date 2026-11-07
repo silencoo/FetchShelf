@@ -41,6 +41,12 @@ export const ShareIcon = (p: IconProps) => (
     <path d="M13.3 3.4c-.6-.5-1.5-.1-1.5.7v3.7C5.4 8.3 2 13.3 2 19.5c0 .7.9 1 1.3.4 2-2.9 4.8-4.4 8.5-4.5v3.8c0 .8.9 1.2 1.5.7l8.4-7.3c.5-.4.5-1.1 0-1.5l-8.4-7.7Z" />
   </svg>
 );
+export const CopyIcon = (p: IconProps) => (
+  <svg {...base(p)} {...stroke}>
+    <rect x="8" y="8" width="12" height="13" rx="2" />
+    <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+  </svg>
+);
 export const PlayIcon = (p: IconProps) => (
   <svg {...base(p)} fill="currentColor">
     <path d="M7.5 3.9c-.8-.5-1.9.1-1.9 1v14.2c0 .9 1 1.5 1.9 1l11.6-7.1c.8-.5.8-1.6 0-2L7.5 3.9Z" />

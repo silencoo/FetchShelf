@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { MediaShareAction } from "./MediaShareAction";
+import { ImageCopyAction } from "./ImageCopyAction";
 import { DownloadIcon, ShareIcon } from "./icons";
 import type { VideoSnapshot } from "./videoSnapshot";
 
@@ -33,6 +34,7 @@ export function ScreenshotShareAction({ snapshot, onShared }: { snapshot: VideoS
   </>;
 
   return <>
+    <ImageCopyAction screenshot={ready.file} onCopied={onShared} />
     <MediaShareAction screenshot={ready.file} onShared={onShared} />
     <a className="fa-action" href={ready.url} download={ready.file.name}>
       <span><DownloadIcon size={22} /></span>
