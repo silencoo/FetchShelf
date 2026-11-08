@@ -1,15 +1,10 @@
 # FetchShelf
 
-For a stable TrueNAS deployment directory, recorded image revisions, and
-bounded rollback backups, see [TrueNAS deployment](deploy/truenas/README.md).
-The TikTok-Api dependency is included in this repository; no submodule setup is required.
-
 Docker-first Douyin / TikTok collection, download, and media management.
 
 > [!IMPORTANT]
-> Docker Compose and the WebUI are the primary deployment and maintenance targets.
-> Desktop executables and the interactive terminal remain historical entry points
-> and are not guaranteed to stay in feature parity.
+> Deploy with **Docker Compose** and manage collection and media through the
+> **WebUI** or **Web API**.
 
 ## What it provides
 
@@ -22,16 +17,76 @@ Docker-first Douyin / TikTok collection, download, and media management.
 - Settings, Cookie, collector identity, proxy, and routing management
 - FastAPI documentation and endpoints
 
-## Support status
+## WebUI preview
 
-| Interface | Status |
+Captured from the actual WebUI with fictional demo accounts, tasks, and statistics
+and licensed sample photos. No private account or login data is shown.
+[Capture notes and photo credits](docs/screenshot/webui/README.md).
+
+**Download workbench** — Library statistics, collector identities, and batch task progress in one place.
+
+![Download workbench with overview and task center](docs/screenshot/webui/workbench.jpg)
+
+**Account board** — Browse account covers with search, filters, and a media-only view.
+
+![Account board in media-only mode](docs/screenshot/webui/account-board.jpg)
+
+**Immersive browsing** — Browse downloaded posts on desktop and mobile, with like, save, and share controls.
+
+![Desktop immersive viewer](docs/screenshot/webui/immersive-desktop.jpg)
+
+<img src="docs/screenshot/webui/immersive-mobile.jpg" width="300" alt="Mobile immersive viewer" />
+
+## Planned distributed architecture
+
+This is the target architecture, **not an implemented feature**. The current
+version schedules jobs within a single process, stores runtime state in SQLite,
+and manages media through the local filesystem. Remote workers and S3 storage
+are not supported yet.
+
+```mermaid
+flowchart TD
+    UI["Web clients"] --> API["FetchShelf API"]
+    API --> DB["PostgreSQL: catalog, jobs, checkpoints"]
+    Scheduler["Scheduler"] --> DB
+
+    W1["Worker 1"] <-->|"Claim jobs / heartbeat / results"| API
+    W2["Worker 2"] <-->|"Claim jobs / heartbeat / results"| API
+    W3["Worker N"] <-->|"Claim jobs / heartbeat / results"| API
+
+    W1 --> Storage["Media storage: local filesystem / S3"]
+    W2 --> Storage
+    W3 --> Storage
+    API --> Storage
+    UI -->|"Authorized media playback"| Storage
+```
+
+| Component | Responsibility |
 | --- | --- |
-| Docker Compose | Primary |
-| Local Docker build | Primary |
-| WebUI | Primary |
-| Web API | Maintained |
-| Source terminal mode | Advanced / historical |
-| Windows and macOS executables | Not a primary release target |
+| API | Client authentication, catalog queries, worker coordination, and media access authorization |
+| Scheduler | Create durable jobs from collection schedules |
+| Worker | Claim jobs, report heartbeats, collect content, download media, and generate previews |
+| PostgreSQL | Store the catalog, job leases, pagination checkpoints, and identity state |
+| Storage interface | Provide common access to local filesystems and S3, independently or together |
+
+Roles can share a host or scale independently; workers connect outbound to the
+API. Identities retain stable network-route assignments and share rate limits
+and cooldowns. Verification pauses the affected identity while retaining progress.
+
+Media has stable IDs, and job retries do not create duplicate records. Files enter
+the library only after verification and registration as ready; worker scratch
+space is not permanent storage. Remote workers use authenticated uploads for
+filesystem storage or upload directly to S3. The API authorizes media access,
+using temporary signed URLs for S3. Folder scanning becomes an import and
+reconciliation tool rather than the source for everyday browsing.
+
+## Deployment and access
+
+| Interface | Purpose |
+| --- | --- |
+| Docker Compose | Build from source and deploy without requiring prebuilt images |
+| WebUI | Browser interface at `/ui` |
+| Web API | Programmatic access, with documentation at `/docs` |
 
 ## Quick start
 
@@ -104,6 +159,10 @@ docker compose up -d --build
 ```
 
 ## Updating and migrating
+
+For stable paths, recorded image revisions, and bounded rollback backups on
+TrueNAS, see [TrueNAS deployment](deploy/truenas/README.md).
+The TikTok-Api dependency is included in this repository; no submodule setup is required.
 
 Before an update, stop active collection writes and back up `.env`,
 `SETTINGS_DIR`, and `DOWNLOADS_DIR`.

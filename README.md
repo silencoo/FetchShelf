@@ -3,8 +3,7 @@
 面向 Docker 的抖音 / TikTok 采集、下载和媒体管理工具
 
 > [!IMPORTANT]
-> 当前项目以 **Docker Compose + WebUI** 为主要部署、测试和维护方式。Windows / macOS
-> 可执行文件与传统终端交互模式属于历史入口，不再作为主要发行与支持目标。
+> 项目通过 **Docker Compose** 部署，使用 **WebUI** 或 **Web API** 管理采集与媒体。
 
 ## 项目简介
 
@@ -22,6 +21,63 @@ WebUI 目前提供的主要能力：
 - 在“沉浸浏览”中像短视频 App 一样刷已下载的作品，支持主页、喜欢、收藏和关注
 - 管理配置、Cookie、采集身份、代理和账号路由
 - 通过 FastAPI 文档调用 Web API
+
+## WebUI 预览
+
+以下截图来自实际 WebUI，使用虚构演示账号、任务和统计数据；配图为授权示例照片，
+不包含真实采集账号或登录信息。[截图说明与图片署名](docs/screenshot/webui/README.md)。
+
+**下载工作台** — 集中查看媒体库统计、采集身份和批量任务进度。
+
+![下载工作台：运行概览与任务中心](docs/screenshot/webui/workbench.jpg)
+
+**账户看板** — 按封面浏览账号，支持搜索、筛选与纯媒体展示。
+
+![账户看板：纯媒体模式](docs/screenshot/webui/account-board.jpg)
+
+**沉浸浏览** — 在桌面和手机上浏览已下载作品，使用喜欢、收藏与分享入口。
+
+![桌面沉浸浏览](docs/screenshot/webui/immersive-desktop.jpg)
+
+<img src="docs/screenshot/webui/immersive-mobile.jpg" width="300" alt="手机沉浸浏览" />
+
+## 分布式架构规划
+
+以下是目标架构，**尚未实现**。当前版本仍在单机进程内调度任务，使用 SQLite
+保存运行状态，并通过本地文件系统管理媒体；尚不支持远程 Worker 或 S3 存储。
+
+```mermaid
+flowchart TD
+    UI["Web 客户端"] --> API["FetchShelf API"]
+    API --> DB["PostgreSQL：媒体目录、任务、检查点"]
+    Scheduler["调度器"] --> DB
+
+    W1["Worker 1"] <-->|"领取任务 / 心跳 / 结果"| API
+    W2["Worker 2"] <-->|"领取任务 / 心跳 / 结果"| API
+    W3["Worker N"] <-->|"领取任务 / 心跳 / 结果"| API
+
+    W1 --> Storage["媒体存储：本地文件系统 / S3"]
+    W2 --> Storage
+    W3 --> Storage
+    API --> Storage
+    UI -->|"经授权的媒体播放"| Storage
+```
+
+| 组件 | 职责 |
+| --- | --- |
+| API | 客户端认证、媒体查询、Worker 协调和媒体访问授权 |
+| 调度器 | 按采集计划生成持久任务 |
+| Worker | 领取任务、上报心跳、采集内容、下载媒体和生成预览 |
+| PostgreSQL | 保存媒体目录、任务租约、分页检查点和采集身份状态 |
+| 存储接口 | 统一访问本地文件系统与 S3，可按部署需要组合使用 |
+
+各角色可同机部署，也可独立扩展；Worker 主动连接 API。采集身份与网络出口保持
+稳定绑定，共享限流和冷却状态，遇到验证时暂停相关身份并保留进度。
+
+媒体使用稳定 ID，任务重试不产生重复记录。文件校验并登记为可用后才进入媒体库；
+Worker 的临时目录不作为永久存储。远程 Worker 通过认证上传接口写入文件存储，
+或直接上传至 S3。客户端通过 API 授权访问媒体，S3 访问使用临时签名 URL。
+文件夹扫描用于导入与核对，不再是日常浏览的数据来源。
 
 ## 自动归档受限账号
 
@@ -53,16 +109,13 @@ iPhone / iPad 可在 Safari 分享菜单中选择“添加到主屏幕”，打�
 点赞等互动数据来自 `storage_format` 为 `sql` 时写入的 `Data/DetailData.db`（只读访问）；
 没有该数据库时仍可浏览，只是不显示互动数量，文案取自文件名。
 
-## 维护状态
+## 部署与访问
 
-| 使用方式 | 状态 | 说明 |
-| --- | --- | --- |
-| Docker Compose | 主要维护 | 推荐用于正式部署 |
-| Docker 本机构建 | 主要维护 | 仓库默认方式，不依赖预构建镜像 |
-| WebUI | 主要维护 | 当前主要操作界面 |
-| Web API | 维护中 | 启动后访问 `/docs` |
-| 源码终端模式 | 兼容保留 | 适合调试或高级用途 |
-| Windows / macOS 可执行文件 | 非主要维护 | 不保证持续构建、兼容性或功能同步 |
+| 方式 | 用途 |
+| --- | --- |
+| Docker Compose | 从源码构建并部署服务，不依赖预构建镜像 |
+| WebUI | 浏览器操作界面，入口为 `/ui` |
+| Web API | 程序化调用，接口文档位于 `/docs` |
 
 ## 快速开始
 
@@ -249,9 +302,6 @@ Cookie 获取方式可参考 [Cookie 获取教程](./docs/Cookie获取教程.md)
 - Swagger API 文档：`http://主机IP:5555/docs`
 - ReDoc：`http://主机IP:5555/redoc`
 
-项目仍保留 `main.py` 和源码终端模式，供调试、接口研究和二次开发使用。但新用户和正式部署应优先
-使用 `main_webui.py` 对应的 Docker WebUI。
-
 前端开发说明见 [webui/README.md](./webui/README.md)，完整历史参数说明见
 [FetchShelf 文档](./docs/FetchShelf文档.md)。
 
@@ -268,11 +318,6 @@ docker compose up -d
 ### 文件没有出现在宿主机下载目录
 
 确认 WebUI 设置中的 `root` 为 `/app/downloads`，并检查 `DOWNLOADS_DIR` 是否正确挂载。
-
-### Windows 版本还能使用吗
-
-历史代码和构建工作流仍可能存在，但当前 README 不再推荐可执行文件部署，也不保证它与 WebUI
-功能同步。Windows 用户建议安装 Docker Desktop 后按本文运行。
 
 ### Linux ARM64 是否支持一键处理头像
 
