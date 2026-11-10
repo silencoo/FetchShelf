@@ -8,7 +8,7 @@
 
 import { resumeVideo } from "./resumeVideo";
 
-export type PlayerEvent = "loading" | "playing" | "paused" | "ended" | "error" | "meta" | "time";
+export type PlayerEvent = "loading" | "playing" | "paused" | "ended" | "error" | "meta" | "time" | "seeked";
 
 export interface PlayerListener {
   (event: PlayerEvent, element: HTMLVideoElement): void;
@@ -91,6 +91,12 @@ class MediaPool {
     video.addEventListener("playing", () => {
       video.dataset.ready = "1";
       forward("playing");
+    });
+    video.addEventListener("seeked", () => {
+      if (video.readyState >= 2) {
+        video.dataset.ready = "1";
+        forward("seeked");
+      }
     });
     video.addEventListener("pause", () => forward("paused"));
     video.addEventListener("ended", () => forward("ended"));

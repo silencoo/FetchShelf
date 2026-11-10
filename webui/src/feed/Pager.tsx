@@ -16,6 +16,7 @@ import {
 import { api, avatarUrl, fileUrl, thumbUrl } from "./api";
 import { useMediaZoom } from "./useMediaZoom";
 import { resumeVideo } from "./resumeVideo";
+import { seekVideo } from "./seekVideo";
 import { captureVideoSnapshot, type VideoSnapshot } from "./videoSnapshot";
 import { formatCount, formatDuration, formatRelativeTime, initialOf, splitCaption } from "./format";
 import {
@@ -539,6 +540,8 @@ function VideoSlide({
     } else if (event === "playing") {
       setStatus("ready");
       setPaused(false);
+    } else if (event === "seeked") {
+      setStatus("ready");
     } else if (event === "paused") {
       setPaused(mediaPool.isPaused() || mediaPool.blocked);
     } else if (event === "ended") {
@@ -620,7 +623,7 @@ function VideoSlide({
       return;
     }
     const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    video.currentTime = ratio * video.duration;
+    seekVideo(video, ratio * video.duration);
     if (barRef.current) {
       barRef.current.style.transform = `scaleX(${ratio})`;
     }
@@ -674,7 +677,8 @@ function VideoSlide({
             scrubTo(event);
           }
         }}
-        onPointerUp={() => {
+        onPointerUp={(event) => {
+          if (scrubbingRef.current) scrubTo(event);
           scrubbingRef.current = false;
           setScrubbing(false);
         }}
