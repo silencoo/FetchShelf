@@ -702,11 +702,13 @@ function CarouselItem({
   index,
   current,
   isActive,
+  paused,
 }: {
   post: Post;
   index: number;
   current: number;
   isActive: boolean;
+  paused: boolean;
 }) {
   const item = post.media[index];
   const near = Math.abs(index - current) <= 1;
@@ -714,11 +716,13 @@ function CarouselItem({
   const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const video = videoRef.current;
-    if (video && playing) {
+    if (video && playing && !paused) {
       video.muted = true;
       void video.play().catch(() => undefined);
+    } else {
+      video?.pause();
     }
-  }, [playing]);
+  }, [playing, paused]);
   if (!near) {
     return <div className="fa-carousel-item" />;
   }
@@ -869,6 +873,7 @@ function ImageSlide({
             index={index}
             current={current}
             isActive={isActive}
+            paused={paused}
           />
         ))}
       </div>
