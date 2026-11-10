@@ -16,6 +16,13 @@ class Retry:
             for i in range(self.max_retry):
                 if result := await function(self, *args, **kwargs):
                     return result
+                # Request capture retains HTTP errors while returning None.
+                # A missing resource cannot recover by repeating this request.
+                error = getattr(self, "last_request_error", None)
+                if getattr(getattr(error, "response", None), "status_code", None) == 404:
+                    if finished:
+                        self.finished = True
+                    return result
                 self.log.warning(_("正在进行第 {index} 次重试").format(index=i + 1))
                 await wait()
             if not (result := await function(self, *args, **kwargs)) and finished:
