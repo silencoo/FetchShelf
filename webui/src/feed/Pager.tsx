@@ -15,6 +15,7 @@ import {
 
 import { api, avatarUrl, fileUrl, thumbUrl } from "./api";
 import { useMediaZoom } from "./useMediaZoom";
+import { resumeVideo } from "./resumeVideo";
 import { captureVideoSnapshot, type VideoSnapshot } from "./videoSnapshot";
 import { formatCount, formatDuration, formatRelativeTime, initialOf, splitCaption } from "./format";
 import {
@@ -718,7 +719,7 @@ function CarouselItem({
     const video = videoRef.current;
     if (video && playing && !paused) {
       video.muted = true;
-      void video.play().catch(() => undefined);
+      void resumeVideo(video).catch(() => undefined);
     } else {
       video?.pause();
     }

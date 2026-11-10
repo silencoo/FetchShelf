@@ -6,6 +6,8 @@
  * and also keeps us under the platform's limit on live video decoders.
  */
 
+import { resumeVideo } from "./resumeVideo";
+
 export type PlayerEvent = "loading" | "playing" | "paused" | "ended" | "error" | "meta" | "time";
 
 export interface PlayerListener {
@@ -197,7 +199,7 @@ class MediaPool {
     }
     video.muted = !(this.unlocked && this.soundWanted);
     try {
-      await video.play();
+      await resumeVideo(video);
       this.blocked = false;
     } catch (error) {
       if (!(error instanceof DOMException) || error.name !== "NotAllowedError") {
@@ -206,7 +208,7 @@ class MediaPool {
       if (!video.muted) {
         video.muted = true;
         try {
-          await video.play();
+          await resumeVideo(video);
           return;
         } catch {
           // Fall through: not even muted playback is allowed right now.
