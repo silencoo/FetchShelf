@@ -1741,6 +1741,7 @@ function renderFileLightbox() {
     refs.fileLightboxStage.appendChild(image);
   } else {
     const video = document.createElement("video");
+    video.poster = `${fileUrl}&thumbnail=true`;
     video.src = fileUrl;
     video.controls = true;
     video.preload = "metadata";
@@ -1907,6 +1908,7 @@ function renderFiles() {
       media.appendChild(image);
     } else if (entry.kind === "video") {
       const video = document.createElement("video");
+      video.poster = `${fileAccessUrl(entry.path)}&thumbnail=true`;
       video.src = fileAccessUrl(entry.path);
       video.muted = true;
       video.preload = "metadata";
@@ -2963,6 +2965,7 @@ function renderAccountGalleryStage() {
     refs.accountGalleryStage.appendChild(mediaFrame);
   } else if (item.kind === "video") {
     const video = document.createElement("video");
+    video.poster = `${mediaUrl}&thumbnail=true`;
     video.src = mediaUrl;
     video.controls = true;
     video.preload = "metadata";
@@ -6288,7 +6291,8 @@ function bindEvents() {
 
     body.addEventListener("click", async (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLElement)) {
+      // Icon clicks target SVG/path elements, which are not HTMLElements.
+      if (!(target instanceof Element)) {
         return;
       }
       if (

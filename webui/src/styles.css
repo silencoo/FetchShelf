@@ -5252,8 +5252,15 @@ select.batch-field-select + .app-select-mount {
   width: 100%;
   min-width: 0;
   min-height: 100%;
-  columns: 180px 7;
-  column-gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr));
+  align-items: start;
+  align-content: start;
+  gap: 8px;
+}
+
+.account-gallery-grid > .account-gallery-list-empty {
+  grid-column: 1 / -1;
 }
 
 .account-gallery-thumb {
@@ -5262,15 +5269,14 @@ select.batch-field-select + .app-select-mount {
   width: 100%;
   min-width: 0;
   overflow: hidden;
-  margin: 0 0 8px;
+  margin: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--bg-profile);
   padding: 0;
   color: var(--text-muted);
   cursor: pointer;
-  break-inside: avoid;
-  page-break-inside: avoid;
+
 }
 
 .account-gallery-thumb:hover,
@@ -5401,16 +5407,18 @@ select.batch-field-select + .app-select-mount {
 .profile-board {
   --board-columns: 4;
   min-height: 120px;
-  column-count: var(--board-columns);
-  column-gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(var(--board-columns), minmax(0, 1fr));
+  align-items: start;
+  gap: 10px;
 }
 
 .profile-board.profile-board-compact {
-  column-gap: 8px;
+  gap: 8px;
 }
 
 .profile-board > .empty-tip {
-  column-span: all;
+  grid-column: 1 / -1;
 }
 
 .profile-card {
@@ -5420,14 +5428,12 @@ select.batch-field-select + .app-select-mount {
   min-width: 0;
   vertical-align: top;
   flex-direction: column;
-  margin: 0 0 10px;
+  margin: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--bg-profile);
   box-shadow: var(--profile-shadow);
   transition: border-color 150ms ease;
-  break-inside: avoid;
-  page-break-inside: avoid;
 }
 
 .profile-card:hover,
@@ -5777,11 +5783,7 @@ select.batch-field-select + .app-select-mount {
 }
 
 .profile-board-immersive {
-  column-gap: 8px;
-}
-
-.profile-board-immersive .profile-card {
-  margin-bottom: 8px;
+  gap: 8px;
 }
 
 .profile-board-immersive .profile-body {
@@ -6991,11 +6993,6 @@ select.batch-field-select + .app-select-mount {
   }
 }
 
-@media (max-width: 900px) {
-  .account-gallery-grid {
-    column-count: 6;
-  }
-}
 
 @media (max-width: 700px) {
   .account-gallery-dialog {
@@ -7041,10 +7038,6 @@ select.batch-field-select + .app-select-mount {
     flex: 1 1 0;
   }
 
-  .account-gallery-grid {
-    column-count: 4;
-  }
-
   .account-gallery-scroll {
     padding: 8px;
   }
@@ -7056,13 +7049,9 @@ select.batch-field-select + .app-select-mount {
 
 @media (max-width: 460px) {
   .account-gallery-grid {
-    column-count: 3;
-    column-gap: 6px;
+    gap: 6px;
   }
 
-  .account-gallery-thumb {
-    margin-bottom: 6px;
-  }
 }
 
 @media (hover: none), (pointer: coarse) {
@@ -7210,7 +7199,7 @@ select.batch-field-select + .app-select-mount {
   }
 }
 
-.profile-board:has(> .attention-table) { column-count: 1; }
+.profile-board > .attention-table { grid-column: 1 / -1; }
 .attention-table {
   width: 100%;
   border-collapse: collapse;
