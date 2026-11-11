@@ -4862,7 +4862,24 @@ function scheduleOverviewRefresh(mediaStatus) {
   }, mediaStatus === "scanning" ? 4000 : 8000);
 }
 
+let overviewLastPayload = null;
+let overviewCollectorRange = "24h";
+try {
+  const saved = localStorage.getItem("webui.overview.collector_range");
+  if (["1h", "24h", "7d", "all"].includes(saved)) overviewCollectorRange = saved;
+} catch { /* Storage can be unavailable in private browsers. */ }
+
 function renderOverview(payload) {
+  overviewLastPayload = payload;
+  const rangeSelect = document.getElementById("overview-collector-range");
+  if (rangeSelect) {
+    rangeSelect.value = overviewCollectorRange;
+    rangeSelect.onchange = () => {
+      overviewCollectorRange = rangeSelect.value;
+      try { localStorage.setItem("webui.overview.collector_range", overviewCollectorRange); } catch {}
+      renderOverview(overviewLastPayload);
+    };
+  }
   const media = payload?.media && typeof payload.media === "object" ? payload.media : {};
   const crawl = payload?.crawl && typeof payload.crawl === "object" ? payload.crawl : {};
   const collectors =
@@ -4983,7 +5000,10 @@ function renderOverview(payload) {
   refs.overviewCollectorRoutable.textContent = formatOverviewCount(collectors.routable);
   refs.overviewCollectorProxy.textContent = formatOverviewCount(collectors.proxy_configured);
   refs.overviewCollectorLeases.textContent = formatOverviewCount(collectors.active_leases);
-  refs.overviewCollectorRisk.textContent = formatOverviewCount(collectors.risk_failures);
+  const recent = collectors.statistics?.windows?.[overviewCollectorRange];
+  const allHistory = overviewCollectorRange === "all";
+  refs.overviewCollectorRisk.textContent = formatOverviewCount(allHistory ? collectors.risk_failures : recent?.risk_failures);
+  refs.overviewCollectorRisk.previousElementSibling.textContent = allHistory ? "403 / 风控 · 全部历史" : `403 / 风控 · ${rangeSelect?.selectedOptions[0]?.textContent || "最近 24 小时"}`;
   refs.overviewCollectorCooldown.textContent = formatOverviewCount(collectors.cooldown);
   const platforms = collectors.platforms || {};
   refs.overviewCollectorMeta.textContent = [
@@ -4994,13 +5014,22 @@ function renderOverview(payload) {
     `路由身份 + 代理 ${formatOverviewCount(collectors.route_and_proxy)}`,
     `需处理 ${formatOverviewCount(collectors.attention)}`,
   ].join(" · ");
-  const identityRows = Array.isArray(collectors.identities) ? collectors.identities : [];
+  const coverage = !allHistory && recent?.partial
+    ? ` · 近期统计自 ${formatOverviewDate(collectors.statistics.started_at)} 起累计，所选时段尚未完整覆盖`
+    : !allHistory && !recent ? " · 近期统计暂不可用" : "";
+  refs.overviewCollectorMeta.textContent += coverage;
+  const identityRows = (Array.isArray(collectors.identities) ? collectors.identities : []).map(identity => {
+    if (allHistory) return identity;
+    const counts = recent?.identities?.[identity.identity_id] || { successes: 0, failures: 0, risk_failures: 0 };
+    const attempts = counts.successes + counts.failures;
+    return { ...identity, ...counts, success_rate: attempts ? counts.successes / attempts * 100 : null };
+  });
   refs.overviewIdentityHealth.innerHTML = identityRows.length
     ? identityRows
         .map((identity) => {
-          const successRate = Number.isFinite(Number(identity.success_rate))
+          const successRate = identity.success_rate != null && Number.isFinite(Number(identity.success_rate))
             ? `${Number(identity.success_rate).toFixed(1)}%`
-            : "暂无样本";
+            : allHistory ? "暂无样本" : recent ? "近期无采集结果" : "近期统计暂不可用";
           const cooldown = identity.cooldown_until
             ? ` · 冷却至 ${escapeHtml(formatOverviewDate(identity.cooldown_until))}`
             : "";
@@ -5009,7 +5038,7 @@ function renderOverview(payload) {
             : "";
           return `<div class="overview-identity-row">
             <strong>${escapeHtml(identity.name || identity.identity_id || "未命名身份")}</strong>
-            <span>${escapeHtml(identity.platform || "-")}${authMode} · 成功率 ${successRate} · 403/风控 ${formatOverviewCount(identity.risk_failures)}${cooldown}</span>
+            <span>${escapeHtml(identity.platform || "-")}${authMode} · 成功率 ${successRate} · 成功 ${formatOverviewCount(identity.successes)} / 失败 ${formatOverviewCount(identity.failures)} · 403/风控 ${formatOverviewCount(identity.risk_failures)}${cooldown}</span>
           </div>`;
         })
         .join("")

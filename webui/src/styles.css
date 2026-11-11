@@ -1112,6 +1112,19 @@ html.feed-active .app-shell {
   letter-spacing: 0.015em;
 }
 
+.overview-domain-collectors .overview-domain-heading {
+  flex-wrap: wrap;
+}
+
+#overview-collector-range {
+  margin-inline-start: auto;
+  width: auto;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
 .overview-state-text {
   color: var(--text-muted);
   font-size: 10px;

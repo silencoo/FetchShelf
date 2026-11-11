@@ -236,6 +236,23 @@ export function FeedApp({ active, onExit }: { active: boolean; onExit(): void })
   useEffect(() => onAuthRequired(() => setNeedsToken(true)), []);
 
   useEffect(() => {
+    if (!active || needsToken) return;
+    const sync = () => { if (!document.hidden) void preferences.sync(); };
+    sync();
+    const timer = window.setInterval(sync, 10000);
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("online", sync);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("online", sync);
+    };
+  }, [active, needsToken]);
+
+
+  useEffect(() => {
     mediaPool.setSoundWanted(preferences.sound);
   }, [preferences.sound]);
 

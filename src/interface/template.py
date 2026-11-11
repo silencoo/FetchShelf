@@ -21,6 +21,10 @@ from ..tools import (
     create_client,
 )
 from ..translation import _
+from ..tools.tiktok_session import (
+    TikTokHTTPChallenge, TikTokVerificationRequired,
+    apply_tiktok_session, is_tiktok_challenge,
+)
 
 if TYPE_CHECKING:
     from ..config import Parameter
@@ -515,6 +519,8 @@ class API:
             )
 
     async def __return_response(self, response):
+        if isinstance(self, APITikTok) and is_tiktok_challenge(response.text):
+            raise TikTokHTTPChallenge()
         self.log.info(f"Response URL: {response.url}", False)
         self.log.info(f"Response Code: {response.status_code}", False)
         self.log.info(f"Response Headers: {dict(response.headers)}", False)
@@ -689,6 +695,7 @@ class APITikTok(API):
         self.xb = params.xb
         self.xg = params.xg
         self.tiktok_params = params.tiktok_params
+        self.runtime_parameter = params
         self.headers = params.headers_tiktok.copy()
         self.cookie = cookie
         self.client: AsyncClient = params.client_tiktok
@@ -707,17 +714,34 @@ class APITikTok(API):
         *args,
         **kwargs,
     ):
-        return await super().request_data(
-            url=url,
-            params=params,
-            data=data,
-            method=method,
-            headers=headers,
-            encryption=encryption,
-            finished=finished,
-            *args,
-            **kwargs,
-        )
+        for attempt in range(2):
+            try:
+                return await super().request_data(
+                    *args, url=url, params=params, data=data, method=method,
+                    headers=headers, encryption=encryption, finished=finished, **kwargs,
+                )
+            except TikTokHTTPChallenge:
+                if attempt:
+                    raise TikTokVerificationRequired(
+                        "TikTok 刷新会话后仍返回验证页，需要人工验证"
+                    ) from None
+                from ..module.tiktok_api import TikTokAPIBridge
+
+                # Navigate to the profile/referer, not a signed JSON endpoint.
+                target = self.headers.get("Referer") or self.domain
+                session = await TikTokAPIBridge(
+                    self.runtime_parameter, proxy=self.proxy or self._client_proxy,
+                ).refresh_http_session(target)
+                apply_tiktok_session(self.runtime_parameter, session)
+                self.headers.update(self.runtime_parameter.headers_tiktok)
+                self.params.update(self.runtime_parameter.api_params_tiktok)
+                params = dict(params or {})
+                params.update(self.runtime_parameter.api_params_tiktok)
+                if headers is not None:
+                    headers = dict(headers)
+                    for key in ("Cookie", "User-Agent"):
+                        if key in self.headers:
+                            headers[key] = self.headers[key]
 
     def deal_url_params(
         self,

@@ -956,6 +956,37 @@ class TikTokAPIBridge:
 
         return await self._run_with_api(starting_url, collect)
 
+    async def refresh_http_session(self, target_url: str) -> dict[str, Any]:
+        """Visit the blocked page, then export session state, never scraped data."""
+        from ..tools.tiktok_session import (
+            TikTokVerificationRequired, is_tiktok_challenge,
+        )
+
+        parsed = urlsplit(target_url)
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not (host == "tiktok.com" or host.endswith(".tiktok.com")):
+            raise ValueError("TikTok session refresh requires a TikTok HTTPS URL")
+
+        async def collect(api):
+            session = api.sessions[0]
+            page = session.page
+            await page.goto(target_url, wait_until="domcontentloaded", timeout=self.timeout)
+            # Let automatic JavaScript checks finish. Do not interact with CAPTCHA.
+            for attempt in range(16):
+                if not is_tiktok_challenge(await page.content()):
+                    break
+                if attempt == 15:
+                    raise TikTokVerificationRequired("TikTok 浏览器验证未完成，需要人工验证")
+                await asyncio.sleep(1)
+            cookies = await api.get_session_cookies(session)
+            return {
+                "cookies": cookies,
+                "user_agent": await page.evaluate("() => navigator.userAgent"),
+                "params": dict(getattr(session, "params", {}) or {}),
+            }
+
+        return await self._run_with_api(target_url, collect)
+
     async def capture_debug_artifacts(
         self,
         output_dir: Path,

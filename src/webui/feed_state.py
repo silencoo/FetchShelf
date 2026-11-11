@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS marks (
     created_at REAL NOT NULL,
     PRIMARY KEY (kind, target)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS preferences (
+    key TEXT PRIMARY KEY,
+    value INTEGER NOT NULL CHECK(value IN (0, 1))
+) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS marks_recent ON marks(kind, created_at);
 CREATE INDEX IF NOT EXISTS marks_account ON marks(kind, account_key, created_at);
 """
@@ -55,6 +59,27 @@ class FeedState:
             yield connection
         finally:
             connection.close()
+
+    def preferences(self) -> dict:
+        with self._connect() as connection:
+            return {key: bool(value) for key, value in connection.execute("SELECT key, value FROM preferences")}
+
+    def update_preferences(self, values: dict, *, initialize: bool = False) -> dict:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for key, value in values.items():
+                    if key not in {"sound", "autoNext", "showPauseIcon", "pinchZoom"} or type(value) is not bool:
+                        raise ValueError("invalid feed preference")
+                    sql = "INSERT OR IGNORE INTO preferences VALUES (?, ?)" if initialize else (
+                        "INSERT INTO preferences VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+                    connection.execute(sql, (key, int(value)))
+                result = {key: bool(value) for key, value in connection.execute("SELECT key, value FROM preferences")}
+                connection.commit()
+                return result
+            except BaseException:
+                connection.rollback()
+                raise
 
     def set_mark(self, kind: str, target: str, on: bool, account_key: str = "") -> None:
         if kind not in MARK_KINDS:

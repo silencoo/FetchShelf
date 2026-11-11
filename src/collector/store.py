@@ -31,7 +31,7 @@ from .secrets import (
 
 
 DEFAULT_STORE_NAME = "collector_pool.sqlite3"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class CollectorStoreError(RuntimeError):
@@ -178,6 +178,25 @@ class CollectorStore:
                 CREATE INDEX IF NOT EXISTS collector_assignments_identity_idx
                     ON collector_assignments(identity_id);
                 """
+            )
+            self.connection.executescript("""
+                CREATE TABLE IF NOT EXISTS collector_result_counts (
+                    identity_id TEXT NOT NULL REFERENCES collector_identities(identity_id) ON DELETE CASCADE,
+                    observed_at INTEGER NOT NULL,
+                    successes INTEGER NOT NULL,
+                    failures INTEGER NOT NULL,
+                    risk_failures INTEGER NOT NULL,
+                    PRIMARY KEY(identity_id, observed_at)
+                );
+                CREATE INDEX IF NOT EXISTS collector_result_time ON collector_result_counts(observed_at);
+                CREATE TABLE IF NOT EXISTS collector_metrics_start (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                    started_at REAL NOT NULL
+                );
+            """)
+            self.connection.execute(
+                "INSERT OR IGNORE INTO collector_metrics_start VALUES (1, ?)",
+                (datetime.now(timezone.utc).timestamp(),),
             )
             columns = {
                 str(row["name"])
@@ -554,6 +573,23 @@ class CollectorStore:
         now = _now_text()
         with self._lock, self.connection:
             identity = self.get_identity(state.identity_id)
+            previous = self.get_runtime(state.identity_id)
+            increments = [max(0, getattr(state, field) - getattr(previous, field))
+                          for field in ("total_successes", "total_failures", "risk_failures")]
+            if any(increments):
+                timestamp = int(datetime.now(timezone.utc).timestamp())
+                self.connection.execute(
+                    """INSERT INTO collector_result_counts VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(identity_id, observed_at) DO UPDATE SET
+                       successes = successes + excluded.successes,
+                       failures = failures + excluded.failures,
+                       risk_failures = risk_failures + excluded.risk_failures""",
+                    (state.identity_id, timestamp, *increments),
+                )
+                self.connection.execute(
+                    "DELETE FROM collector_result_counts WHERE observed_at < ?",
+                    (timestamp - 8 * 86400,),
+                )
             status = state.status
             if not identity.enabled:
                 status = IdentityStatus.DISABLED
@@ -583,6 +619,29 @@ class CollectorStore:
                     state.identity_id,
                 ),
             )
+
+    def recent_statistics(self, *, now: float | None = None) -> dict:
+        """Rolling operation-result counts; legacy totals are never backfilled."""
+        now = datetime.now(timezone.utc).timestamp() if now is None else now
+        with self._lock:
+            started = self.connection.execute(
+                "SELECT started_at FROM collector_metrics_start WHERE singleton = 1"
+            ).fetchone()[0]
+            windows = {}
+            for key, seconds in (("1h", 3600), ("24h", 86400), ("7d", 7 * 86400)):
+                rows = self.connection.execute(
+                    """SELECT identity_id, SUM(successes) successes, SUM(failures) failures,
+                              SUM(risk_failures) risk_failures
+                       FROM collector_result_counts WHERE observed_at >= ? AND observed_at <= ?
+                       GROUP BY identity_id""", (now - seconds, now),
+                ).fetchall()
+                windows[key] = {
+                    "partial": started > now - seconds,
+                    "identities": {row["identity_id"]: dict(row) for row in rows},
+                    "risk_failures": sum(row["risk_failures"] for row in rows),
+                }
+            return {"started_at": datetime.fromtimestamp(started, timezone.utc).isoformat(),
+                    "windows": windows}
 
     def list_public(
         self,

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Literal
 
 from fastapi import Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from ..collector import CollectorPlatform
 from ..interface import Comment as CommentFetcher, Reply as ReplyFetcher
@@ -44,6 +44,14 @@ _COMMENT_CACHE_SECONDS = 900.0
 _COMMENT_CACHE_SIZE = 64
 _TAG_CACHE_SECONDS = 1800.0
 _THUMB_CACHE = "private, max-age=2592000"
+
+
+class FeedPreferencesPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sound: StrictBool = True
+    autoNext: StrictBool = False
+    showPauseIcon: StrictBool = True
+    pinchZoom: StrictBool = True
 
 
 class FeedMark(BaseModel):
@@ -622,6 +630,17 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         if not index_file.is_file():
             raise HTTPException(status_code=404, detail="Web UI resources not found.")
         return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
+
+    @app.get("/ui/api/feed/preferences", tags=["沉浸浏览"])
+    def feed_preferences(response: Response, token: str = Depends(token_dependency)):
+        response.headers["Cache-Control"] = "no-store"
+        return service().state.preferences()
+
+    @app.patch("/ui/api/feed/preferences", tags=["沉浸浏览"])
+    def update_feed_preferences(payload: FeedPreferencesPatch, response: Response,
+                                initialize: bool = False, token: str = Depends(token_dependency)):
+        response.headers["Cache-Control"] = "no-store"
+        return service().state.update_preferences(payload.model_dump(exclude_unset=True), initialize=initialize)
 
     @app.get("/ui/api/feed/status", tags=["沉浸浏览"], summary="沉浸浏览索引状态")
     def feed_status(token: str = Depends(token_dependency)):

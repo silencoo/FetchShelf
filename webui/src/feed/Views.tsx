@@ -902,7 +902,7 @@ export function MeView({ actions, visible }: { actions: ViewActions; visible: bo
 
       <section className="fa-settings" aria-label="播放设置">
         <label className="fa-switch-row">
-          <span>声音<small>默认打开作品声音</small></span>
+          <span>声音<small>默认打开作品声音 · {preferences.syncState === "saved" ? "偏好已跨设备同步" : preferences.syncState === "error" ? "偏好同步失败，将自动重试" : "正在同步偏好…"}</small></span>
           <input
             type="checkbox"
             role="switch"

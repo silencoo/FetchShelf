@@ -1,5 +1,10 @@
 from re import compile
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
+
+from ..tools.tiktok_session import (
+    TikTokVerificationRequired, apply_tiktok_session, is_tiktok_challenge,
+)
 
 from ..custom import wait
 from ..tools import DownloaderError, Retry, capture_error_request, create_client
@@ -22,6 +27,8 @@ class Requester:
         headers: dict[str, str],
     ):
         self.client = client
+        self.params = params
+        self.tiktok = client is getattr(params, "client_tiktok", None)
         self.headers = headers
         self.log = params.logger
         self.max_retry = params.max_retry
@@ -127,11 +134,25 @@ class Requester:
         self,
         url: str,
     ):
-        response = await self.client.get(
-            url,
-            headers=self.headers,
-        )
+        response = await self._get_with_session_refresh(self.client, url, self.configured_proxy)
         response.raise_for_status()
+        return response
+
+    async def _get_with_session_refresh(self, client, url, proxy):
+        response = await client.get(url, headers=self.headers)
+        host = (urlsplit(url).hostname or "").lower()
+        if not (self.tiktok and (host == "tiktok.com" or host.endswith(".tiktok.com"))
+                and is_tiktok_challenge(response.text)):
+            return response
+        from ..module.tiktok_api import TikTokAPIBridge
+
+        self.log.warning("TikTok HTTP 返回验证页，刷新浏览器会话后重试一次")
+        session = await TikTokAPIBridge(self.params, proxy=proxy).refresh_http_session(url)
+        apply_tiktok_session(self.params, session)
+        self.headers.update(self.params.headers_tiktok)
+        response = await client.get(url, headers=self.headers)
+        if is_tiktok_challenge(response.text):
+            raise TikTokVerificationRequired("TikTok 刷新会话后仍返回验证页，需要人工验证")
         return response
 
     async def request_url_get_proxy(
@@ -145,7 +166,7 @@ class Requester:
             owned_client = create_client(timeout=self.timeout, proxy=proxy)
             client = owned_client
         try:
-            response = await client.get(url, headers=self.headers)
+            response = await self._get_with_session_refresh(client, url, proxy)
             response.raise_for_status()
             return response
         finally:

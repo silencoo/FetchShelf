@@ -91,7 +91,9 @@ RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 instal
     && ldconfig -p | grep -q "libxcb.so.1"
 COPY --from=builder /opt/venv /opt/venv
 ARG PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST
-RUN python -m playwright install chromium --no-shell
+# Anonymous TikTok sessions use Playwright's default headless shell; account
+# login windows also need the full Chromium browser.
+RUN python -m playwright install chromium
 
 # 复制你的应用程序代码和相关文件
 COPY src /app/src

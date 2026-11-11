@@ -1572,6 +1572,7 @@ class APIServer(TikTok, ServerRoutesMixin):
             "cooldown": sum(
                 item.status == IdentityStatus.COOLDOWN for item in identities
             ),
+            "statistics": store.recent_statistics() if store else {},
             "identities": identity_rows,
             "platforms": {
                 platform.value: sum(item.platform == platform for item in identities)
@@ -1936,6 +1937,20 @@ class APIServer(TikTok, ServerRoutesMixin):
 
     @classmethod
     def _account_exception_outcome(cls, error: Exception | None) -> dict:
+        from src.tools.tiktok_session import TikTokVerificationRequired
+
+        if isinstance(error, TikTokVerificationRequired):
+            return {
+                "ok": False,
+                "context": {},
+                "outcome_code": "verification_required",
+                "reason": str(error),
+                "failure_category": "identity",
+                "terminal_status": "failed",
+                "retryable": False,
+                "cross_identity": False,
+                "affects_identity_health": True,
+            }
         reason = cls._account_request_failure_reason(error)
         category = cls._account_failure_category(reason)
         error_type = type(error).__name__.lower() if error is not None else ""
@@ -5684,7 +5699,10 @@ class APIServer(TikTok, ServerRoutesMixin):
                             pages=item["pages"],
                             api=False,
                             source=False,
-                            cookie=identity_cookie,
+                            cookie=(
+                                worker.parameter.cookie_str_tiktok
+                                if tiktok else identity_cookie
+                            ),
                             proxy=identity_proxy,
                             tiktok=tiktok,
                             return_context=True,

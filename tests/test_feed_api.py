@@ -558,3 +558,24 @@ def test_missing_generated_avatar_and_missing_fallback_do_not_return_bad_urls(ha
     assert harness.service.avatar_for(key, "deleted.jpeg") is None
     fallback = "UID1_Ann_发布作品/2026-01-03 10.00.00-图集-Ann-photos_1.jpeg"
     assert harness.service.avatar_for(key, fallback)["path"] == fallback
+
+
+def test_shared_preferences_merge_initialize_validate_and_persist(harness):
+    url = "/ui/api/feed/preferences"
+    assert harness.client.get(url).status_code == 403
+    assert harness.client.patch(url, json={"sound": False}).status_code == 403
+    assert get(harness, url) == {}
+    first = {"sound": False, "autoNext": True, "showPauseIcon": False, "pinchZoom": True}
+    response = harness.client.patch(url + "?initialize=true", headers=HEADERS, json=first)
+    assert response.json() == first
+    assert response.headers["cache-control"] == "no-store"
+    # Another device's old local settings cannot overwrite the shared values.
+    assert harness.client.patch(url + "?initialize=true", headers=HEADERS,
+                                json={"sound": True, "autoNext": False}).json() == first
+    harness.client.patch(url, headers=HEADERS, json={"sound": True})
+    harness.client.patch(url, headers=HEADERS, json={"pinchZoom": False})
+    expected = {**first, "sound": True, "pinchZoom": False}
+    assert get(harness, url) == expected
+    assert FeedState(harness.service.state.path).preferences() == expected
+    for invalid in ({"sound": None}, {"sound": "false"}, {"unknown": True}):
+        assert harness.client.patch(url, headers=HEADERS, json=invalid).status_code == 422

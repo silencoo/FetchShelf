@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { api } from "./api";
+import { api, type FeedPreferences } from "./api";
 import type { Author, Post, PostSource } from "./types";
 
 type Listener = () => void;
@@ -178,36 +178,61 @@ function writePreference(key: string, value: boolean) {
   }
 }
 
-/** Per-device playback settings; these differ between a phone and a desk. */
+/** Shared server preferences, with a local cache for instant/offline rendering. */
 class Preferences extends Observable {
   sound = readPreference("feed.sound", true);
   autoNext = readPreference("feed.autonext", false);
   showPauseIcon = readPreference("feed.pause_icon", true);
   pinchZoom = readPreference("feed.pinch_zoom", true);
+  syncState: "loading" | "saved" | "pending" | "error" = "loading";
+  private pending: Partial<FeedPreferences> = {};
+  private syncing = false;
+  private keys = { sound: "feed.sound", autoNext: "feed.autonext", showPauseIcon: "feed.pause_icon", pinchZoom: "feed.pinch_zoom" };
 
-  setSound(value: boolean) {
-    this.sound = value;
-    writePreference("feed.sound", value);
+  private change(key: keyof FeedPreferences, value: boolean) {
+    this[key] = value;
+    writePreference(this.keys[key], value);
+    this.pending[key] = value;
+    this.syncState = "pending";
     this.emit();
+    void this.sync();
   }
 
-  setAutoNext(value: boolean) {
-    this.autoNext = value;
-    writePreference("feed.autonext", value);
-    this.emit();
+  async sync() {
+    if (this.syncing) return;
+    this.syncing = true;
+    const changes = this.pending;
+    this.pending = {};
+    let succeeded = false;
+    try {
+      let values = await api.preferences(Object.keys(changes).length ? changes : undefined);
+      const missing: Partial<FeedPreferences> = {};
+      for (const key of Object.keys(this.keys) as (keyof FeedPreferences)[]) {
+        if (typeof values[key] !== "boolean") missing[key] = this[key];
+      }
+      if (Object.keys(missing).length) values = await api.preferences(missing, true);
+      for (const key of Object.keys(this.keys) as (keyof FeedPreferences)[]) {
+        if (!(key in this.pending) && typeof values[key] === "boolean") {
+          this[key] = values[key];
+          writePreference(this.keys[key], values[key]);
+        }
+      }
+      succeeded = true;
+      this.syncState = Object.keys(this.pending).length ? "pending" : "saved";
+    } catch {
+      this.pending = { ...changes, ...this.pending };
+      this.syncState = "error";
+    } finally {
+      this.syncing = false;
+      this.emit();
+      if (succeeded && Object.keys(this.pending).length) void this.sync();
+    }
   }
 
-  setShowPauseIcon(value: boolean) {
-    this.showPauseIcon = value;
-    writePreference("feed.pause_icon", value);
-    this.emit();
-  }
-
-  setPinchZoom(value: boolean) {
-    this.pinchZoom = value;
-    writePreference("feed.pinch_zoom", value);
-    this.emit();
-  }
+  setSound(value: boolean) { this.change("sound", value); }
+  setAutoNext(value: boolean) { this.change("autoNext", value); }
+  setShowPauseIcon(value: boolean) { this.change("showPauseIcon", value); }
+  setPinchZoom(value: boolean) { this.change("pinchZoom", value); }
 }
 
 export const preferences = new Preferences();

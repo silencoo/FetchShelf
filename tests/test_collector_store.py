@@ -341,3 +341,48 @@ def test_legacy_migration_coerces_string_platform_switches():
 
     assert states[CollectorPlatform.DOUYIN] is False
     assert states[CollectorPlatform.TIKTOK] is True
+
+
+def test_recent_statistics_tracks_deltas_and_rolling_windows(tmp_path):
+    from datetime import datetime, timezone
+    db = tmp_path / "metrics.sqlite3"
+    with CollectorStore(db) as store:
+        store.upsert_identity(identity())
+        state = store.get_runtime("tt-main")
+        state.total_successes = 5
+        state.total_failures = 2
+        state.risk_failures = 1
+        store.save_runtime(state)
+        store.save_runtime(state)  # Lease/status updates must not count twice.
+        now = datetime.now(timezone.utc).timestamp()
+        current = store.recent_statistics(now=now)
+        assert current["windows"]["24h"]["identities"]["tt-main"]["successes"] == 5
+        assert current["windows"]["24h"]["risk_failures"] == 1
+        assert current["windows"]["24h"]["partial"] is True
+        with store.connection:
+            store.connection.execute("UPDATE collector_result_counts SET observed_at = ?", (int(now - 7200),))
+        ranges = store.recent_statistics(now=now)["windows"]
+        assert ranges["1h"]["identities"] == {}
+        assert ranges["24h"]["risk_failures"] == 1
+        assert ranges["7d"]["risk_failures"] == 1
+        start = current["started_at"]
+    with CollectorStore(db) as store:
+        assert store.recent_statistics()["started_at"] == start
+        assert store.get_runtime("tt-main").total_successes == 5
+
+
+def test_metrics_migration_does_not_backfill_lifetime_counts(tmp_path):
+    db = tmp_path / "legacy.sqlite3"
+    with CollectorStore(db) as store:
+        store.upsert_identity(identity())
+        with store.connection:
+            store.connection.execute("UPDATE collector_runtime SET total_successes=500, risk_failures=20")
+            store.connection.execute("DROP TABLE collector_result_counts")
+            store.connection.execute("DROP TABLE collector_metrics_start")
+    with CollectorStore(db) as store:
+        state = store.get_runtime("tt-main")
+        store.save_runtime(state)
+        assert store.recent_statistics()["windows"]["24h"]["identities"] == {}
+        state.total_successes += 1
+        store.save_runtime(state)
+        assert store.recent_statistics()["windows"]["24h"]["identities"]["tt-main"]["successes"] == 1

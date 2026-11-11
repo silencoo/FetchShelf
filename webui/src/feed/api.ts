@@ -63,7 +63,26 @@ function query(values: Record<string, string | number | undefined>) {
   return params.toString();
 }
 
+export interface FeedPreferences {
+  sound: boolean;
+  autoNext: boolean;
+  showPauseIcon: boolean;
+  pinchZoom: boolean;
+}
+
+async function preferenceRequest(values?: Partial<FeedPreferences>, initialize = false) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 10000);
+  try {
+    return await request<Partial<FeedPreferences>>(`/ui/api/feed/preferences${initialize ? "?initialize=true" : ""}`, {
+      signal: controller.signal,
+      ...(values ? { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) } : {}),
+    });
+  } finally { window.clearTimeout(timer); }
+}
+
 export const api = {
+  preferences: preferenceRequest,
   status: () => request<IndexStatus>("/ui/api/feed/status"),
   refresh: (force = false) =>
     request<IndexStatus>(`/ui/api/feed/refresh?force=${force}`, { method: "POST" }),
