@@ -14,6 +14,9 @@
   --fa-safe-left: env(safe-area-inset-left, 0px);
   --fa-safe-right: env(safe-area-inset-right, 0px);
   --fa-tabbar: calc(50px + var(--fa-safe-bottom));
+  --fa-rail-width: 58px;
+  --fa-media-rail-gap: 12px;
+  --fa-pager-gutter: 0px;
   position: absolute;
   inset: 0;
   display: flex;
@@ -651,7 +654,7 @@
   flex-direction: column;
   align-items: center;
   gap: 13px;
-  width: 58px;
+  width: var(--fa-rail-width);
 }
 
 .fa-rail-author {
@@ -1866,7 +1869,7 @@
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    gap: 12px;
+    gap: var(--fa-media-rail-gap);
     padding: 12px 0;
   }
 
@@ -2107,9 +2110,14 @@
     padding: 16px 0;
   }
 
+  .fa-home:has(.fa-home-pane:not([hidden]) .fa-pager-wrap > .fa-pager-arrows),
+  .fa-pager-wrap:has(> .fa-pager-arrows) {
+    --fa-pager-gutter: 80px;
+  }
+
   /* Keep wide media and its action rail out of the navigation column. */
   .fa-pager-wrap:has(> .fa-pager-arrows) .fa-slide-inner {
-    padding-right: 80px;
+    padding-right: var(--fa-pager-gutter);
   }
 }
 
@@ -2182,6 +2190,10 @@
 
   .fa.has-docked-panel .fa-pager-wrap {
     right: 400px;
+  }
+
+  .fa-topbar {
+    transition: right 0.22s ease;
   }
 
   .fa.has-docked-panel .fa-topbar {
@@ -2375,6 +2387,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .fa-topbar,
+  .fa-pager-wrap {
+    transition: none;
+  }
   .fa-layer,
   .fa-sheet,
   .fa-center-icon,
@@ -2400,3 +2416,12 @@
 @media (max-width: 699px) { .fa-platform-nav { display: none; } }
 
 @media (min-width: 700px) { .fa-topbar .fa-platform { visibility: hidden; } }
+
+@media (min-width: 700px) {
+  /* Center the tabs over media, excluding the action rail and pager gutter. */
+  .fa-home:has(.fa-home-pane:not([hidden]) .fa-stage-wrap) .fa-home-tabs {
+    position: absolute;
+    left: calc(50% - (var(--fa-rail-width) + var(--fa-media-rail-gap) + var(--fa-pager-gutter)) / 2);
+    transform: translateX(-50%);
+  }
+}
