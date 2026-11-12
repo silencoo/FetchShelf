@@ -602,3 +602,21 @@ def test_collect_monitor_exception_response_does_not_echo_transport_secrets(
     assert "device-secret" not in response.text
     assert "user:password" not in response.text
     server.collector_store.close()
+
+
+def test_login_browser_paste_requires_auth_and_does_not_echo_text(tmp_path, monkeypatch):
+    server, client = _collector_test_client(tmp_path, monkeypatch)
+    received = []
+    class Manager:
+        async def paste_text(self, identity_id, session_id, text):
+            received.append((identity_id, session_id, text))
+    server.collector_login_browser = Manager()
+    url = '/ui/api/collector-identities/tik-login/login-browser/lb_test/paste'
+    assert client.post(url, json={'text': 'secret'}).status_code in (401, 403)
+    assert not received
+    response = client.post(url, headers={'token': 'collector-test-token'}, json={'text': 'secret 中文'})
+    assert response.status_code == 200
+    assert received == [('tik-login', 'lb_test', 'secret 中文')]
+    assert 'secret' not in response.text
+    assert response.headers['cache-control'] == 'no-store'
+    server.collector_store.close()

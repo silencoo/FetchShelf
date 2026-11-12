@@ -850,6 +850,26 @@ class ServerRoutesMixin:
                     raise
                 raise self._collector_login_browser_http_error(error)
 
+        @self.server.post(
+            "/ui/api/collector-identities/{identity_id}/login-browser/{session_id}/paste",
+            tags=[_("配置")],
+        )
+        async def webui_collector_login_browser_paste(
+            identity_id: str,
+            session_id: str,
+            response: Response,
+            body: dict = Body(...),
+            token: str = Depends(token_dependency),
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            try:
+                await self._get_collector_login_browser().paste_text(
+                    identity_id, session_id, body.get("text"),
+                )
+                return {"message": "文本已发送"}
+            except Exception as error:
+                raise self._collector_login_browser_http_error(error)
+
         @self.server.delete(
             "/ui/api/collector-identities/{identity_id}/login-browser/"
             "{session_id}",

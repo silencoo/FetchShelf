@@ -54,10 +54,10 @@
       })();
     </script>
     <title>下载工作台 · FetchShelf</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-FqT7XWBG.js"></script>
+    <script type="module" crossorigin src="/ui/static/assets/index-yps2RWGA.js"></script>
     <link rel="modulepreload" crossorigin href="/ui/static/assets/jsx-runtime-CNVhjzSW.js">
     <link rel="modulepreload" crossorigin href="/ui/static/assets/preload-helper-D9BqOEs6.js">
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-Cjvjt76l.css">
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-yn_pw517.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -2487,6 +2487,7 @@
                 <span id="collector-login-browser-expiry">会话准备中</span>
               </div>
               <div class="collector-login-browser-tools">
+                <button id="collector-login-browser-paste-btn" type="button" class="btn ghost" aria-expanded="false" aria-controls="collector-login-browser-paste-panel">粘贴文本</button>
                 <button
                   id="collector-login-browser-reconnect-btn"
                   type="button"
@@ -2508,6 +2509,14 @@
             </div>
 
             <div class="collector-login-browser-frame">
+              <div id="collector-login-browser-paste-panel" class="collector-login-browser-paste-panel" hidden>
+                <label for="collector-login-browser-paste-text">先点击远程输入框，再在此粘贴文本</label>
+                <textarea id="collector-login-browser-paste-text" rows="2" maxlength="65536" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+                <div>
+                  <button id="collector-login-browser-paste-send" type="button" class="btn">发送文本</button>
+                  <button id="collector-login-browser-paste-cancel" type="button" class="btn ghost">取消</button>
+                </div>
+              </div>
               <div
                 id="collector-login-browser-viewport"
                 class="collector-login-browser-viewport"

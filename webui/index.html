@@ -2483,6 +2483,7 @@
                 <span id="collector-login-browser-expiry">会话准备中</span>
               </div>
               <div class="collector-login-browser-tools">
+                <button id="collector-login-browser-paste-btn" type="button" class="btn ghost" aria-expanded="false" aria-controls="collector-login-browser-paste-panel">粘贴文本</button>
                 <button
                   id="collector-login-browser-reconnect-btn"
                   type="button"
@@ -2504,6 +2505,14 @@
             </div>
 
             <div class="collector-login-browser-frame">
+              <div id="collector-login-browser-paste-panel" class="collector-login-browser-paste-panel" hidden>
+                <label for="collector-login-browser-paste-text">先点击远程输入框，再在此粘贴文本</label>
+                <textarea id="collector-login-browser-paste-text" rows="2" maxlength="65536" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+                <div>
+                  <button id="collector-login-browser-paste-send" type="button" class="btn">发送文本</button>
+                  <button id="collector-login-browser-paste-cancel" type="button" class="btn ghost">取消</button>
+                </div>
+              </div>
               <div
                 id="collector-login-browser-viewport"
                 class="collector-login-browser-viewport"

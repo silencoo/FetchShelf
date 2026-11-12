@@ -317,6 +317,24 @@ class CollectorLoginBrowserManager:
             session = self._require_session(identity_id, session_id)
             return await self._capture_session(session)
 
+    async def paste_text(self, identity_id: str, session_id: str, text: str) -> None:
+        """Insert text in the focused browser field without storing a clipboard."""
+        if not isinstance(text, str) or not text or len(text) > 65536:
+            raise LoginBrowserError("粘贴内容须为 1–65536 个字符")
+        async with self._lock:
+            session = self._require_session(identity_id, session_id)
+            pages = [page for page in session.context.pages if not page.is_closed()]
+            if not pages:
+                raise LoginBrowserNotFoundError("登录浏览器页面已关闭")
+            target = None
+            for page in pages:
+                if await page.evaluate("document.hasFocus()"):
+                    target = page
+                    break
+            if target is None:
+                raise LoginBrowserError("请先点击远程浏览器中的输入框")
+            await target.keyboard.insert_text(text)
+
     async def _capture_session(
         self,
         session: LoginBrowserSession,

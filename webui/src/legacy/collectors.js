@@ -623,6 +623,87 @@ export function createCollectorController({
     return sessionId ? `${base}/${encodeURIComponent(sessionId)}` : base;
   }
 
+  let pasteInFlight = false;
+
+  function closeLoginPastePanel() {
+    refs.collectorLoginBrowserPasteText.value = "";
+    refs.collectorLoginBrowserPastePanel.hidden = true;
+    refs.collectorLoginBrowserPasteBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function openLoginPastePanel() {
+    refs.collectorLoginBrowserPastePanel.hidden = false;
+    refs.collectorLoginBrowserPasteBtn.setAttribute("aria-expanded", "true");
+    refs.collectorLoginBrowserPasteText.focus();
+  }
+
+  async function pasteLoginText(text) {
+    const { identityId, sessionId, rfb, connecting } = state.collectorLoginBrowser;
+    if (pasteInFlight || !text) return;
+    if (!sessionId || !rfb || connecting) {
+      setCollectorStatus(refs.collectorLoginBrowserStatus, "请先连接登录浏览器", "error");
+      return;
+    }
+    pasteInFlight = true;
+    refs.collectorLoginBrowserPasteSend.disabled = true;
+    try {
+      await fetchJson(`${collectorLoginBrowserBaseUrl(identityId, sessionId)}/paste`, {
+        method: "POST",
+        headers: headerOptions(true),
+        body: JSON.stringify({ text }),
+      });
+      if (state.collectorLoginBrowser.sessionId !== sessionId) return;
+      closeLoginPastePanel();
+      setCollectorStatus(refs.collectorLoginBrowserStatus, "文本已发送到远程输入框", "success");
+      rfb.focus();
+    } catch (error) {
+      if (state.collectorLoginBrowser.sessionId === sessionId) {
+        setCollectorStatus(refs.collectorLoginBrowserStatus, `粘贴失败：${error.message}`, "error");
+      }
+    } finally {
+      pasteInFlight = false;
+      refs.collectorLoginBrowserPasteSend.disabled = false;
+    }
+  }
+
+  refs.collectorLoginBrowserPasteBtn.addEventListener("click", openLoginPastePanel);
+  refs.collectorLoginBrowserPasteCancel.addEventListener("click", () => {
+    closeLoginPastePanel();
+    refs.collectorLoginBrowserPasteBtn.focus();
+  });
+  refs.collectorLoginBrowserPasteSend.addEventListener("click", () => {
+    void pasteLoginText(refs.collectorLoginBrowserPasteText.value);
+  });
+  refs.collectorLoginBrowserViewport.addEventListener("paste", (event) => {
+    const text = event.clipboardData?.getData("text/plain");
+    if (!text) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void pasteLoginText(text);
+  }, true);
+  refs.collectorLoginBrowserViewport.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+      // Keep the native local paste event, but don't paste the remote clipboard.
+      event.stopImmediatePropagation();
+      const rfb = state.collectorLoginBrowser.rfb;
+      for (const [keysym, code] of [[0xffe3, "ControlLeft"], [0xffe4, "ControlRight"], [0xffeb, "MetaLeft"], [0xffec, "MetaRight"]]) {
+        rfb?.sendKey(keysym, code, false);
+      }
+      if (navigator.clipboard?.readText && window.isSecureContext) {
+        event.preventDefault();
+        const sessionId = state.collectorLoginBrowser.sessionId;
+        void navigator.clipboard.readText().then((text) => {
+          if (state.collectorLoginBrowser.sessionId === sessionId) return pasteLoginText(text);
+        }).catch(() => {
+          if (state.collectorLoginBrowser.sessionId === sessionId) openLoginPastePanel();
+        });
+      } else {
+        // Focus a real local input so native paste works on HTTP and mobile too.
+        openLoginPastePanel();
+      }
+    }
+  }, true);
+
   function setCollectorLoginBrowserOverlay(message, detail = "", stateValue = "loading") {
     const overlay = refs.collectorLoginBrowserOverlay;
     if (!overlay) {
@@ -687,6 +768,7 @@ export function createCollectorController({
   }
 
   function disconnectCollectorLoginBrowserViewer() {
+    closeLoginPastePanel();
     const rfb = state.collectorLoginBrowser.rfb;
     state.collectorLoginBrowser.rfb = null;
     state.collectorLoginBrowser.connecting = false;

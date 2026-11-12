@@ -143,3 +143,39 @@ def test_login_browser_parses_authenticated_proxy_without_leaking_credentials(tm
         "username": "name",
         "password": "password",
     }
+
+
+@pytest.mark.asyncio
+async def test_paste_text_uses_focused_page_and_preserves_unicode(tmp_path):
+    from types import SimpleNamespace
+    manager, context, _ = _session(tmp_path, [])
+    inserted = []
+    class Page:
+        def __init__(self, focused):
+            self.focused = focused
+            self.keyboard = SimpleNamespace(insert_text=self.insert)
+        def is_closed(self):
+            return False
+        async def evaluate(self, expression):
+            assert expression == 'document.hasFocus()'
+            return self.focused
+        async def insert(self, text):
+            assert self.focused
+            inserted.append(text)
+    context.pages = [Page(True), Page(False)]
+    await manager.paste_text('tik-login', 'lb_test', '中文 👋\npass & <text>')
+    assert inserted == ['中文 👋\npass & <text>']
+    with pytest.raises(LoginBrowserNotFoundError):
+        await manager.paste_text('other-identity', 'lb_test', 'secret')
+    with pytest.raises(LoginBrowserNotFoundError):
+        await manager.paste_text('tik-login', 'expired-session', 'secret')
+    assert len(inserted) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('text', ['', None, 'x' * 65537])
+async def test_paste_text_rejects_invalid_payload(tmp_path, text):
+    from src.collector.login_browser import LoginBrowserError
+    manager, _, _ = _session(tmp_path, [])
+    with pytest.raises(LoginBrowserError):
+        await manager.paste_text('tik-login', 'lb_test', text)
