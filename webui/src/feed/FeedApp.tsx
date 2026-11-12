@@ -1,3 +1,4 @@
+import { getPlatform, setPlatform, platforms, type Platform } from "./platform";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import brandMark from "@/assets/brand/fetchshelf-mark-48.png";
@@ -205,7 +206,12 @@ function TokenGate({ onDone }: { onDone(): void }) {
   );
 }
 
-export function FeedApp({ active, onExit }: { active: boolean; onExit(): void }) {
+export function FeedApp(props: { active: boolean; onExit(): void }) {
+  const [platform, choose] = useState(getPlatform);
+  return <FeedSession key={platform} {...props} platform={platform} onPlatform={(value) => { setPlatform(value); choose(value); }} />;
+}
+function FeedSession({ active, onExit, platform, onPlatform }: { active: boolean; onExit(): void; platform: Platform; onPlatform(value: Platform): void }) {
+  const platformPicker = <select data-ui-select="false" className="fa-platform" aria-label="媒体平台" value={platform} onChange={(event) => onPlatform(event.target.value as Platform)}>{Object.entries(platforms).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>;
   useObservable(preferences);
   useObservable(toaster);
   const docked = useMediaQuery("(min-width: 1100px)");
@@ -550,6 +556,7 @@ export function FeedApp({ active, onExit }: { active: boolean; onExit(): void })
           <img src={brandMark} alt="" width={30} height={30} />
           <strong>FetchShelf</strong>
         </div>
+        <div className="fa-platform-nav">{platformPicker}</div>
         <button
           type="button"
           className="fa-nav-search"
@@ -612,7 +619,7 @@ export function FeedApp({ active, onExit }: { active: boolean; onExit(): void })
               </div>
             ))}
             <div className="fa-topbar">
-              <span className="fa-topbar-side" />
+              <span className="fa-topbar-side">{platformPicker}</span>
               <div className="fa-home-tabs" role="tablist" aria-label="作品流">
                 {HOME_TABS.map((item) => (
                   <button

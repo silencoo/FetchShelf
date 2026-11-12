@@ -117,11 +117,11 @@ export interface MeSummary {
 export type AccountSort = "latest" | "oldest" | "popular";
 export type KindFilter = "all" | "video" | "images";
 
-export type PostSource =
+export type PostSource = { platform?: string } & (
   | { type: "foryou" | "latest" | "following" | "popular" }
   | { type: "account"; account: string; sort?: AccountSort; kind?: KindFilter }
   | { type: "likes" | "saves"; account?: string }
-  | { type: "search" | "tag" | "music"; q: string };
+  | { type: "search" | "tag" | "music"; q: string });
 
 export interface PostPage {
   items: Post[];

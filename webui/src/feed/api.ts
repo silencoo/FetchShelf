@@ -1,3 +1,4 @@
+import { getPlatform } from "./platform";
 import { state } from "../legacy/state.js";
 import { establishWebUiSession, persistToken } from "../legacy/runtime.js";
 
@@ -89,6 +90,7 @@ export const api = {
   posts(source: PostSource, cursor: string | null, limit: number) {
     const params: Record<string, string | number | undefined> = {
       source: source.type,
+      platform: source.platform ?? getPlatform(),
       cursor: cursor ?? undefined,
       limit,
     };
@@ -111,10 +113,10 @@ export const api = {
     scope?: "all" | "following";
     limit?: number;
     offset?: number;
-  }) => request<AccountPage>(`/ui/api/feed/accounts?${query(options)}`),
+  }) => request<AccountPage>(`/ui/api/feed/accounts?${query({ ...options, platform: getPlatform() })}`),
   tags: () =>
-    request<{ items: Array<{ tag: string; count: number }> }>("/ui/api/feed/tags"),
-  me: () => request<MeSummary>("/ui/api/feed/me"),
+    request<{ items: Array<{ tag: string; count: number }> }>(`/ui/api/feed/tags?platform=${getPlatform()}`),
+  me: () => request<MeSummary>(`/ui/api/feed/me?platform=${getPlatform()}`),
   setMark: (kind: "like" | "save" | "follow" | "hide", target: string, on: boolean) =>
     request("/ui/api/feed/marks", {
       method: "PUT",

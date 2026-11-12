@@ -521,6 +521,8 @@ class FeedIndex:
                     )
                 return False
 
+        if source.url.startswith("local://"):
+            uid = "import-" + sha1(source.key.encode("utf-8")).hexdigest()[:24]
         scanned = scan_folder(folder, uid, name) if folder is not None else []
         by_key = {post.post_key: post for post in scanned}
         newest = max(scanned, key=lambda post: post.published_ts, default=None)
@@ -751,9 +753,13 @@ class FeedIndex:
         limit: int = 30,
         offset: int = 0,
         only: list[str] | None = None,
+        platform: str = "",
     ) -> tuple[list[dict], int]:
         clauses = ["post_count > 0"]
         params: list = []
+        if platform:
+            clauses.append("platform = ?")
+            params.append(platform)
         if query:
             clauses.append("(mark LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\')")
             params += [_like_pattern(query)] * 2
@@ -783,9 +789,13 @@ class FeedIndex:
         cursor: dict,
         only: list[str] | None = None,
         hidden: list[str] | None = None,
+        platform: str = "",
     ) -> tuple[list[dict], dict | None]:
         clauses = ["1 = 1"]
         params: list = []
+        if platform:
+            clauses.append("a.platform = ?")
+            params.append(platform)
         if only is not None:
             clauses.append("p.account_key IN (SELECT value FROM json_each(?))")
             params.append(dumps(only))
@@ -856,6 +866,7 @@ class FeedIndex:
 
     def popular_posts(
         self, *, limit: int, cursor: dict, hidden: list[str] | None = None,
+        platform: str = "",
     ) -> tuple[list[dict], dict | None]:
         offset = max(0, int(cursor.get("o", 0)))
         params: list = []
@@ -863,6 +874,9 @@ class FeedIndex:
         if hidden:
             clause = "AND p.account_key NOT IN (SELECT value FROM json_each(?))"
             params.append(dumps(hidden))
+        if platform:
+            clause += " AND a.platform = ?"
+            params.append(platform)
         query = f"""
             SELECT {_POST_COLUMNS}
             FROM meta m
@@ -887,6 +901,7 @@ class FeedIndex:
         limit: int,
         cursor: dict,
         hidden: list[str] | None = None,
+        platform: str = "",
     ) -> tuple[list[dict], dict | None]:
         """Scan each text column on its own, then join only what matched.
 
@@ -928,6 +943,9 @@ class FeedIndex:
         if hidden:
             hidden_clause = "WHERE p.account_key NOT IN (SELECT value FROM json_each(?))"
             params.append(dumps(hidden))
+        if platform:
+            hidden_clause += (" AND " if hidden_clause else "WHERE ") + "p.account_key IN (SELECT account_key FROM accounts WHERE platform = ?)"
+            params.append(platform)
         query = f"""
             WITH found(id) AS ({union}),
             page(id) AS (
@@ -950,12 +968,14 @@ class FeedIndex:
             following = {"o": offset + limit}
         return rows, following
 
-    def top_tags(self, limit: int = 24) -> list[dict]:
+    def top_tags(self, limit: int = 24, platform: str = "") -> list[dict]:
         counts: dict[str, int] = {}
         with self._connect() as connection:
             for (tags,) in connection.execute(
                 "SELECT m.tags FROM meta m JOIN posts p ON p.uid = m.uid AND p.time_key = m.time_key "
-                "WHERE m.tags != ''"
+                "JOIN accounts a ON a.account_key = p.account_key "
+                "WHERE m.tags != '' AND (? = '' OR a.platform = ?)",
+                (platform, platform),
             ):
                 for tag in set(str(tags).split()):
                     counts[tag] = counts.get(tag, 0) + 1
@@ -1016,6 +1036,7 @@ class FeedIndex:
         favorites: list[str],
         hidden: list[str],
         now: float | None = None,
+        platform: str = "",
     ) -> tuple[list[dict], dict | None]:
         """Mix recent work, accounts you responded to, and the whole library.
 
@@ -1038,6 +1059,9 @@ class FeedIndex:
         if hidden:
             hidden_clause = " AND p.account_key NOT IN (SELECT value FROM json_each(?))"
             hidden_params = [dumps(hidden)]
+        if platform:
+            hidden_clause += " AND a.platform = ?"
+            hidden_params.append(platform)
         conditions = {
             "r": (f"p.published_ts >= ?{hidden_clause}", [recent_since, *hidden_params]),
             "f": (

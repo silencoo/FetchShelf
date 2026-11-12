@@ -2394,3 +2394,9 @@
     padding-left: 0;
   }
 }
+
+.fa-platform { min-height: 44px; max-width: 100%; background: #202024; color: #fff; border: 1px solid #666; border-radius: 10px; padding: 0 8px; font: inherit; font-size: 13px; }
+.fa-platform-nav { padding: 8px; }
+@media (max-width: 699px) { .fa-platform-nav { display: none; } }
+
+@media (min-width: 700px) { .fa-topbar .fa-platform { visibility: hidden; } }

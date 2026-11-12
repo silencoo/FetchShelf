@@ -121,7 +121,7 @@ class FeedService:
         )
         self._covers_signature: tuple | None = None
         self._covers: tuple[dict, dict] = ({}, {})
-        self._tags: tuple[float, list[dict]] = (0.0, [])
+        self._tags: dict[str, tuple[float, list[dict]]] = {}
         self.comment_slot = Semaphore(1)
         self.comment_cache: OrderedDict[tuple, tuple[float, dict]] = OrderedDict()
         self.last_comment_fetch = 0.0
@@ -165,6 +165,13 @@ class FeedService:
                         folder=folder,
                     )
                 )
+        manifest = Path(server.parameter.settings.path).parent / "media_imports.json"
+        if manifest.is_file():
+            from src.webui.media_imports import load_import_sources
+            for source in load_import_sources(manifest, root):
+                if source.folder not in owned:
+                    sources.append(source)
+                    owned.add(source.folder)
         return sources
 
     # ----------------------------------------------------------- serialization
@@ -408,6 +415,7 @@ class FeedService:
         kind: str,
         cursor: dict,
         limit: int,
+        platform: str = "",
     ) -> dict:
         # The profile and its grid load in parallel. Refresh here as well so a
         # grid cannot keep old filenames after a collector nickname rename.
@@ -424,14 +432,14 @@ class FeedService:
                 limit=limit,
                 cursor=cursor,
                 favorites=state.affinity_accounts(),
-                hidden=hidden,
+                hidden=hidden, platform=platform,
             )
         elif source == "latest":
-            rows, following = index.latest_posts(limit=limit, cursor=cursor, hidden=hidden)
+            rows, following = index.latest_posts(limit=limit, cursor=cursor, hidden=hidden, platform=platform)
         elif source == "following":
             followed = state.targets("follow")
             if followed:
-                rows, following = index.latest_posts(limit=limit, cursor=cursor, only=followed)
+                rows, following = index.latest_posts(limit=limit, cursor=cursor, only=followed, platform=platform)
         elif source == "account":
             record = index.account(account)
             if record is None:
@@ -447,17 +455,17 @@ class FeedService:
         elif source in {"likes", "saves"}:
             mark = "like" if source == "likes" else "save"
             offset = max(0, int(cursor.get("o", 0)))
-            keys, total = state.page(mark, limit=limit, offset=offset, account_key=account)
+            keys, total = state.page(mark, limit=limit, offset=offset, account_key=account, platform=platform)
             rows = index.posts_by_keys(keys)
             if offset + limit < total:
                 following = {"o": offset + limit}
         elif source == "popular":
-            rows, following = index.popular_posts(limit=limit, cursor=cursor, hidden=hidden)
+            rows, following = index.popular_posts(limit=limit, cursor=cursor, hidden=hidden, platform=platform)
         else:
             if query:
                 field = {"tag": "tag", "music": "music"}.get(source, "all")
                 rows, following = index.search_posts(
-                    query, field=field, limit=limit, cursor=cursor, hidden=hidden,
+                    query, field=field, limit=limit, cursor=cursor, hidden=hidden, platform=platform,
                 )
         return {
             "items": self.posts_payload(rows, pinned=pinned),
@@ -465,11 +473,11 @@ class FeedService:
         }
 
     def list_accounts(
-        self, *, query: str, sort: str, scope: str, limit: int, offset: int,
+        self, *, query: str, sort: str, scope: str, limit: int, offset: int, platform: str = "",
     ) -> dict:
         only = self.state.targets("follow") if scope == "following" else None
         rows, total = self.index.accounts(
-            query=query, sort=sort, limit=limit, offset=offset, only=only,
+            query=query, sort=sort, limit=limit, offset=offset, only=only, platform=platform,
         )
         followed = self.state.marked("follow", [row["account_key"] for row in rows])
         return {
@@ -478,16 +486,16 @@ class FeedService:
             "next_offset": offset + limit if offset + limit < total else None,
         }
 
-    def top_tags(self) -> list[dict]:
-        stamp, tags = self._tags
+    def top_tags(self, platform: str = "") -> list[dict]:
+        stamp, tags = self._tags.get(platform, (0.0, []))
         if tags and monotonic() - stamp < _TAG_CACHE_SECONDS:
             return tags
-        tags = self.index.top_tags()
-        self._tags = (monotonic(), tags)
+        tags = self.index.top_tags(platform=platform)
+        self._tags[platform] = (monotonic(), tags)
         return tags
 
-    def me(self) -> dict:
-        counts = self.state.counts()
+    def me(self, platform: str = "") -> dict:
+        counts = self.state.counts(platform=platform)
         return {
             "likes": counts["like"],
             "saves": counts["save"],
@@ -656,6 +664,7 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
 
     @app.get("/ui/api/feed/posts", tags=["沉浸浏览"], summary="作品流")
     def feed_posts(
+        platform: Literal["", "douyin", "tiktok", "kuaishou", "rednote", "weibo"] = Query(""),
         source: str = Query("foryou", max_length=20),
         account: str = Query("", max_length=2300),
         q: str = Query("", max_length=120),
@@ -673,6 +682,7 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
             source=source,
             account=account,
             query=q.strip(),
+            platform=platform,
             sort=sort,
             kind=kind,
             cursor=decode_cursor(cursor),
@@ -714,6 +724,7 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
 
     @app.get("/ui/api/feed/accounts", tags=["沉浸浏览"], summary="账号目录")
     def feed_accounts(
+        platform: Literal["", "douyin", "tiktok", "kuaishou", "rednote", "weibo"] = Query(""),
         q: str = Query("", max_length=120),
         sort: Literal["recent", "posts", "likes", "name"] = Query("recent"),
         scope: Literal["all", "following"] = Query("all"),
@@ -722,16 +733,16 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         token: str = Depends(token_dependency),
     ):
         return service().list_accounts(
-            query=q.strip(), sort=sort, scope=scope, limit=limit, offset=offset,
+            query=q.strip(), sort=sort, scope=scope, limit=limit, offset=offset, platform=platform,
         )
 
     @app.get("/ui/api/feed/tags", tags=["沉浸浏览"], summary="常见话题")
-    def feed_tags(token: str = Depends(token_dependency)):
-        return {"items": service().top_tags()}
+    def feed_tags(platform: Literal["", "douyin", "tiktok", "kuaishou", "rednote", "weibo"] = Query(""), token: str = Depends(token_dependency)):
+        return {"items": service().top_tags(platform)}
 
     @app.get("/ui/api/feed/me", tags=["沉浸浏览"], summary="我的统计")
-    def feed_me(token: str = Depends(token_dependency)):
-        return service().me()
+    def feed_me(platform: Literal["", "douyin", "tiktok", "kuaishou", "rednote", "weibo"] = Query(""), token: str = Depends(token_dependency)):
+        return service().me(platform)
 
     @app.put("/ui/api/feed/marks", tags=["沉浸浏览"], summary="喜欢、收藏、关注或隐藏")
     def feed_marks(mark: FeedMark, token: str = Depends(token_dependency)):

@@ -124,10 +124,13 @@ class FeedState:
             ]
 
     def page(
-        self, kind: str, *, limit: int, offset: int = 0, account_key: str = "",
+        self, kind: str, *, limit: int, offset: int = 0, account_key: str = "", platform: str = "",
     ) -> tuple[list[str], int]:
         condition = "kind = ?"
         params: list = [kind]
+        if platform:
+            condition += " AND account_key LIKE ?"
+            params.append(platform + "::%")
         if account_key:
             condition += " AND account_key = ?"
             params.append(account_key)
@@ -142,10 +145,13 @@ class FeedState:
             ).fetchall()
         return [row[0] for row in rows], total
 
-    def counts(self) -> dict[str, int]:
+    def counts(self, platform: str = "") -> dict[str, int]:
         with self._connect() as connection:
             found = dict(
-                connection.execute("SELECT kind, COUNT(*) FROM marks GROUP BY kind").fetchall()
+                connection.execute("SELECT kind, COUNT(*) FROM marks WHERE ? = '' OR "
+                    "(CASE WHEN kind IN ('follow', 'hide') THEN target ELSE account_key END) LIKE ? GROUP BY kind",
+                    (platform, platform + "::%"),
+                ).fetchall()
             )
         return {kind: int(found.get(kind, 0)) for kind in sorted(MARK_KINDS)}
 

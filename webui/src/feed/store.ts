@@ -1,3 +1,4 @@
+import { getPlatform } from "./platform";
 import { useSyncExternalStore } from "react";
 
 import { api, type FeedPreferences } from "./api";
@@ -45,6 +46,7 @@ export class PostList extends Observable {
     readonly pageSize = 12,
   ) {
     super();
+    this.source = { ...source, platform: source.platform ?? getPlatform() };
   }
 
   async load() {
