@@ -17,7 +17,6 @@ from playwright.async_api import (
     Page,
     Playwright,
     ProxySettings,
-    async_playwright,
     TimeoutError,
     Error as PlaywrightError,
 )
@@ -459,166 +458,71 @@ class TikTokApi:
         browser_context_factory: (
             Callable[[Playwright], Awaitable[BrowserContext]] | None
         ),
-        browser_engine: Literal["cloakbrowser", "playwright"],
+        browser_engine: Literal["cloakbrowser"],
         humanize: bool = False,
         human_preset: str = "default",
     ):
         context_options = context_options or {}
-        if browser_engine not in {"cloakbrowser", "playwright"}:
-            raise ValueError("Invalid browser_engine argument passed")
+        if browser_engine != "cloakbrowser" or browser != "chromium":
+            raise ValueError("Only the CloakBrowser runtime is supported")
+        if browser_context_factory is not None or executable_path is not None:
+            raise ValueError("Custom browser factories and executable paths are not supported")
 
-        should_use_cloakbrowser = (
-            browser_engine == "cloakbrowser"
-            and browser == "chromium"
-            and browser_context_factory is None
-            and executable_path is None
-        )
+        try:
+            from cloakbrowser import launch_async as cloak_launch_async
+            from cloakbrowser import (
+                launch_persistent_context_async as cloak_launch_persistent_context_async,
+            )
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "cloakbrowser is not installed. Install it with `pip install cloakbrowser` "
+                "to enable browser sessions."
+            ) from exc
 
-        if should_use_cloakbrowser:
-            try:
-                from cloakbrowser import launch_async as cloak_launch_async
-                from cloakbrowser import (
-                    launch_persistent_context_async as cloak_launch_persistent_context_async,
-                )
-            except ModuleNotFoundError as exc:
-                raise ModuleNotFoundError(
-                    "cloakbrowser is not installed. Install it with `pip install cloakbrowser` "
-                    "or call create_sessions(..., browser_engine='playwright')."
-                ) from exc
+        if headless and override_browser_args is None:
+            override_browser_args = ["--headless=new"]
+            headless = False  # managed by the arg
 
-            if headless and override_browser_args is None:
-                override_browser_args = ["--headless=new"]
-                headless = False  # managed by the arg
-
-            async def launch_cloak_once():
-                if user_data_dir:
-                    self.browser = await cloak_launch_persistent_context_async(
-                        user_data_dir=user_data_dir,
-                        headless=headless,
-                        proxy=random_choice(proxies),
-                        args=override_browser_args,
-                        humanize=humanize,
-                        human_preset=human_preset,
-                        **context_options,
-                    )
-                    self.browser_is_context = True
-                else:
-                    self.browser = await cloak_launch_async(
-                        headless=headless,
-                        proxy=random_choice(proxies),
-                        args=override_browser_args,
-                        humanize=humanize,
-                        human_preset=human_preset,
-                    )
-                    self.browser_is_context = False
-
-            try:
-                await launch_cloak_once()
-            except Exception as error:
-                if user_data_dir and self._is_profile_lock_error(error):
-                    cleaned = self._cleanup_stale_profile_locks(user_data_dir)
-                    if cleaned:
-                        self.logger.warning(
-                            "Detected stale Chromium profile locks in %s; retrying persistent launch.",
-                            user_data_dir,
-                        )
-                        await launch_cloak_once()
-                    else:
-                        raise
-                else:
-                    raise
-            self.playwright = None
-            self.browser_engine = "cloakbrowser"
-            return
-
-        if browser_engine == "cloakbrowser":
-            reasons = []
-            if browser != "chromium":
-                reasons.append(f"browser={browser!r} is only supported via Playwright")
-            if browser_context_factory is not None:
-                reasons.append(
-                    "browser_context_factory requires a raw Playwright instance"
-                )
-            if executable_path is not None:
-                reasons.append(
-                    "executable_path overrides CloakBrowser's managed Chromium binary"
-                )
-            if reasons:
-                self.logger.info(
-                    "Falling back to Playwright launcher because %s.",
-                    "; ".join(reasons),
-                )
-
-        self.playwright = await async_playwright().start()
-        self.browser_engine = "playwright"
-
-        if browser_context_factory is not None:
-            self.browser = await browser_context_factory(self.playwright)
-            self.browser_is_context = True
-        elif user_data_dir:
-            if browser != "chromium":
-                raise ValueError(
-                    "Persistent browser profiles are only supported with chromium"
-                )
-            if headless and override_browser_args is None:
-                override_browser_args = ["--headless=new"]
-                headless = False  # managed by the arg
-
-            async def launch_playwright_persistent_once():
-                self.browser = await self.playwright.chromium.launch_persistent_context(
+        async def launch_cloak_once():
+            if user_data_dir:
+                self.browser = await cloak_launch_persistent_context_async(
                     user_data_dir=user_data_dir,
                     headless=headless,
-                    args=override_browser_args,
                     proxy=random_choice(proxies),
-                    executable_path=executable_path,
+                    args=override_browser_args,
+                    humanize=humanize,
+                    human_preset=human_preset,
                     **context_options,
                 )
+                self.browser_is_context = True
+            else:
+                self.browser = await cloak_launch_async(
+                    headless=headless,
+                    proxy=random_choice(proxies),
+                    args=override_browser_args,
+                    humanize=humanize,
+                    human_preset=human_preset,
+                )
+                self.browser_is_context = False
 
-            try:
-                await launch_playwright_persistent_once()
-            except Exception as error:
-                if self._is_profile_lock_error(error):
-                    cleaned = self._cleanup_stale_profile_locks(user_data_dir)
-                    if cleaned:
-                        self.logger.warning(
-                            "Detected stale Chromium profile locks in %s; retrying persistent launch.",
-                            user_data_dir,
-                        )
-                        await launch_playwright_persistent_once()
-                    else:
-                        raise
+        try:
+            await launch_cloak_once()
+        except Exception as error:
+            if user_data_dir and self._is_profile_lock_error(error):
+                cleaned = self._cleanup_stale_profile_locks(user_data_dir)
+                if cleaned:
+                    self.logger.warning(
+                        "Detected stale Chromium profile locks in %s; retrying persistent launch.",
+                        user_data_dir,
+                    )
+                    await launch_cloak_once()
                 else:
                     raise
-            self.browser_is_context = True
-        elif browser == "chromium":
-            if headless and override_browser_args is None:
-                override_browser_args = ["--headless=new"]
-                headless = False  # managed by the arg
-            self.browser = await self.playwright.chromium.launch(
-                headless=headless,
-                args=override_browser_args,
-                proxy=random_choice(proxies),
-                executable_path=executable_path,
-            )
-            self.browser_is_context = False
-        elif browser == "firefox":
-            self.browser = await self.playwright.firefox.launch(
-                headless=headless,
-                args=override_browser_args,
-                proxy=random_choice(proxies),
-                executable_path=executable_path,
-            )
-            self.browser_is_context = False
-        elif browser == "webkit":
-            self.browser = await self.playwright.webkit.launch(
-                headless=headless,
-                args=override_browser_args,
-                proxy=random_choice(proxies),
-                executable_path=executable_path,
-            )
-            self.browser_is_context = False
-        else:
-            raise ValueError("Invalid browser argument passed")
+            else:
+                raise
+        self.playwright = None
+        self.browser_engine = "cloakbrowser"
+        return
 
     async def __create_session(
         self,
@@ -786,7 +690,7 @@ class TikTokApi:
         cookies: list[dict[str, Any]] | None = None,
         suppress_resource_load_types: list[str] | None = None,
         browser: str = "chromium",
-        browser_engine: Literal["cloakbrowser", "playwright"] = "cloakbrowser",
+        browser_engine: Literal["cloakbrowser"] = "cloakbrowser",
         humanize: bool = False,
         human_preset: str = "default",
         user_data_dir: str | None = None,
@@ -824,13 +728,13 @@ class TikTokApi:
             override_browser_args (list[dict]): A list of dictionaries containing arguments to pass to the browser.
             cookies (list[dict]): A list of cookies to use for the sessions, you can get these from your cookies after visiting TikTok.
             suppress_resource_load_types (list[str]): Types of resources to suppress playwright from loading, excluding more types will make playwright faster.. Types: document, stylesheet, image, media, font, script, textrack, xhr, fetch, eventsource, websocket, manifest, other.
-            browser (str): firefox, chromium, or webkit; default is chromium
-            browser_engine (str): Browser launcher to use. Defaults to cloakbrowser for chromium sessions.
+            browser (str): Must be chromium (the CloakBrowser binary family)
+            browser_engine (str): Only cloakbrowser is supported.
                                   Falls back to raw Playwright automatically when using firefox/webkit,
                                   browser_context_factory, or executable_path.
             executable_path (str): Path to the browser executable
             page_factory (Callable[[BrowserContext], Awaitable[Page]]) | None: Optional async function for instantiating pages.
-            browser_context_factory (Callable[[Playwright], Awaitable[BrowserContext]]) | None: Optional async function for creating browser contexts. When provided, you can choose any browser (chromium/firefox/webkit) inside the factory, and the 'browser' parameter is ignored.
+            browser_context_factory (Callable[[Playwright], Awaitable[BrowserContext]]) | None: Unsupported; must be None.
             humanize (bool): Enable human-like mouse/keyboard/scroll behavior when using cloakbrowser.
             human_preset (str): Humanize preset passed to cloakbrowser.
             user_data_dir (str | None): Optional persistent browser profile directory. Reuse the same path across runs to persist cookies and browser state.

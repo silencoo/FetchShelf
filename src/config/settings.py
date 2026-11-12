@@ -132,8 +132,6 @@ class Settings:
         },
         "tiktok_api_enabled": True,
         "tiktok_bridge_fallback_enabled": False,
-        "tiktok_api_browser": "chromium",
-        "tiktok_api_browser_engine": "cloakbrowser",
         "tiktok_api_headless": False,
         "tiktok_api_humanize": True,
         "tiktok_api_human_preset": "default",

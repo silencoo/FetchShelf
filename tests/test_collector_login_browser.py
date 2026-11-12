@@ -179,3 +179,38 @@ async def test_paste_text_rejects_invalid_payload(tmp_path, text):
     manager, _, _ = _session(tmp_path, [])
     with pytest.raises(LoginBrowserError):
         await manager.paste_text('tik-login', 'lb_test', text)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", [False, True])
+async def test_start_uses_only_cloak_and_preserves_profile_proxy(tmp_path, monkeypatch, fail):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    import src.collector.login_browser as module
+
+    monkeypatch.setattr(module, "which", lambda name: "/bin/" + name)
+    monkeypatch.setattr(module.asyncio, "create_subprocess_exec", AsyncMock(return_value=None))
+    manager = CollectorLoginBrowserManager(tmp_path)
+    monkeypatch.setattr(manager, "_ensure_process_started", AsyncMock())
+    monkeypatch.setattr(manager, "_wait_for_vnc", AsyncMock())
+    page = SimpleNamespace(goto=AsyncMock())
+    context = SimpleNamespace(pages=[page], on=lambda *a: None, close=AsyncMock())
+    launch = AsyncMock(return_value=context, side_effect=RuntimeError("cloak failed") if fail else None)
+    monkeypatch.setattr(module, "launch_persistent_context_async", launch)
+    identity = CollectorIdentity(identity_id="tik-login", name="TikTok", platform="tiktok")
+    credentials = CollectorCredentials(proxy="http://proxy:7890")
+    if fail:
+        with pytest.raises(RuntimeError, match="cloak failed"):
+            await manager.start(identity, credentials)
+        assert manager._session is None
+    else:
+        session = await manager.start(identity, credentials)
+        await manager.stop(identity.identity_id, session.session_id)
+        context.close.assert_awaited_once()
+    launch.assert_awaited_once()
+    args, kwargs = launch.call_args
+    assert args == (str(tmp_path / "browser_profiles" / "tik-login"),)
+    assert kwargs["proxy"] == {"server": "http://proxy:7890"}
+    assert kwargs["headless"] is False
+    assert kwargs["no_viewport"] is True
+    assert "channel" not in kwargs

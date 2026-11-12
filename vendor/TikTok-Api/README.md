@@ -33,7 +33,7 @@ If you run into an issue please check the closed issues on the github, although 
 pip install TikTokApi
 ```
 
-`TikTokApi.create_sessions()` now uses `cloakbrowser` by default for Chromium sessions, so the stealth browser binary is downloaded automatically on first launch. If you intentionally switch back to raw Playwright via `browser_engine="playwright"`, run `python -m playwright install`.
+This FetchShelf vendored copy supports only CloakBrowser. Alternative browser engines, custom executable paths and browser context factories are rejected. The browser binary is downloaded on first launch unless already bundled in the image.
 
 #### Docker Installation
 
@@ -52,7 +52,7 @@ docker run -v TikTokApi --rm tiktokapi:latest python3 your_script.py
 - **EmptyResponseException** - this means TikTok is blocking the request and detects you're a bot. This can be a problem with your setup or the library itself
   - you may need a proxy to successfully scrape TikTok. In practice, residential proxies often work better than datacenter proxies.
 
-- **Browser Has no Attribute** - if you're using the default `cloakbrowser` launcher, make sure `cloakbrowser` is installed and the first launch can download its Chromium binary. If you explicitly set `browser_engine="playwright"`, run `python3 -m playwright install`. If your error persists try the [playwright-python](https://github.com/microsoft/playwright-python) quickstart guide and diagnose issues from there.
+- **Browser Has no Attribute** - if you're using the default `cloakbrowser` launcher, make sure `cloakbrowser` is installed and the first launch can download its Chromium binary. Raw Playwright browser runtimes are not supported by this FetchShelf copy. If your error persists try the [playwright-python](https://github.com/microsoft/playwright-python) quickstart guide and diagnose issues from there.
 
 - **API methods returning Coroutine** - many of the API's methods are async so make sure your program awaits them for proper functionality
 

@@ -338,3 +338,11 @@ Docker 主体可以在常见 ARM64 环境构建，但 Linux ARM64 的 MediaPipe 
 
 本项目由 `TikTokDownloader` 演进而来，感谢原作者
 [JoeanAmier](https://github.com/JoeanAmier/TikTokDownloader) 以及所有开源依赖和贡献者。
+
+### 浏览器运行时
+
+采集身份的交互登录、抖音浏览器采集和 TikTok 浏览器会话统一使用 CloakBrowser。
+不支持切换到 Playwright 自带的 Chromium、Firefox 或 WebKit，也不会在启动失败时切换运行时。
+Playwright 仅作为 CloakBrowser 的控制库保留。Docker 镜像预装 CloakBrowser 二进制；
+本地源码运行时由 CloakBrowser 下载所需二进制。旧配置中的 `tiktok_api_browser` 和
+`tiktok_api_browser_engine` 不再生效。更换浏览器运行时不保证解除平台的登录限制。

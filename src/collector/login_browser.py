@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
-from playwright.async_api import async_playwright
+from cloakbrowser import launch_persistent_context_async
 
 from .models import CollectorCredentials, CollectorIdentity, CollectorPlatform
 
@@ -229,11 +229,9 @@ class CollectorLoginBrowserManager:
                 )
                 await self._wait_for_vnc(vnc_process)
 
-                playwright = await async_playwright().start()
                 launch_options: dict[str, Any] = {
                     "headless": False,
-                    "channel": "chromium",
-                    "viewport": None,
+                    "no_viewport": True,
                     "locale": "zh-CN",
                     "env": display_env,
                     "args": [
@@ -248,7 +246,7 @@ class CollectorLoginBrowserManager:
                     launch_options["proxy"] = proxy
                 if credentials.user_agent:
                     launch_options["user_agent"] = credentials.user_agent
-                context = await playwright.chromium.launch_persistent_context(
+                context = await launch_persistent_context_async(
                     str(profile_dir),
                     **launch_options,
                 )

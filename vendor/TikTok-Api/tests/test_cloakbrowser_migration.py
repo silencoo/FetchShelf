@@ -33,7 +33,7 @@ class DummyPage:
     async def route(self, pattern, handler):
         self._route = (pattern, handler)
 
-    async def goto(self, url):
+    async def goto(self, url, **kwargs):
         self.url = url
         if self._request_handler is not None:
             request = types.SimpleNamespace(headers={"user-agent": "DummyAgent/1.0"})
@@ -125,7 +125,7 @@ async def test_create_sessions_uses_cloakbrowser_for_default_chromium(monkeypatc
     monkeypatch.setitem(
         sys.modules,
         "cloakbrowser",
-        types.SimpleNamespace(launch_async=fake_cloak_launch_async),
+        types.SimpleNamespace(launch_async=fake_cloak_launch_async, launch_persistent_context_async=fake_cloak_launch_async),
     )
 
     api = TikTokApi()
@@ -145,32 +145,34 @@ async def test_create_sessions_uses_cloakbrowser_for_default_chromium(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_create_sessions_falls_back_to_playwright_when_executable_path_used(
-    monkeypatch,
-):
-    dummy_playwright = DummyPlaywright()
-
-    async def noop_stealth(page):
-        return None
-
-    monkeypatch.setattr(
-        tiktok_module,
-        "async_playwright",
-        lambda: DummyPlaywrightManager(dummy_playwright),
-    )
-    monkeypatch.setattr(tiktok_module, "stealth_async", noop_stealth)
-
+@pytest.mark.parametrize("options", [
+    {"browser_engine": "playwright"},
+    {"browser": "firefox"},
+    {"browser": "webkit"},
+    {"executable_path": "/tmp/custom-browser"},
+    {"browser_context_factory": lambda _: None},
+])
+async def test_create_sessions_rejects_alternative_runtimes(options):
     api = TikTokApi()
     try:
-        await api.create_sessions(
-            num_sessions=1,
-            sleep_after=0,
-            ms_tokens=["provided-ms-token"],
-            executable_path="/tmp/custom-browser",
-        )
+        with pytest.raises(ValueError):
+            await api.create_sessions(num_sessions=1, **options)
+        assert api.browser is None
+    finally:
+        await api.close_sessions()
 
-        assert api.browser_engine == "playwright"
-        assert dummy_playwright.launch_kwargs["executable_path"] == "/tmp/custom-browser"
-        assert len(api.sessions) == 1
+
+@pytest.mark.asyncio
+async def test_cloak_launch_failure_is_not_replaced(monkeypatch):
+    async def fail(**kwargs):
+        raise RuntimeError("CloakBrowser failed")
+    monkeypatch.setitem(sys.modules, "cloakbrowser", types.SimpleNamespace(
+        launch_async=fail, launch_persistent_context_async=fail,
+    ))
+    api = TikTokApi()
+    try:
+        with pytest.raises(RuntimeError, match="CloakBrowser failed"):
+            await api.create_sessions(num_sessions=1)
+        assert api.browser is None
     finally:
         await api.close_sessions()

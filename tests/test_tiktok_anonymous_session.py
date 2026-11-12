@@ -81,3 +81,16 @@ async def test_bridge_rejects_anonymous_session_without_ms_token(monkeypatch):
     monkeypatch.setattr(bridge, "_run_with_api", run_with_api)
     with pytest.raises(RuntimeError, match="msToken"):
         await bridge.bootstrap_anonymous_session()
+
+
+def test_bridge_ignores_obsolete_runtime_settings(monkeypatch):
+    params = SimpleNamespace(logger=SimpleNamespace(warning=lambda *a: None),
+                             tiktok_api_browser="firefox", tiktok_api_browser_engine="playwright")
+    bridge = TikTokAPIBridge(params)
+    assert bridge.browser_engine == "cloakbrowser"
+    assert bridge.browser == "chromium"
+    monkeypatch.setattr(bridge, "_session_kwargs", lambda url: {
+        "browser": bridge.browser, "browser_engine": bridge.browser_engine, "headless": False,
+    })
+    assert all(options["browser_engine"] == "cloakbrowser"
+               for _, options in bridge._session_candidates("https://www.tiktok.com"))

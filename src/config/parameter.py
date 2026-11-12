@@ -226,12 +226,6 @@ class Parameter:
         self.tiktok_bridge_fallback_enabled = self.check_bool_false(
             kwargs.get("tiktok_bridge_fallback_enabled", False),
         )
-        self.tiktok_api_browser = self.check_str(
-            kwargs.get("tiktok_api_browser", "chromium")
-        ) or "chromium"
-        self.tiktok_api_browser_engine = self.check_str(
-            kwargs.get("tiktok_api_browser_engine", "cloakbrowser")
-        ) or "cloakbrowser"
         self.tiktok_api_headless = self.check_bool_false(
             kwargs.get("tiktok_api_headless", False),
         )
@@ -1074,8 +1068,6 @@ class Parameter:
             "browser_info_tiktok": self.browser_info_tiktok,
             "tiktok_api_enabled": self.tiktok_api_enabled,
             "tiktok_bridge_fallback_enabled": self.tiktok_bridge_fallback_enabled,
-            "tiktok_api_browser": self.tiktok_api_browser,
-            "tiktok_api_browser_engine": self.tiktok_api_browser_engine,
             "tiktok_api_headless": self.tiktok_api_headless,
             "tiktok_api_humanize": self.tiktok_api_humanize,
             "tiktok_api_human_preset": self.tiktok_api_human_preset,

@@ -115,8 +115,6 @@ class Settings(BaseModel):
     browser_info_tiktok: TikTokBrowserInfo | None = None
     tiktok_api_enabled: bool | None = None
     tiktok_bridge_fallback_enabled: bool | None = None
-    tiktok_api_browser: str | None = None
-    tiktok_api_browser_engine: str | None = None
     tiktok_api_headless: bool | None = None
     tiktok_api_humanize: bool | None = None
     tiktok_api_human_preset: str | None = None

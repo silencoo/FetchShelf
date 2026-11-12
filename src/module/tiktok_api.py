@@ -97,10 +97,8 @@ class TikTokAPIBridge:
         self.log = params.logger
         self.cookie = cookie
         self.proxy = proxy
-        self.browser = self._get_str_setting("tiktok_api_browser", "chromium")
-        self.browser_engine = self._resolve_browser_engine(
-            self._get_str_setting("tiktok_api_browser_engine", "cloakbrowser")
-        )
+        self.browser = "chromium"  # CloakBrowser binary family, not a runtime choice.
+        self.browser_engine = "cloakbrowser"
         self.headless = self._get_bool_setting("tiktok_api_headless", False)
         self.humanize = self._get_bool_setting("tiktok_api_humanize", True)
         self.human_preset = self._get_str_setting(
@@ -249,14 +247,6 @@ class TikTokAPIBridge:
     def _get_str_setting(self, name: str, default: str) -> str:
         value = getattr(self.params, name, default)
         return str(value or default).strip()
-
-    def _resolve_browser_engine(self, value: str) -> str:
-        value = (value or "").strip().lower()
-        if value in {"cloakbrowser", "playwright"}:
-            return value
-        if value == "auto":
-            return "cloakbrowser" if self.browser == "chromium" else "playwright"
-        return "cloakbrowser" if self.browser == "chromium" else "playwright"
 
     def _resolve_profile_dir(self) -> str | None:
         if not self.persistent_profile:
@@ -711,14 +701,6 @@ class TikTokAPIBridge:
         add("configured")
         if not base.get("headless"):
             add("headless-fallback", headless=True)
-        if base.get("browser_engine") == "cloakbrowser":
-            add("playwright-fallback", browser_engine="playwright")
-            if not base.get("headless"):
-                add(
-                    "playwright-headless-fallback",
-                    browser_engine="playwright",
-                    headless=True,
-                )
         return candidates
 
     @staticmethod

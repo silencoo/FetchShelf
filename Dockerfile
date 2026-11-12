@@ -45,7 +45,8 @@ WORKDIR /app
 # 运行时使用 uv + 预构建虚拟环境
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:${PATH}" \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    CLOAKBROWSER_AUTO_UPDATE=false \
+    CLOAKBROWSER_CACHE_DIR=/opt/cloakbrowser
 
 RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     ca-certificates \
@@ -90,10 +91,9 @@ RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 instal
     && ldconfig \
     && ldconfig -p | grep -q "libxcb.so.1"
 COPY --from=builder /opt/venv /opt/venv
-ARG PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST
-# Anonymous TikTok sessions use Playwright's default headless shell; account
-# login windows also need the full Chromium browser.
-RUN python -m playwright install chromium
+# FetchShelf supports only CloakBrowser; include its binary in the image.
+RUN python -c "from cloakbrowser.download import ensure_binary; ensure_binary()"
+
 
 # 复制你的应用程序代码和相关文件
 COPY src /app/src

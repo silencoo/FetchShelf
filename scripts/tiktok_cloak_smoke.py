@@ -51,8 +51,6 @@ def _params(logger: _Logger, *, headless: bool) -> SimpleNamespace:
             "tz_name": "Asia/Tokyo",
             "webcast_language": "en-US",
         },
-        tiktok_api_browser="chromium",
-        tiktok_api_browser_engine="cloakbrowser",
         tiktok_api_headless=headless,
         tiktok_api_humanize=True,
         tiktok_api_human_preset="default",
