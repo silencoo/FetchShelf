@@ -1,16 +1,16 @@
 # Local media accounts
 
-Immersive browsing supports separate Douyin, TikTok, Kuaishou, Rednote, and Weibo libraries. The selected platform filters discovery, search, feeds, likes, saves, and follows. The selection is remembered in the current browser.
+Immersive browsing supports Douyin and TikTok browsing libraries. The selected platform filters discovery, search, feeds, likes, saves, and follows. The selection is remembered in the current browser.
 
 Existing media can be registered without creating scraping targets. Place `media_imports.json` next to `settings.json`:
 
 ```json
 [
   {
-    "platform": "rednote",
-    "id": "stable-account-id",
-    "name": "Account display name",
-    "folder": "imports/rednote/stable-account-id"
+    "platform": "douyin",
+    "id": "rednote-stable-account-id",
+    "name": "Account display name（小红书）",
+    "folder": "本地_小红书_Account display name"
   }
 ]
 ```
@@ -20,3 +20,5 @@ Existing media can be registered without creating scraping targets. Place `media
 After registering media, refresh the immersive index. Media remains in the supplied folder. This manifest does not copy files, import credentials, or enable collection for additional platforms. Back up the manifest before editing it; removing entries removes those accounts from the rebuilt browsing index, not their files.
 
 Keep imported folders beneath a dedicated `imports/<platform>/` directory to avoid the collector's legacy account-folder matching. Keep backups and old settings/databases outside the media root. When consolidating old folders, verify filenames and retain a move journal; never overwrite an existing file merely because its name matches.
+
+For legacy Kuaishou, Rednote, and Weibo media shown under Douyin, use platform `douyin`, a source-prefixed ID, and a source suffix in the display name. Their identity stays separate from collected Douyin accounts.
