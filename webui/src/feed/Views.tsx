@@ -1,3 +1,4 @@
+import { type Platform } from "./platform";
 import {
   useCallback,
   useEffect,
@@ -852,7 +853,7 @@ function indexDescription(status: IndexStatus) {
   return `${status.accounts} 个账号 · ${status.posts} 个作品`;
 }
 
-export function MeView({ actions, visible }: { actions: ViewActions; visible: boolean }) {
+export function MeView({ actions, visible, platform, onPlatform }: { actions: ViewActions; visible: boolean; platform: Platform; onPlatform(value: Platform): void }) {
   useObservable(preferences);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [me, setMe] = useState<MeSummary | null>(null);
@@ -901,6 +902,14 @@ export function MeView({ actions, visible }: { actions: ViewActions; visible: bo
       </section>
 
       <section className="fa-settings" aria-label="播放设置">
+        <div className="fa-setting-row">
+          <span>浏览平台</span>
+          <div className="fa-platform-switch" role="group" aria-label="浏览平台">
+            {([['douyin', '抖音'], ['tiktok', 'TikTok']] as const).map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={platform === value} onClick={() => onPlatform(value)}>{label}</button>
+            ))}
+          </div>
+        </div>
         <label className="fa-switch-row">
           <span>声音<small>默认打开作品声音 · {preferences.syncState === "saved" ? "偏好已跨设备同步" : preferences.syncState === "error" ? "偏好同步失败，将自动重试" : "正在同步偏好…"}</small></span>
           <input

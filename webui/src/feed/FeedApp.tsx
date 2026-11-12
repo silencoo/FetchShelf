@@ -1,4 +1,4 @@
-import { getPlatform, setPlatform, platforms, type Platform } from "./platform";
+import { getPlatform, setPlatform, type Platform } from "./platform";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import brandMark from "@/assets/brand/fetchshelf-mark-48.png";
@@ -208,14 +208,13 @@ function TokenGate({ onDone }: { onDone(): void }) {
 
 export function FeedApp(props: { active: boolean; onExit(): void }) {
   const [platform, choose] = useState(getPlatform);
-  return <FeedSession key={platform} {...props} platform={platform} onPlatform={(value) => { setPlatform(value); choose(value); }} />;
+  const [tab, setTab] = useState<Tab>("home");
+  return <FeedSession key={platform} {...props} tab={tab} setTab={setTab} platform={platform} onPlatform={(value) => { setPlatform(value); choose(value); }} />;
 }
-function FeedSession({ active, onExit, platform, onPlatform }: { active: boolean; onExit(): void; platform: Platform; onPlatform(value: Platform): void }) {
-  const platformPicker = <select data-ui-select="false" className="fa-platform" aria-label="媒体平台" value={platform} onChange={(event) => onPlatform(event.target.value as Platform)}>{Object.entries(platforms).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>;
+function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { active: boolean; onExit(): void; platform: Platform; onPlatform(value: Platform): void; tab: Tab; setTab(value: Tab): void }) {
   useObservable(preferences);
   useObservable(toaster);
   const docked = useMediaQuery("(min-width: 1100px)");
-  const [tab, setTab] = useState<Tab>("home");
   const [homeTab, setHomeTab] = useState<HomeTab>("foryou");
   const [visited, setVisited] = useState<Set<HomeTab>>(() => new Set<HomeTab>(["foryou"]));
   const [layers, setLayers] = useState<Layer[]>([]);
@@ -556,7 +555,6 @@ function FeedSession({ active, onExit, platform, onPlatform }: { active: boolean
           <img src={brandMark} alt="" width={30} height={30} />
           <strong>FetchShelf</strong>
         </div>
-        <div className="fa-platform-nav">{platformPicker}</div>
         <button
           type="button"
           className="fa-nav-search"
@@ -619,7 +617,7 @@ function FeedSession({ active, onExit, platform, onPlatform }: { active: boolean
               </div>
             ))}
             <div className="fa-topbar">
-              <span className="fa-topbar-side">{platformPicker}</span>
+              <span className="fa-topbar-side" />
               <div className="fa-home-tabs" role="tablist" aria-label="作品流">
                 {HOME_TABS.map((item) => (
                   <button
@@ -656,7 +654,7 @@ function FeedSession({ active, onExit, platform, onPlatform }: { active: boolean
             {tab === "saves" ? <LibraryView kind="saves" actions={viewActions} /> : null}
           </div>
           <div className="fa-tab-pane" hidden={tab !== "me"}>
-            {tab === "me" ? <MeView actions={viewActions} visible={active} /> : null}
+            {tab === "me" ? <MeView actions={viewActions} visible={active} platform={platform} onPlatform={onPlatform} /> : null}
           </div>
         </div>
 

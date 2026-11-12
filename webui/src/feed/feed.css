@@ -2411,11 +2411,7 @@
   }
 }
 
-.fa-platform { min-height: 44px; max-width: 100%; background: #202024; color: #fff; border: 1px solid #666; border-radius: 10px; padding: 0 8px; font: inherit; font-size: 13px; }
-.fa-platform-nav { padding: 8px; }
-@media (max-width: 699px) { .fa-platform-nav { display: none; } }
 
-@media (min-width: 700px) { .fa-topbar .fa-platform { visibility: hidden; } }
 
 @media (min-width: 700px) {
   /* Center the tabs over media, excluding the action rail and pager gutter. */
@@ -2424,4 +2420,25 @@
     left: calc(50% - (var(--fa-rail-width) + var(--fa-media-rail-gap) + var(--fa-pager-gutter)) / 2);
     transform: translateX(-50%);
   }
+}
+
+.fa-platform-switch {
+  display: flex;
+  flex: none;
+  padding: 3px;
+  border: 1px solid var(--fa-line);
+  border-radius: 12px;
+  background: var(--fa-bg);
+}
+.fa-platform-switch button {
+  min-width: 70px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 9px;
+  color: var(--fa-muted);
+}
+.fa-platform-switch button[aria-pressed="true"] {
+  color: var(--fa-text);
+  background: var(--fa-surface-raised);
+  font-weight: 600;
 }
