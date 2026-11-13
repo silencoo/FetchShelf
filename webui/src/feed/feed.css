@@ -2442,3 +2442,5 @@
   background: var(--fa-surface-raised);
   font-weight: 600;
 }
+
+.fa-platform-setting { flex-wrap: wrap; gap: 12px; }

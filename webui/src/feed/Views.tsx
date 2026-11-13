@@ -902,10 +902,10 @@ export function MeView({ actions, visible, platform, onPlatform }: { actions: Vi
       </section>
 
       <section className="fa-settings" aria-label="播放设置">
-        <div className="fa-setting-row">
+        <div className="fa-setting-row fa-platform-setting">
           <span>浏览平台</span>
           <div className="fa-platform-switch" role="group" aria-label="浏览平台">
-            {([['douyin', '抖音'], ['tiktok', 'TikTok']] as const).map(([value, label]) => (
+            {([['douyin', '抖音'], ['tiktok', 'TikTok'], ['all', '全部']] as const).map(([value, label]) => (
               <button key={value} type="button" aria-pressed={platform === value} onClick={() => onPlatform(value)}>{label}</button>
             ))}
           </div>
