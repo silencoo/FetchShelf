@@ -4919,6 +4919,19 @@ function renderOverview(payload) {
       ? "warning"
       : "ok";
 
+  const platformStats = document.getElementById("overview-media-platforms");
+  if (platformStats) {
+    const breakdown = media.platforms;
+    platformStats.innerHTML = breakdown ? `<table>
+      <thead><tr><th scope="col">平台</th><th scope="col">视频</th><th scope="col">图片</th><th scope="col">文件</th><th scope="col">空间</th></tr></thead>
+      <tbody>${[["douyin", "抖音"], ["tiktok", "TikTok"], ["unclassified", "未归类"]]
+        .filter(([key]) => key !== "unclassified" || Number(breakdown[key]?.files) > 0)
+        .map(([key, label]) => {
+          const row = breakdown[key] || {};
+          return `<tr><th scope="row">${label}</th><td>${formatOverviewCount(row.videos)}</td><td>${formatOverviewCount(row.images)}</td><td>${formatOverviewCount(row.files)}</td><td>${formatFileSize(Number(row.size || 0))}</td></tr>`;
+        }).join("")}</tbody></table>` : '<span class="muted">平台明细等待后台统计</span>';
+  }
+
   const mediaMeta = [];
   if (media.status === "scanning") {
     mediaMeta.push("正在后台统计大型下载目录");

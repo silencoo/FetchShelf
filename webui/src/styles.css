@@ -7242,3 +7242,9 @@ select.batch-field-select + .app-select-mount {
   overflow-wrap: anywhere;
 }
 .attention-table a { color: inherit; text-decoration: underline; }
+
+.overview-media-platforms { margin-top: 12px; overflow-x: auto; }
+.overview-media-platforms table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.overview-media-platforms th, .overview-media-platforms td { padding: 7px 5px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line-soft); }
+.overview-media-platforms th:first-child { text-align: left; }
+.overview-media-platforms thead th { font-weight: 500; color: var(--muted); }

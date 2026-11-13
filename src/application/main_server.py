@@ -1205,6 +1205,7 @@ class APIServer(TikTok, ServerRoutesMixin):
         current: Path,
         scope: ScopeType = "download",
         scope_root: Path | None = None,
+        platform_folders: dict[Path, str] | None = None,
     ) -> dict[str, Any]:
         folders = 0
         files = 0
@@ -1216,6 +1217,15 @@ class APIServer(TikTok, ServerRoutesMixin):
         temporary_files = 0
         scan_errors = 0
         root = scope_root or current
+        platforms = {key: {"files": 0, "images": 0, "videos": 0, "size": 0}
+                     for key in ("douyin", "tiktok", "unclassified")}
+        folder_cache: dict[Path, str] = {}
+        def platform_for(folder: Path) -> str:
+            if folder not in folder_cache:
+                folder_cache[folder] = next(
+                    (platform_folders[parent] for parent in (folder, *folder.parents)
+                     if parent in (platform_folders or {})), "unclassified")
+            return folder_cache[folder]
         for path in current.rglob("*"):
             try:
                 if self._is_protected_file_scope_path(scope, root, path):
@@ -1233,6 +1243,12 @@ class APIServer(TikTok, ServerRoutesMixin):
                     videos += 1
                 file_stat = path.stat()
                 total_size += file_stat.st_size
+                if platform_folders is not None:
+                    bucket = platforms[platform_for(path.parent)]
+                    bucket["files"] += 1
+                    bucket["size"] += file_stat.st_size
+                    bucket["images"] += int(suffix in IMAGE_SUFFIXES)
+                    bucket["videos"] += int(suffix in VIDEO_SUFFIXES)
                 if file_stat.st_size == 0:
                     zero_byte_files += 1
                 if suffix in {".part", ".tmp", ".download", ".crdownload"}:
@@ -1248,6 +1264,7 @@ class APIServer(TikTok, ServerRoutesMixin):
             disk = None
             used_percent = 0
         return {
+            **({"platforms": platforms} if platform_folders is not None else {}),
             "folders": folders,
             "files": files,
             "images": images,
@@ -1310,12 +1327,33 @@ class APIServer(TikTok, ServerRoutesMixin):
             default=0,
         )
 
+    def _overview_platform_folders(self, root: Path) -> dict[Path, str]:
+        """Use account mappings, never display-name guesses between platforms."""
+        from src.webui.media_imports import load_import_sources
+
+        folders: dict[Path, str] = {}
+        folder_index = self._board_folder_index(root)
+        for platform in ("douyin", "tiktok"):
+            rows = self._active_account_rows(platform) + self._account_rows(
+                platform == "tiktok", deleted=True)
+            for row in rows:
+                folder = self._indexed_account_folder(row, folder_index)
+                if folder is not None:
+                    previous = folders.get(folder, platform)
+                    folders[folder] = platform if previous == platform else "unclassified"
+        manifest = Path(self.parameter.settings.path).parent / "media_imports.json"
+        if manifest.is_file():
+            for source in load_import_sources(manifest, root):
+                folders[source.folder] = source.platform if source.platform in {"douyin", "tiktok"} else "douyin"
+        return folders
+
     def _refresh_overview_media_cache(self, root: Path) -> None:
         try:
             stats = self._collect_scope_stats(
                 root,
                 scope="download",
                 scope_root=root,
+                platform_folders=self._overview_platform_folders(root),
             )
             refreshed_at = datetime.now().astimezone().isoformat(timespec="seconds")
         except Exception as error:

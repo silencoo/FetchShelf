@@ -202,3 +202,27 @@ def test_overview_eta_waits_for_recovered_task_baseline():
     assert snapshot["throughput_per_minute"] == 0
     assert snapshot["eta_seconds"] is None
     assert snapshot["eta_at"] == ""
+
+
+def test_media_platform_totals_share_one_scan_and_reconcile(tmp_path):
+    root = tmp_path / 'downloads'
+    douyin = root / 'same-name-douyin'
+    tiktok = root / 'same-name-tiktok'
+    imported = root / 'local-rednote'
+    for folder in (douyin, tiktok / 'nested', imported):
+        folder.mkdir(parents=True)
+    (douyin / 'a.mp4').write_bytes(b'123')
+    (tiktok / 'nested' / 'b.jpg').write_bytes(b'12345')
+    (imported / 'c.png').write_bytes(b'12')
+    (root / 'unmapped.mp4').write_bytes(b'1234')
+    (root / 'index.db').write_bytes(b'1')
+    server = APIServer.__new__(APIServer)
+    stats = server._collect_scope_stats(root, platform_folders={
+        douyin: 'douyin', tiktok: 'tiktok', imported: 'douyin',
+    })
+    rows = stats['platforms']
+    assert rows['douyin'] == dict(files=2, videos=1, images=1, size=5)
+    assert rows['tiktok'] == dict(files=1, videos=0, images=1, size=5)
+    assert rows['unclassified'] == dict(files=2, videos=1, images=0, size=5)
+    for field in ('files', 'videos', 'images', 'size'):
+        assert sum(row[field] for row in rows.values()) == stats[field]
