@@ -4924,8 +4924,7 @@ function renderOverview(payload) {
     const breakdown = media.platforms;
     platformStats.innerHTML = breakdown ? `<table>
       <thead><tr><th scope="col">平台</th><th scope="col">视频</th><th scope="col">图片</th><th scope="col">文件</th><th scope="col">空间</th></tr></thead>
-      <tbody>${[["douyin", "抖音"], ["tiktok", "TikTok"], ["unclassified", "未归类"]]
-        .filter(([key]) => key !== "unclassified" || Number(breakdown[key]?.files) > 0)
+      <tbody>${[["douyin", "抖音"], ["tiktok", "TikTok"]]
         .map(([key, label]) => {
           const row = breakdown[key] || {};
           return `<tr><th scope="row">${label}</th><td>${formatOverviewCount(row.videos)}</td><td>${formatOverviewCount(row.images)}</td><td>${formatOverviewCount(row.files)}</td><td>${formatFileSize(Number(row.size || 0))}</td></tr>`;
@@ -4933,6 +4932,10 @@ function renderOverview(payload) {
   }
 
   const mediaMeta = [];
+  const otherLocal = media.platforms?.unclassified;
+  if (Number(otherLocal?.files) > 0) {
+    mediaMeta.push(`其他本地文件 ${formatOverviewCount(otherLocal.files)} · ${formatFileSize(Number(otherLocal.size || 0))}（计入总量）`);
+  }
   if (media.status === "scanning") {
     mediaMeta.push("正在后台统计大型下载目录");
   } else if (media.status === "refreshing") {
