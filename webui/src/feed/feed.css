@@ -943,6 +943,9 @@
   text-align: center;
 }
 
+.fa-profile-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.fa-block-status { color: #ffd28a; font-size: 13px; font-weight: 600; }
+
 .fa-hero-body h3 {
   margin-top: 6px;
   font-size: 20px;

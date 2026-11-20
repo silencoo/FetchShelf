@@ -20,7 +20,7 @@ class BoardPreferences(BaseModel):
     platform: Literal["douyin", "tiktok"] = "douyin"
     status: Literal[
         "all", "attention", "success", "no_updates", "skipped",
-        "legacy_success", "failed", "never", "no_avatar",
+        "legacy_success", "failed", "never", "no_avatar", "blocked",
     ] = "all"
     sort: Literal[
         "configured", "folder_updated_desc", "latest_desc", "latest_asc", "checked_desc",

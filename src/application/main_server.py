@@ -9,6 +9,7 @@ from asyncio import (
     to_thread,
 )
 from datetime import datetime, timedelta
+from functools import cached_property
 from hashlib import md5
 from json import JSONDecodeError, dumps, loads
 from pathlib import Path
@@ -101,6 +102,7 @@ from ..webui_security import (
     is_protected_project_path,
     redact_webui_value,
 )
+from ..webui.feed_state import FeedState
 from ..webui.files import (
     IMAGE_SUFFIXES,
     ScopeType,
@@ -3440,6 +3442,10 @@ class APIServer(TikTok, ServerRoutesMixin):
                 )
         return folder_by_account[key]
 
+    @cached_property
+    def feed_state(self) -> FeedState:
+        return FeedState(Path(self.parameter.settings.path).parent / "ui_feed_state.sqlite3")
+
     def _build_account_board_page(
         self,
         platform: str,
@@ -3448,14 +3454,17 @@ class APIServer(TikTok, ServerRoutesMixin):
         search: str = "",
         status: str = "all",
         sort_by: str = "configured",
+        blocked_keys: set[str] | None = None,
     ) -> dict:
         normalized_platform = self._normalize_board_platform(platform)
         rows = self._active_account_rows(normalized_platform)
         unfiltered_total = len(rows)
         normalized_search = self._normalize_string(search).lower()
         normalized_status = self._normalize_string(status).lower()
+        blocked_keys = blocked_keys or set()
         if normalized_status not in {
             "all",
+            "blocked",
             "success",
             "failed",
             "never",
@@ -3478,7 +3487,7 @@ class APIServer(TikTok, ServerRoutesMixin):
 
         journal = getattr(self, "task_journal", None)
         need_all_activity = (
-            normalized_status not in {"all", "no_avatar"}
+            normalized_status not in {"all", "no_avatar", "blocked"}
             or normalized_sort in {"latest_desc", "latest_asc", "checked_desc"}
         )
         activity_by_url = {}
@@ -3514,6 +3523,10 @@ class APIServer(TikTok, ServerRoutesMixin):
             for row in rows:
                 url = self._normalize_string(row.get("url"))
                 activity = activity_by_url.get(url, {})
+                if normalized_status == "blocked":
+                    if self._account_pin_key(normalized_platform, url) in blocked_keys:
+                        filtered_rows.append(row)
+                    continue
                 if normalized_status == "no_avatar":
                     pin_key = self._account_pin_key(normalized_platform, url)
                     if not self._coerce_project_image_relpath(
@@ -3599,6 +3612,7 @@ class APIServer(TikTok, ServerRoutesMixin):
             activity = activity_by_url.get(url, {})
             entry = {
                 "index": offset,
+                "blocked": self._account_pin_key(normalized_platform, url) in blocked_keys,
                 "platform": normalized_platform,
                 "url": url,
                 "mark": row.get("mark") or activity.get("mark", ""),

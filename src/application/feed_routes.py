@@ -29,7 +29,6 @@ from ..webui.feed_index import (
     parse_media_name,
     uid_from_folder,
 )
-from ..webui.feed_state import FeedState
 from ..webui.files import IMAGE_SUFFIXES, VIDEO_SUFFIXES, resolve_within_root
 from ..webui.video_preview import image_preview, video_preview
 
@@ -58,7 +57,7 @@ class FeedPreferencesPatch(BaseModel):
 class FeedMark(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["like", "save", "follow", "hide"]
+    kind: Literal["like", "save", "follow", "hide", "block"]
     target: str = Field(min_length=1, max_length=2300)
     on: bool
 
@@ -112,7 +111,7 @@ class FeedService:
         self.server = server
         settings_dir = Path(server.parameter.settings.path).parent
         self.index = FeedIndex(settings_dir / "ui_feed_index.sqlite3")
-        self.state = FeedState(settings_dir / "ui_feed_state.sqlite3")
+        self.state = server.feed_state
         self.worker = FeedWorker(
             self.index,
             self.account_sources,
@@ -370,6 +369,10 @@ class FeedService:
             )
         return payload
 
+    @staticmethod
+    def can_block_account(account: dict) -> bool:
+        return account["platform"] in {"douyin", "tiktok"} and not account["url"].startswith("local://")
+
     def profile_archive(self, account: dict) -> dict | None:
         platform = account["platform"]
         if platform not in {"douyin", "tiktok"} or account["url"].startswith("local://"):
@@ -454,7 +457,8 @@ class FeedService:
             self.refresh_account_files(account)
         index = self.index
         state = self.state
-        hidden = state.targets("hide")
+        blocked = state.targets("block")
+        hidden = state.targets("hide") + blocked
         pinned = ""
         rows: list[dict] = []
         following: dict | None = None
@@ -470,7 +474,7 @@ class FeedService:
         elif source == "following":
             followed = state.targets("follow")
             if followed:
-                rows, following = index.latest_posts(limit=limit, cursor=cursor, only=followed, platform=platform)
+                rows, following = index.latest_posts(limit=limit, cursor=cursor, only=followed, hidden=blocked, platform=platform)
         elif source == "account":
             record = index.account(account)
             if record is None:
@@ -509,6 +513,7 @@ class FeedService:
         only = self.state.targets("follow") if scope == "following" else None
         rows, total = self.index.accounts(
             query=query, sort=sort, limit=limit, offset=offset, only=only, platform=platform,
+            hidden=[] if query else self.state.targets("block"),
         )
         followed = self.state.marked("follow", [row["account_key"] for row in rows])
         return {
@@ -543,8 +548,12 @@ class FeedService:
             if post is None and mark.on:
                 raise HTTPException(status_code=404, detail="Post not found.")
             account_key = post["account_key"] if post else ""
-        elif mark.on and self.index.account(mark.target) is None:
-            raise HTTPException(status_code=404, detail="Account not found.")
+        elif mark.on:
+            account = self.index.account(mark.target)
+            if account is None:
+                raise HTTPException(status_code=404, detail="Account not found.")
+            if mark.kind == "block" and not self.can_block_account(account):
+                raise HTTPException(status_code=409, detail="仅采集账号可加入屏蔽审核")
         self.state.set_mark(mark.kind, mark.target, mark.on, account_key)
         return {"kind": mark.kind, "target": mark.target, "on": mark.on}
 
@@ -746,6 +755,8 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         feed.worker.prioritize(account["uid"])
         payload = feed.account_payload(account)
         payload["archive"] = feed.profile_archive(account)
+        payload["can_block"] = feed.can_block_account(account)
+        payload["blocked"] = key in feed.state.marked("block", [key])
         payload["liked"] = feed.state.page("like", limit=1, account_key=key)[1]
         payload["saved"] = feed.state.page("save", limit=1, account_key=key)[1]
         journal = getattr(server, "task_journal", None)

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import brandMark from "@/assets/brand/fetchshelf-mark-48.png";
 
-import { api, AuthRequiredError, onAuthRequired, signIn } from "./api";
+import { ACCOUNT_BLOCK_CHANGED, api, AuthRequiredError, onAuthRequired, signIn } from "./api";
 import { useMediaQuery } from "./hooks";
 import {
   BackIcon,
@@ -217,6 +217,7 @@ function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { ac
   const docked = useMediaQuery("(min-width: 1100px)");
   const [homeTab, setHomeTab] = useState<HomeTab>("foryou");
   const [visited, setVisited] = useState<Set<HomeTab>>(() => new Set<HomeTab>(["foryou"]));
+  const [blockRevision, setBlockRevision] = useState(0);
   const [layers, setLayers] = useState<Layer[]>([]);
   const [panel, setPanel] = useState<{ post: Post; tab: "comments" | "details" } | null>(null);
   const [share, setShare] = useState<{ post: Post; snapshot?: VideoSnapshot; anchor?: HTMLElement } | null>(null);
@@ -237,6 +238,25 @@ function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { ac
     }),
     [],
   );
+
+  useEffect(() => {
+    const onChange = (event: Event) => {
+      const { target, on } = (event as CustomEvent<{ target: string; on: boolean }>).detail;
+      const lists = new Set(Object.values(homeLists));
+      for (const layer of layersRef.current) {
+        if (layer.type === "player" && !["account", "likes", "saves"].includes(layer.list.source.type)) {
+          lists.add(layer.list);
+        }
+      }
+      for (const list of lists) {
+        if (on) list.removeAuthor(target);
+        if (list.loading || !on || (!list.items.length && list.hasMore)) void list.reload();
+      }
+      setBlockRevision((revision) => revision + 1);
+    };
+    window.addEventListener(ACCOUNT_BLOCK_CHANGED, onChange);
+    return () => window.removeEventListener(ACCOUNT_BLOCK_CHANGED, onChange);
+  }, [homeLists]);
 
   useEffect(() => onAuthRequired(() => setNeedsToken(true)), []);
 
@@ -645,7 +665,7 @@ function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { ac
             </div>
           </section>
           <div className="fa-tab-pane" hidden={tab !== "discover"}>
-            {tab === "discover" ? <DiscoverView actions={viewActions} /> : null}
+            {tab === "discover" ? <DiscoverView key={blockRevision} actions={viewActions} /> : null}
           </div>
           <div className="fa-tab-pane" hidden={tab !== "likes"}>
             {tab === "likes" ? <LibraryView kind="likes" actions={viewActions} /> : null}
@@ -679,12 +699,14 @@ function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { ac
             <LayerCard key={layer.id} kind={layer.type} isTop={isTop} onBack={back}>
               {layer.type === "profile" ? (
                 <ProfileView
+                  visible={active && isTop}
+                  blockRevision={blockRevision}
                   accountKey={layer.accountKey}
                   initialName={layer.name}
                   actions={viewActions}
                 />
               ) : layer.type === "search" ? (
-                <SearchView query={layer.q} mode={layer.mode} actions={viewActions} />
+                <SearchView key={blockRevision} query={layer.q} mode={layer.mode} actions={viewActions} />
               ) : (
                 <>
                   <Pager

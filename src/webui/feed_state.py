@@ -15,7 +15,7 @@ import sqlite3
 from threading import Lock
 from time import time
 
-MARK_KINDS = frozenset({"like", "save", "follow", "hide"})
+MARK_KINDS = frozenset({"like", "save", "follow", "hide", "block"})
 _POST_KINDS = frozenset({"like", "save"})
 
 _SCHEMA = """
@@ -149,7 +149,7 @@ class FeedState:
         with self._connect() as connection:
             found = dict(
                 connection.execute("SELECT kind, COUNT(*) FROM marks WHERE ? = '' OR "
-                    "(CASE WHEN kind IN ('follow', 'hide') THEN target ELSE account_key END) LIKE ? GROUP BY kind",
+                    "(CASE WHEN kind IN ('follow', 'hide', 'block') THEN target ELSE account_key END) LIKE ? GROUP BY kind",
                     (platform, platform + "::%"),
                 ).fetchall()
             )

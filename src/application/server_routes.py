@@ -1465,6 +1465,7 @@ class ServerRoutesMixin:
                 search=search,
                 status=status,
                 sort_by=sort,
+                blocked_keys=set(self.feed_state.targets("block")),
             )
 
         @self.server.get(

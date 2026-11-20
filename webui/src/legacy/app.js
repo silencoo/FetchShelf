@@ -111,7 +111,7 @@ async function loadTabData(tab, refresh = false) {
       return loadFiles();
     case "profiles":
       await boardPreferences.load();
-      if (refresh || state.accountBoardDirty) return loadAccountBoard(false);
+      if (refresh || state.accountBoardDirty || state.accountBoard.status === "blocked") return loadAccountBoard(false);
       break;
     case "monitor":
       return Promise.allSettled([loadCollectMonitors(), loadCollectorIdentities()]);
@@ -3289,6 +3289,46 @@ function renderAttentionTable(items) {
   refs.boardGrid.append(table);
 }
 
+function blockedAccountActions(item) {
+  const group = document.createElement("div");
+  group.className = "profile-review-actions";
+  const unblock = document.createElement("button");
+  const archive = document.createElement("button");
+  unblock.type = archive.type = "button";
+  unblock.className = "btn ghost";
+  archive.className = "btn danger";
+  unblock.textContent = "解除屏蔽";
+  archive.textContent = "移入删除区";
+  group.append(unblock, archive);
+
+  async function review(moveToTrash) {
+    const name = item.mark || item.url;
+    if (moveToTrash && !window.confirm(`将「${name}」移出采集名单？已下载的媒体将保留，可在设置的删除区恢复账号。`)) return;
+    unblock.disabled = archive.disabled = true;
+    try {
+      if (moveToTrash) {
+        const result = await fetchJson("/ui/api/accounts/archive", {
+          method: "POST",
+          headers: headerOptions(true),
+          body: JSON.stringify({ platform: item.platform, url: item.url, reason: "账户看板：手动移出采集名单" }),
+        });
+        syncAccountTablesFromPayload(result);
+      } else {
+        const { setAccountBlocked } = await import("../feed/api");
+        await setAccountBlocked(`${item.platform}::${item.url}`, false);
+      }
+      await loadAccountBoard(false);
+    } catch (error) {
+      setBoardStatus(`操作失败：${error.message}`);
+    } finally {
+      unblock.disabled = archive.disabled = false;
+    }
+  }
+  unblock.addEventListener("click", () => void review(false));
+  archive.addEventListener("click", () => void review(true));
+  return group;
+}
+
 function renderAccountBoard(items) {
   refs.boardGrid.innerHTML = "";
   if (!Array.isArray(items) || !items.length) {
@@ -3356,6 +3396,12 @@ function renderAccountBoard(items) {
     badges.appendChild(displayBadge);
 
     titleRow.appendChild(name);
+    if (item.blocked) {
+      const badge = document.createElement("span");
+      badge.className = "badge warn";
+      badge.textContent = "已屏蔽";
+      titleRow.append(badge);
+    }
 
     const url = document.createElement("div");
     url.className = "profile-url";
@@ -3446,6 +3492,7 @@ function renderAccountBoard(items) {
 
     card.appendChild(mediaWrap);
     card.appendChild(body);
+    if (item.blocked && state.accountBoard.status === "blocked") card.append(blockedAccountActions(item));
     setBoardCardMedia(card, item.media_path || "", item.media_kind || "", Boolean(item.pinned), item.poster_second);
     if (item.cover_pending) card.dataset.coverPending = "1";
     fragment.appendChild(card);

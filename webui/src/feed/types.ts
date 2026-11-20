@@ -72,6 +72,8 @@ export interface Account {
   liked?: number;
   saved?: number;
   last_checked_at?: string;
+  blocked?: boolean;
+  can_block?: boolean;
   archive?: { removed_at: string; reason: string } | null;
 }
 

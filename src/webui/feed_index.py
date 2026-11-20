@@ -754,6 +754,7 @@ class FeedIndex:
         offset: int = 0,
         only: list[str] | None = None,
         platform: str = "",
+        hidden: list[str] | None = None,
     ) -> tuple[list[dict], int]:
         clauses = ["post_count > 0"]
         params: list = []
@@ -766,6 +767,9 @@ class FeedIndex:
         if only is not None:
             clauses.append("account_key IN (SELECT value FROM json_each(?))")
             params.append(dumps(only))
+        if hidden:
+            clauses.append("account_key NOT IN (SELECT value FROM json_each(?))")
+            params.append(dumps(hidden))
         order = {
             "posts": "post_count DESC, latest_ts DESC",
             "likes": "total_likes DESC, latest_ts DESC",

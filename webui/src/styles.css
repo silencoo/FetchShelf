@@ -5812,6 +5812,16 @@ select.batch-field-select + .app-select-mount {
   padding-inline: 4px;
 }
 
+.profile-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  padding: 4px 6px 8px;
+}
+
+.profile-review-actions .btn { padding: 4px 8px; font-size: 12px; }
+
 .profile-board-immersive {
   gap: 8px;
 }

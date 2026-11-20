@@ -14,6 +14,14 @@ import type {
   PostSource,
 } from "./types";
 
+export const ACCOUNT_BLOCK_CHANGED = "fetchshelf:account-block-changed";
+
+export async function setAccountBlocked(target: string, on: boolean) {
+  await api.setMark("block", target, on);
+  state.accountBoardDirty = true;
+  window.dispatchEvent(new CustomEvent(ACCOUNT_BLOCK_CHANGED, { detail: { target, on } }));
+}
+
 export class AuthRequiredError extends Error {
   constructor() {
     super("需要访问令牌");
@@ -117,7 +125,7 @@ export const api = {
   tags: () =>
     request<{ items: Array<{ tag: string; count: number }> }>(`/ui/api/feed/tags?platform=${platformFilter()}`),
   me: () => request<MeSummary>(`/ui/api/feed/me?platform=${platformFilter()}`),
-  setMark: (kind: "like" | "save" | "follow" | "hide", target: string, on: boolean) =>
+  setMark: (kind: "like" | "save" | "follow" | "hide" | "block", target: string, on: boolean) =>
     request("/ui/api/feed/marks", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

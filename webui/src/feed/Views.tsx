@@ -10,7 +10,7 @@ import {
   type RefObject,
 } from "react";
 
-import { api, avatarUrl, thumbUrl } from "./api";
+import { api, avatarUrl, setAccountBlocked, thumbUrl } from "./api";
 import { AccountCover } from "./AccountCover";
 import { formatCount, formatDuration, formatRelativeTime, initialOf } from "./format";
 import { useMediaQuery } from "./hooks";
@@ -480,24 +480,30 @@ type ProfileTab = "posts" | "likes" | "saves";
 export function ProfileView({
   accountKey,
   initialName,
+  visible,
+  blockRevision,
   actions,
 }: {
   accountKey: string;
   initialName?: string;
+  visible: boolean;
+  blockRevision: number;
   actions: ViewActions;
 }) {
   useObservable(marks);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [account, setAccount] = useState<Account | null>(null);
   const [error, setError] = useState("");
+  const [changingBlock, setChangingBlock] = useState(false);
   const [tab, setTab] = useState<ProfileTab>("posts");
   const [sort, setSort] = useState<AccountSort>("latest");
   const [kind, setKind] = useState<KindFilter>("all");
 
   useEffect(() => {
+    if (!visible) return;
     let stale = false;
     setError("");
-    setAccount(null);
+    setAccount((current) => current?.key === accountKey ? current : null);
     api
       .account(accountKey)
       .then((payload) => {
@@ -513,7 +519,22 @@ export function ProfileView({
     return () => {
       stale = true;
     };
-  }, [accountKey]);
+  }, [accountKey, blockRevision, visible]);
+
+  async function toggleBlock() {
+    if (!account || changingBlock) return;
+    const on = !account.blocked;
+    setChangingBlock(true);
+    try {
+      await setAccountBlocked(account.key, on);
+      setAccount({ ...account, blocked: on });
+      toast(!on ? "已解除屏蔽" : account.archive ? "已屏蔽" : "已屏蔽，可在账户看板查看");
+    } catch (cause) {
+      toast(cause instanceof Error ? cause.message : "操作失败，请重试");
+    } finally {
+      setChangingBlock(false);
+    }
+  }
 
   const list = useMemo(() => {
     const source: PostSource =
@@ -550,6 +571,7 @@ export function ProfileView({
         <div className="fa-hero-body">
           <AccountAvatar avatar={account?.avatar} name={name} size={92} />
           <h3>{name}</h3>
+          {account?.blocked && <span className="fa-block-status">{account.archive ? "已屏蔽" : "已屏蔽 · 待处理"}</span>}
           {account?.archive && (
             <div className="fa-profile-archive">
               <strong>已移出采集名单</strong>
@@ -585,16 +607,24 @@ export function ProfileView({
               </div>
             </dl>
           ) : null}
-          {account ? (
-            <button
-              type="button"
-              className={`fa-btn fa-btn-primary${followed ? " is-on" : ""}`}
-              aria-pressed={followed}
-              onClick={() => void marks.toggleFollow(account)}
-            >
-              {followed ? "已关注" : "关注"}
-            </button>
-          ) : null}
+          {account && (
+            <div className="fa-profile-actions">
+              <button
+                type="button"
+                className={`fa-btn fa-btn-primary${followed ? " is-on" : ""}`}
+                aria-pressed={followed}
+                onClick={() => void marks.toggleFollow(account)}
+              >
+                {followed ? "已关注" : "关注"}
+              </button>
+              {(account.can_block || account.blocked) && (
+                <button type="button" className="fa-btn" disabled={changingBlock}
+                  onClick={() => void toggleBlock()}>
+                  {account.blocked ? "解除屏蔽" : "屏蔽账号"}
+                </button>
+              )}
+            </div>
+          )}
           {account?.bio ? <p className="fa-hero-bio">{account.bio}</p> : null}
           {account?.latest_ts ? (
             <p className="fa-hero-note">

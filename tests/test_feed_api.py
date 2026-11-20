@@ -177,6 +177,9 @@ def test_archived_profile_keeps_its_media_and_shows_reason_until_restored(harnes
     assert profile["stats"]["posts"] == 3
     assert profile["archive"]["removed_at"].startswith("2025-01-02T03:04:05")
     assert profile["archive"]["reason"] == "自动归档：已注销"
+    assert put_mark(harness, "block", key).status_code == 200
+    assert get(harness, "/ui/api/feed/account", key=key)["blocked"]
+    assert get(harness, "/ui/api/accounts/board", status="blocked")["total"] == 0
     rows.append(ann)
     harness.service.worker.run_once()
     assert get(harness, "/ui/api/feed/account", key=key)["archive"] is None
@@ -244,6 +247,41 @@ def test_hidden_accounts_leave_discovery_and_can_be_restored(harness):
     assert response.json() == {"cleared": 1}
     authors = {item["author"]["key"] for item in get(harness, "/ui/api/feed/posts", source="latest")["items"]}
     assert bob in authors
+
+
+def test_block_account_for_board_review_and_unblock(harness):
+    key = "douyin::https://example.test/bob"
+    account_route = "/ui/api/feed/account"
+    posts_route = "/ui/api/feed/posts"
+    board_route = "/ui/api/accounts/board"
+
+    assert put_mark(harness, "follow", key).status_code == 200
+    assert get(harness, account_route, key=key)["can_block"]
+    assert put_mark(harness, "block", key).status_code == 200
+    assert put_mark(harness, "block", key).status_code == 200
+    assert get(harness, account_route, key=key)["blocked"]
+    for source in ("latest", "following", "foryou", "popular"):
+        assert all(post["author"]["key"] != key for post in get(harness, posts_route, source=source)["items"])
+    assert get(harness, posts_route, source="account", account=key)["items"]
+    assert get(harness, "/ui/api/feed/accounts", scope="following")["total"] == 0
+    assert get(harness, "/ui/api/feed/accounts", q="Bob")["items"][0]["key"] == key
+
+    # A newly opened dashboard reads the durable mark without starting the feed worker.
+    del harness.server.feed_state
+    del harness.server._feed_service
+    page = get(harness, board_route, status="blocked", search="Bo")
+    assert page["unfiltered_total"] == 2
+    assert page["total"] == 1
+    assert page["items"][0]["mark"] == "Bob"
+    assert page["items"][0]["blocked"]
+    assert get(harness, board_route, status="blocked", search="Ann")["total"] == 0
+    assert get(harness, board_route, status="blocked", platform="tiktok")["total"] == 0
+    assert not hasattr(harness.server, "_feed_service")
+    harness.server._feed_service = harness.service
+    assert put_mark(harness, "block", key, on=False).status_code == 200
+    assert not get(harness, account_route, key=key)["blocked"]
+    assert get(harness, board_route, status="blocked")["total"] == 0
+    assert get(harness, posts_route, source="following")["items"][0]["author"]["key"] == key
 
 
 def test_avatar_prefers_generated_then_pinned_then_newest(harness, monkeypatch):
@@ -512,7 +550,7 @@ def test_state_store_keeps_first_time_and_ranks_affinity(tmp_path):
     state.set_mark("save", "p2", True, "a2")
     state.set_mark("follow", "a3", True)
     state.set_mark("like", "p1", True, "a1")
-    assert state.counts() == {"follow": 1, "hide": 0, "like": 1, "save": 1}
+    assert state.counts() == {"block": 0, "follow": 1, "hide": 0, "like": 1, "save": 1}
     assert set(state.affinity_accounts()) == {"a1", "a2", "a3"}
     assert state.marked("like", ["p1", "p9"]) == {"p1"}
     assert state.marked("like", []) == set()
