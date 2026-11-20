@@ -46,6 +46,8 @@ def harness(tmp_path, monkeypatch):
     server.parameter = SimpleNamespace(
         root=root,
         CLEANER=Cleaner(),
+        deleted_accounts=[],
+        deleted_accounts_tiktok=[],
         settings=SimpleNamespace(path=tmp_path / "settings.json", encode="utf-8"),
     )
     server._active_account_rows = lambda platform: rows[platform]
@@ -158,6 +160,29 @@ def test_likes_saves_and_follows_round_trip(harness):
 
     assert put_mark(harness, "like", key, on=False).status_code == 200
     assert get(harness, "/ui/api/feed/posts", source="likes")["items"] == []
+
+
+def test_recent_removals_follow_platform_window_and_limit(harness):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+
+    def row(day, name, reason):
+        return {"url": f"https://example.test/{name}", "mark": name, "reason": reason,
+                "deleted_at": (now - timedelta(days=day)).astimezone().strftime("%Y-%m-%d %H:%M:%S")}
+
+    params = harness.server.parameter
+    params.deleted_accounts = [row(2, f"old-{i}", "手动删除") for i in range(11)]
+    params.deleted_accounts.extend([row(8, "expired", ""), row(1, "recent", "自动归档：账号已注销")])
+    params.deleted_accounts_tiktok = [row(3, "other", "手动删除"), {"deleted_at": ""}]
+    path = "/ui/api/feed/me"
+    douyin = get(harness, path, platform="douyin")["recent_removals"]
+    assert douyin["total"] == 12 and len(douyin["items"]) == 10
+    latest = douyin["items"][0]
+    assert (latest["name"], latest["reason"]) == ("recent", "自动归档：账号已注销")
+    assert datetime.fromisoformat(latest["removed_at"]).utcoffset() == timedelta(0)
+    assert get(harness, path)["recent_removals"]["total"] == 13
+    assert [r["name"] for r in get(harness, path, platform="tiktok")["recent_removals"]["items"]] == ["other"]
 
 
 def test_following_is_empty_until_someone_is_followed(harness):

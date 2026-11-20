@@ -107,6 +107,16 @@ export interface IndexStatus {
 }
 
 export interface MeSummary {
+  recent_removals: {
+    total: number;
+    items: Array<{
+      key: string;
+      platform: "douyin" | "tiktok";
+      name: string;
+      removed_at: string;
+      reason: string;
+    }>;
+  };
   likes: number;
   saves: number;
   following: number;

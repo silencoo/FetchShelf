@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from asyncio import Semaphore, sleep, to_thread
 from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 from json import loads
 import os
 from pathlib import Path
@@ -494,6 +495,30 @@ class FeedService:
         self._tags[platform] = (monotonic(), tags)
         return tags
 
+    def recent_removals(self, platform: str) -> dict:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=7)
+        entries = []
+        for source in ("douyin", "tiktok"):
+            if platform and source != platform:
+                continue
+            for row in self.server._account_rows(source == "tiktok", deleted=True):
+                try:
+                    # Older settings store the server's local wall time without an offset.
+                    when = datetime.fromisoformat(row.get("deleted_at") or "").astimezone(timezone.utc)
+                except (TypeError, ValueError):
+                    continue
+                if cutoff <= when <= now:
+                    entries.append({
+                        "platform": source,
+                        "key": self.server._account_pin_key(source, row["url"]),
+                        "name": row.get("mark") or row["url"],
+                        "removed_at": when.isoformat(),
+                        "reason": row.get("reason") or "",
+                    })
+        entries.sort(key=lambda entry: entry["removed_at"], reverse=True)
+        return {"total": len(entries), "items": entries[:10]}
+
     def me(self, platform: str = "") -> dict:
         counts = self.state.counts(platform=platform)
         return {
@@ -501,6 +526,7 @@ class FeedService:
             "saves": counts["save"],
             "following": counts["follow"],
             "hidden": counts["hide"],
+            "recent_removals": self.recent_removals(platform),
             "index": self.status(),
         }
 

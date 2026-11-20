@@ -1,4 +1,4 @@
-import { type Platform } from "./platform";
+import { platforms, type Platform } from "./platform";
 import {
   useCallback,
   useEffect,
@@ -857,6 +857,7 @@ export function MeView({ actions, visible, platform, onPlatform }: { actions: Vi
   useObservable(preferences);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [me, setMe] = useState<MeSummary | null>(null);
+  const [meFailed, setMeFailed] = useState(false);
   const [section, setSection] = useState<"following" | "likes" | "saves">("following");
   const likes = useMemo(() => new PostList({ type: "likes" }, 30), []);
   const saves = useMemo(() => new PostList({ type: "saves" }, 30), []);
@@ -864,8 +865,8 @@ export function MeView({ actions, visible, platform, onPlatform }: { actions: Vi
   const refresh = useCallback(() => {
     api
       .me()
-      .then(setMe)
-      .catch(() => undefined);
+      .then((summary) => { setMe(summary); setMeFailed(false); })
+      .catch(() => setMeFailed(true));
   }, []);
 
   useEffect(() => {
@@ -900,6 +901,27 @@ export function MeView({ actions, visible, platform, onPlatform }: { actions: Vi
           </button>
         </div>
       </section>
+
+      <details className="fa-settings fa-recent-removals">
+        <summary>最近移出采集名单 <span>近 7 天{me?.recent_removals ? ` · ${me.recent_removals.total} 个账号` : ""}</span></summary>
+        {meFailed && <p role="status">暂时无法更新记录，正在重试…</p>}
+        {me?.recent_removals ? (
+          me.recent_removals.total ? (
+            <>
+              {me.recent_removals.total > me.recent_removals.items.length && <p>显示最近 {me.recent_removals.items.length} 条</p>}
+              <ul>
+                {me.recent_removals.items.map((entry) => (
+                  <li key={entry.key}>
+                    <strong>{entry.name}</strong>
+                    <small>{platform === "all" && `${platforms[entry.platform]} · `}<time dateTime={entry.removed_at}>{new Date(entry.removed_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></small>
+                    <span>{entry.reason || "未记录原因"}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : <p>近 7 天没有移出的账号</p>
+        ) : !meFailed && <p>{me ? "暂无归档数据" : "读取中…"}</p>}
+      </details>
 
       <section className="fa-settings" aria-label="播放设置">
         <div className="fa-setting-row fa-platform-setting">
