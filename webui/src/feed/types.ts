@@ -72,6 +72,7 @@ export interface Account {
   liked?: number;
   saved?: number;
   last_checked_at?: string;
+  archive?: { removed_at: string; reason: string } | null;
 }
 
 export interface FeedComment {
@@ -107,16 +108,6 @@ export interface IndexStatus {
 }
 
 export interface MeSummary {
-  recent_removals: {
-    total: number;
-    items: Array<{
-      key: string;
-      platform: "douyin" | "tiktok";
-      name: string;
-      removed_at: string;
-      reason: string;
-    }>;
-  };
   likes: number;
   saves: number;
   following: number;

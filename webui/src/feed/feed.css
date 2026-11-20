@@ -1299,6 +1299,17 @@
   font-size: 12px;
 }
 
+.fa-profile-archive {
+  margin-block: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--fa-surface-raised);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.fa-profile-archive p { margin: 4px 0; }
+.fa-profile-archive time { color: var(--fa-muted); font-size: 12px; }
+
 .fa-me-card {
   padding: 4px 12px 12px;
 }
@@ -1350,27 +1361,6 @@
   border-radius: 12px;
   background: var(--fa-surface-raised);
 }
-
-.fa-recent-removals summary {
-  padding: 14px;
-  cursor: pointer;
-}
-.fa-recent-removals summary span,
-.fa-recent-removals small,
-.fa-recent-removals p {
-  color: var(--fa-muted);
-  font-size: 13px;
-}
-.fa-recent-removals p { margin: 0 14px 12px; }
-.fa-recent-removals ul { margin: 0; padding: 0; list-style: none; }
-.fa-recent-removals li {
-  display: grid;
-  gap: 4px;
-  padding: 10px 14px;
-  border-top: 1px solid var(--fa-line);
-  overflow-wrap: anywhere;
-}
-.fa-recent-removals li > span { font-size: 14px; }
 
 .fa-switch-row,
 .fa-setting-row {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from asyncio import Semaphore, sleep, to_thread
 from collections import OrderedDict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from json import loads
 import os
 from pathlib import Path
@@ -173,6 +173,19 @@ class FeedService:
                 if source.folder not in owned:
                     sources.append(source)
                     owned.add(source.folder)
+        keys = {source.key for source in sources}
+        for platform in ("douyin", "tiktok"):
+            for row in server._account_rows(platform == "tiktok", deleted=True):
+                url = server._normalize_string(row.get("url"))
+                key = server._account_pin_key(platform, url)
+                if not url or key in keys:
+                    continue
+                folder = server._indexed_account_folder(row, folder_index)
+                if folder is None or folder in owned:
+                    continue
+                sources.append(AccountSource(key, platform, url, row.get("mark", ""), folder))
+                keys.add(key)
+                owned.add(folder)
         return sources
 
     # ----------------------------------------------------------- serialization
@@ -357,6 +370,23 @@ class FeedService:
             )
         return payload
 
+    def profile_archive(self, account: dict) -> dict | None:
+        platform = account["platform"]
+        if platform not in {"douyin", "tiktok"} or account["url"].startswith("local://"):
+            return None
+        for row in self.server._account_rows(platform == "tiktok", deleted=True):
+            if self.server._account_pin_key(platform, row.get("url", "")) != account["account_key"]:
+                continue
+            if self.server._find_active_account_row(platform, account["url"]):
+                return None
+            try:
+                # The archive stores the server's local time. Include its UTC offset for clients.
+                removed_at = datetime.fromisoformat(row.get("deleted_at") or "").astimezone().isoformat()
+            except (TypeError, ValueError):
+                removed_at = ""
+            return {"removed_at": removed_at, "reason": row.get("reason") or ""}
+        return None
+
     def account_payload(self, account: dict, *, followed: set[str] | None = None) -> dict:
         key = account["account_key"]
         if followed is None:
@@ -495,30 +525,6 @@ class FeedService:
         self._tags[platform] = (monotonic(), tags)
         return tags
 
-    def recent_removals(self, platform: str) -> dict:
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(days=7)
-        entries = []
-        for source in ("douyin", "tiktok"):
-            if platform and source != platform:
-                continue
-            for row in self.server._account_rows(source == "tiktok", deleted=True):
-                try:
-                    # Older settings store the server's local wall time without an offset.
-                    when = datetime.fromisoformat(row.get("deleted_at") or "").astimezone(timezone.utc)
-                except (TypeError, ValueError):
-                    continue
-                if cutoff <= when <= now:
-                    entries.append({
-                        "platform": source,
-                        "key": self.server._account_pin_key(source, row["url"]),
-                        "name": row.get("mark") or row["url"],
-                        "removed_at": when.isoformat(),
-                        "reason": row.get("reason") or "",
-                    })
-        entries.sort(key=lambda entry: entry["removed_at"], reverse=True)
-        return {"total": len(entries), "items": entries[:10]}
-
     def me(self, platform: str = "") -> dict:
         counts = self.state.counts(platform=platform)
         return {
@@ -526,7 +532,6 @@ class FeedService:
             "saves": counts["save"],
             "following": counts["follow"],
             "hidden": counts["hide"],
-            "recent_removals": self.recent_removals(platform),
             "index": self.status(),
         }
 
@@ -740,6 +745,7 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
             raise HTTPException(status_code=404, detail="Account not found.")
         feed.worker.prioritize(account["uid"])
         payload = feed.account_payload(account)
+        payload["archive"] = feed.profile_archive(account)
         payload["liked"] = feed.state.page("like", limit=1, account_key=key)[1]
         payload["saved"] = feed.state.page("save", limit=1, account_key=key)[1]
         journal = getattr(server, "task_journal", None)

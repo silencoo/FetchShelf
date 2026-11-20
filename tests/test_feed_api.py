@@ -162,27 +162,24 @@ def test_likes_saves_and_follows_round_trip(harness):
     assert get(harness, "/ui/api/feed/posts", source="likes")["items"] == []
 
 
-def test_recent_removals_follow_platform_window_and_limit(harness):
-    from datetime import datetime, timedelta, timezone
-
-    now = datetime.now(timezone.utc)
-
-    def row(day, name, reason):
-        return {"url": f"https://example.test/{name}", "mark": name, "reason": reason,
-                "deleted_at": (now - timedelta(days=day)).astimezone().strftime("%Y-%m-%d %H:%M:%S")}
-
-    params = harness.server.parameter
-    params.deleted_accounts = [row(2, f"old-{i}", "手动删除") for i in range(11)]
-    params.deleted_accounts.extend([row(8, "expired", ""), row(1, "recent", "自动归档：账号已注销")])
-    params.deleted_accounts_tiktok = [row(3, "other", "手动删除"), {"deleted_at": ""}]
-    path = "/ui/api/feed/me"
-    douyin = get(harness, path, platform="douyin")["recent_removals"]
-    assert douyin["total"] == 12 and len(douyin["items"]) == 10
-    latest = douyin["items"][0]
-    assert (latest["name"], latest["reason"]) == ("recent", "自动归档：账号已注销")
-    assert datetime.fromisoformat(latest["removed_at"]).utcoffset() == timedelta(0)
-    assert get(harness, path)["recent_removals"]["total"] == 13
-    assert [r["name"] for r in get(harness, path, platform="tiktok")["recent_removals"]["items"]] == ["other"]
+def test_archived_profile_keeps_its_media_and_shows_reason_until_restored(harness):
+    server = harness.server
+    rows = server._active_account_rows("douyin")
+    ann = rows.pop(0)
+    server.parameter.deleted_accounts = [
+        {**ann, "reason": "自动归档：已注销", "deleted_at": "2025-01-02 03:04:05"}
+    ]
+    harness.service.worker.run_once()
+    key = "douyin::https://example.test/ann"
+    assert get(harness, "/ui/api/feed/accounts", q="Ann")["items"][0]["key"] == key
+    post = get(harness, "/ui/api/feed/posts", source="account", account=key)["items"][0]
+    profile = get(harness, "/ui/api/feed/account", key=post["author"]["key"])
+    assert profile["stats"]["posts"] == 3
+    assert profile["archive"]["removed_at"].startswith("2025-01-02T03:04:05")
+    assert profile["archive"]["reason"] == "自动归档：已注销"
+    rows.append(ann)
+    harness.service.worker.run_once()
+    assert get(harness, "/ui/api/feed/account", key=key)["archive"] is None
 
 
 def test_following_is_empty_until_someone_is_followed(harness):
