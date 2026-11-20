@@ -418,7 +418,7 @@
   background: #000;
 }
 
-.fa:has(.fa-stage[data-zoomed]) :is(.fa-topbar, .fa-tabbar, .fa-nav, .fa-sound-chip, .fa-pager-arrows),
+.fa:has(.fa-stage[data-zoomed]) :is(.fa-topbar, .fa-tabbar, .fa-nav, .fa-sound-chip, .fa-pager-arrows, .fa-arrivals-counter),
 .fa-slide:has(.fa-stage[data-zoomed]) :is(.fa-caption, .fa-rail, .fa-center-icon, .fa-center-spinner,
   .fa-seek, .fa-seek-time, .fa-fullscreen, .fa-speed-chip, .fa-media-error, .fa-carousel-arrow,
   .fa-carousel-count, .fa-dots, .fa-burst) {
@@ -2429,7 +2429,7 @@
 
 @media (min-width: 700px) {
   /* Center the tabs over media, excluding the action rail and pager gutter. */
-  .fa-home:has(.fa-home-pane:not([hidden]) .fa-stage-wrap) .fa-home-tabs {
+  .fa-home:has(.fa-home-pane:not([hidden]) .fa-stage-wrap) :is(.fa-home-tabs, .fa-arrivals-counter, .fa-arrivals-window) {
     position: absolute;
     left: calc(50% - (var(--fa-rail-width) + var(--fa-media-rail-gap) + var(--fa-pager-gutter)) / 2);
     transform: translateX(-50%);
@@ -2458,3 +2458,20 @@
 }
 
 .fa-platform-setting { flex-wrap: wrap; gap: 12px; }
+
+.fa-arrivals-window, .fa-arrivals-counter {
+  position: absolute;
+  z-index: 6;
+  top: calc(44px + var(--fa-safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: white;
+  text-shadow: 0 1px 4px black;
+  pointer-events: none;
+}
+.fa-arrival-dates { display: flex; gap: 10px; font-size: 12px; opacity: .82; }
+@media (max-width: 520px) {
+  .fa-home-tabs { gap: 10px; white-space: nowrap; }
+  .fa-topbar-side { flex-basis: 62px; }
+}

@@ -7258,3 +7258,17 @@ select.batch-field-select + .app-select-mount {
 .overview-media-platforms th, .overview-media-platforms td { padding: 7px 5px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line-soft); }
 .overview-media-platforms th:first-child { text-align: left; }
 .overview-media-platforms thead th { font-weight: 500; color: var(--muted); }
+
+.task-arrivals {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.task-arrivals p { margin: 4px 0 10px; color: var(--text-muted); }
+.task-arrivals-previews { display: flex; gap: 6px; margin-top: 10px; }
+.task-arrivals-previews img {
+  width: min(30%, 112px);
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+}

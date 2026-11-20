@@ -329,7 +329,7 @@ const Caption = memo(function Caption({
         <button type="button" className="fa-caption-name" onClick={() => actions.openProfile(post)}>
           @{post.author.name}
         </button>
-        {time ? <span className="fa-caption-time">· {time}</span> : null}
+        {time && !post.first_saved_at ? <span className="fa-caption-time">· {time}</span> : null}
       </div>
       {parts.length ? (
         <p className="fa-caption-text">
@@ -349,6 +349,12 @@ const Caption = memo(function Caption({
           )}
         </p>
       ) : null}
+      {post.first_saved_at && (
+        <p className="fa-arrival-dates">
+          <span>入库 {new Date(post.first_saved_at * 1000).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+          {post.published_ts > 0 && <span>发布 {new Date(post.published_ts * 1000).toLocaleDateString("zh-CN")}</span>}
+        </p>
+      )}
       {post.caption.length > 42 ? (
         <button type="button" className="fa-more" onClick={() => setExpanded((value) => !value)}>
           {expanded ? "收起" : "展开"}
@@ -1348,9 +1354,11 @@ export function Pager({
     }
   }
 
+  const arrivalCounter = list.source.type === "arrivals" && list.source.taskId && count > 0 && list.availableTotal;
   const showEmpty = !count && !list.loading && !list.error && !list.hasMore;
   return (
     <div className="fa-pager-wrap">
+      {arrivalCounter ? <span className="fa-arrivals-counter">{Math.min(activeIndex + 1, count)} / {list.availableTotal}</span> : null}
       <div
         className="fa-pager"
         ref={scrollerRef}

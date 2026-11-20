@@ -211,7 +211,7 @@ def time_key_from_text(value: object) -> str:
     return digits if len(digits) == 14 else ""
 
 
-def _timestamp(time_key: str) -> int | None:
+def published_timestamp(time_key: str) -> int | None:
     try:
         return int(
             datetime(
@@ -238,7 +238,7 @@ def parse_media_name(name: str, account_name: str = "") -> ParsedName:
     file_kind = media_kind(name)
     match = _TIME_IN_NAME.search(stem)
     time_key = "".join(match.groups()) if match else ""
-    if time_key and _timestamp(time_key) is None:
+    if time_key and published_timestamp(time_key) is None:
         time_key = ""
         match = None
     after = stem[match.end():] if match else stem
@@ -310,13 +310,21 @@ def _newest_mtime(folder: Path, names: Iterable[str]) -> int:
     return newest
 
 
+def media_time_key(parsed: ParsedName) -> str:
+    return parsed.time_key or "x" + sha1(parsed.base.encode("utf-8")).hexdigest()[:14]
+
+
+def media_post_key(uid: str, time_key: str, kind: str) -> str:
+    return f"{uid}:{time_key}:{_KIND_CODE[kind]}"
+
+
 def scan_folder(folder: Path, uid: str, account_name: str = "") -> list[ScannedPost]:
     """Group the media in one account folder into posts."""
     groups: dict[tuple[str, str], dict[str, list[tuple[int, str]]]] = {}
     captions: dict[str, str] = {}
     for relative in _scan_media_names(folder):
         parsed = parse_media_name(os.path.basename(relative), account_name)
-        time_key = parsed.time_key or "x" + sha1(parsed.base.encode("utf-8")).hexdigest()[:14]
+        time_key = media_time_key(parsed)
         groups.setdefault((time_key, parsed.kind), {}).setdefault(parsed.base, []).append(
             (parsed.index, relative)
         )
@@ -355,14 +363,14 @@ def scan_folder(folder: Path, uid: str, account_name: str = "") -> list[ScannedP
         if time_key.startswith("x"):
             published_ts = int(_newest_mtime(folder, files) / 1_000_000_000)
         else:
-            published_ts = _timestamp(time_key) or 0
+            published_ts = published_timestamp(time_key) or 0
         caption = captions.get(base, "")
         work_hint = ""
         if _WORK_ID.match(caption):
             work_hint, caption = caption, ""
         posts.append(
             ScannedPost(
-                post_key=f"{uid}:{time_key}:{_KIND_CODE[kind]}",
+                post_key=media_post_key(uid, time_key, kind),
                 time_key=time_key,
                 kind=kind,
                 published_ts=published_ts,

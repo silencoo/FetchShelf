@@ -536,6 +536,7 @@ async def test_account_batch_uses_persisted_snapshot_and_skips_success(
     server = APIServer.__new__(APIServer)
     server.task_journal = journal
     server.parameter = SimpleNamespace(
+        settings=SimpleNamespace(path=tmp_path / "settings.json"),
         accounts_urls=[],
         accounts_urls_tiktok=[],
         earliest_update_days=3,
@@ -567,6 +568,7 @@ async def test_account_batch_uses_persisted_snapshot_and_skips_success(
         },
     )
 
+    assert server.feed_state.arrival_summary(task["task_id"])["partial"]
     assert processed == ["next"]
     assert result.data["success"] == 2
     assert result.data["failed"] == 0

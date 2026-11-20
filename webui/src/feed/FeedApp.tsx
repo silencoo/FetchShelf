@@ -34,7 +34,7 @@ import {
 } from "./Views";
 
 type Tab = "home" | "discover" | "likes" | "saves" | "me";
-type HomeTab = "foryou" | "following" | "latest";
+type HomeTab = "foryou" | "following" | "latest" | "arrivals";
 
 type Layer =
   | { id: number; type: "profile"; accountKey: string; name?: string }
@@ -58,6 +58,7 @@ const HOME_TABS: Array<{ tab: HomeTab; label: string }> = [
   { tab: "following", label: "关注" },
   { tab: "foryou", label: "推荐" },
   { tab: "latest", label: "最新" },
+  { tab: "arrivals", label: "新入库" },
 ];
 
 function SoundButton() {
@@ -206,17 +207,18 @@ function TokenGate({ onDone }: { onDone(): void }) {
   );
 }
 
-export function FeedApp(props: { active: boolean; onExit(): void }) {
+export function FeedApp(props: { active: boolean; arrivalTask: string; onExit(): void }) {
   const [platform, choose] = useState(getPlatform);
   const [tab, setTab] = useState<Tab>("home");
   return <FeedSession key={platform} {...props} tab={tab} setTab={setTab} platform={platform} onPlatform={(value) => { setPlatform(value); choose(value); }} />;
 }
-function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { active: boolean; onExit(): void; platform: Platform; onPlatform(value: Platform): void; tab: Tab; setTab(value: Tab): void }) {
+function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, setTab }: { active: boolean; onExit(): void; arrivalTask: string; platform: Platform; onPlatform(value: Platform): void; tab: Tab; setTab(value: Tab): void }) {
   useObservable(preferences);
   useObservable(toaster);
   const docked = useMediaQuery("(min-width: 1100px)");
-  const [homeTab, setHomeTab] = useState<HomeTab>("foryou");
-  const [visited, setVisited] = useState<Set<HomeTab>>(() => new Set<HomeTab>(["foryou"]));
+  const initialHome = arrivalTask ? "arrivals" : "foryou";
+  const [homeTab, setHomeTab] = useState<HomeTab>(initialHome);
+  const [visited, setVisited] = useState<Set<HomeTab>>(() => new Set<HomeTab>([initialHome]));
   const [blockRevision, setBlockRevision] = useState(0);
   const [layers, setLayers] = useState<Layer[]>([]);
   const [panel, setPanel] = useState<{ post: Post; tab: "comments" | "details" } | null>(null);
@@ -235,8 +237,9 @@ function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { ac
       foryou: new PostList({ type: "foryou" }, 8),
       following: new PostList({ type: "following" }, 8),
       latest: new PostList({ type: "latest" }, 8),
+      arrivals: new PostList({ type: "arrivals", taskId: arrivalTask || undefined, platform: arrivalTask ? "all" : platform }, 12),
     }),
-    [],
+    [arrivalTask, platform],
   );
 
   useEffect(() => {
@@ -622,6 +625,8 @@ function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { ac
                   empty={
                     item.tab === "following" ? (
                       followingEmpty
+                    ) : item.tab === "arrivals" ? (
+                      <p>{arrivalTask ? "本次采集暂无可浏览的新增作品" : "最近 7 天暂无新入库作品"}</p>
                     ) : !status ? (
                       <span className="fa-spinner" aria-label="正在加载" />
                     ) : status.phase !== "idle" ? (
@@ -637,9 +642,11 @@ function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { ac
               </div>
             ))}
             <div className="fa-topbar">
-              <span className="fa-topbar-side" />
+              <span className="fa-topbar-side">
+                {arrivalTask && <button type="button" className="fa-icon-btn" aria-label="返回任务" onClick={exit}><BackIcon size={24} /></button>}
+              </span>
               <div className="fa-home-tabs" role="tablist" aria-label="作品流">
-                {HOME_TABS.map((item) => (
+                {arrivalTask ? <strong>本次新入库</strong> : HOME_TABS.map((item) => (
                   <button
                     key={item.tab}
                     type="button"
@@ -651,6 +658,7 @@ function FeedSession({ active, onExit, platform, onPlatform, tab, setTab }: { ac
                   </button>
                 ))}
               </div>
+              {!arrivalTask && homeTab === "arrivals" && <span className="fa-arrivals-window">最近 7 天</span>}
               <span className="fa-topbar-side fa-topbar-end">
                 <button
                   type="button"

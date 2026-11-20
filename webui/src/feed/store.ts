@@ -34,6 +34,7 @@ export function useObservable<T extends Observable>(store: T): T {
 /** One paged list. Shared by a grid and the player opened from it. */
 export class PostList extends Observable {
   items: Post[] = [];
+  availableTotal: number | null = null;
   hasMore = true;
   loading = false;
   error = "";
@@ -64,11 +65,13 @@ export class PostList extends Observable {
         if (generation !== this.generation) {
           return;
         }
+        if (page.available_total !== undefined) this.availableTotal = page.available_total;
         const fresh = page.items.filter((post) => !this.seen.has(post.key));
         fresh.forEach((post) => this.seen.add(post.key));
         this.items = this.items.concat(fresh);
         this.cursor = page.next_cursor;
         this.hasMore = page.next_cursor !== null;
+        if (!this.hasMore && this.source.type === "arrivals") this.availableTotal = this.items.length;
         if (fresh.length || !this.hasMore) {
           break;
         }
@@ -89,6 +92,7 @@ export class PostList extends Observable {
   async reload() {
     this.generation += 1;
     this.items = [];
+    this.availableTotal = null;
     this.cursor = null;
     this.hasMore = true;
     this.loading = false;
@@ -108,7 +112,7 @@ export class PostList extends Observable {
     const index = this.items.findIndex((post) => post.key === next.key);
     if (index >= 0) {
       this.items = this.items.slice();
-      this.items[index] = next;
+      this.items[index] = { ...this.items[index], ...next };
       this.emit();
     }
   }

@@ -393,6 +393,7 @@ export const refs = {
   taskCopyBtn: document.getElementById("task-copy-btn"),
   taskRawResult: document.getElementById("task-raw-result"),
   taskStatus: document.getElementById("task-status"),
+  taskArrivals: document.getElementById("task-arrivals"),
   taskSummary: document.getElementById("task-summary"),
   taskProgressBlock: document.getElementById("task-progress-block"),
   taskProgress: document.getElementById("task-progress"),

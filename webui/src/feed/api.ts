@@ -102,7 +102,9 @@ export const api = {
       cursor: cursor ?? undefined,
       limit,
     };
-    if (source.type === "account") {
+    if (source.type === "arrivals") {
+      params.task_id = source.taskId;
+    } else if (source.type === "account") {
       params.account = source.account;
       params.sort = source.sort;
       params.kind = source.kind;

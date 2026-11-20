@@ -1,5 +1,5 @@
 from pathlib import Path
-from time import monotonic
+from time import monotonic, time
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -639,3 +639,110 @@ def test_shared_preferences_merge_initialize_validate_and_persist(harness):
     assert FeedState(harness.service.state.path).preferences() == expected
     for invalid in ({"sound": None}, {"sound": "false"}, {"unknown": True}):
         assert harness.client.patch(url, headers=HEADERS, json=invalid).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_arrivals_use_first_actual_media_save_and_page_the_entire_task(harness, monkeypatch):
+    from src.downloader.download import Downloader
+    from src.translation import _
+    from src.webui import feed_state
+
+    state = harness.server.feed_state
+    now = int(time())
+    folder = harness.root / "UID1_Ann_发布作品"
+    account = {"url": "https://example.test/ann", "mark": "Ann"}
+    path = "/ui/api/feed/posts"
+    state.start_arrival_run("T19", partial=False)
+    state.start_arrival_run("T20", partial=False)
+    count = SimpleNamespace(account_folder=folder, downloaded_video=set(), downloaded_image=set(), downloaded_live=set())
+    monkeypatch.setattr(feed_state, "time", lambda: now - 8 * 86400)
+    with harness.server._observe_account_downloads("douyin", account, "T19"):
+        file = folder / "2020-01-01 01.00.00-视频-Ann-old.mp4"
+        file.touch()
+        Downloader.add_count(f"【{_('视频')}】old", "old", count, file)
+    monkeypatch.setattr(feed_state, "time", lambda: now)
+    with harness.server._observe_account_downloads("douyin", account, "T20"):
+        for i in range(39):
+            file = folder / f"2020-01-01 02.00.{i:02d}-视频-Ann-{i}.mp4"
+            file.touch()
+            Downloader.add_count(f"【{_('视频')}】{i}", str(i), count, file)
+        for slide in (1, 2):
+            file = folder / f"2020-01-01 03.00.00-图集-Ann-trip_{slide}.jpeg"
+            make_image(file)
+            Downloader.add_count(f"【{_('图集')}】trip", "trip", count, file)
+        Downloader.add_count(f"【{_('音乐')}】music", "sidecar", count, file)
+    # A later successful transfer of the same work cannot take credit or move the seven-day window.
+    with harness.server._observe_account_downloads("douyin", account, "T21"):
+        count.downloaded_video.clear()
+        Downloader.add_count(f"【{_('视频')}】old", "old", count, folder / "2020-01-01 01.00.00-视频-Ann-old.mp4")
+    page = get(harness, path, source="arrivals", task_id="T20", limit=12)
+    assert page["available_total"] == 40
+    assert page["summary"] == {"total": 40, "videos": 39, "images": 1, "live": 0, "tracked": True, "partial": False}
+    assert len(page["items"][0]["media"]) == 2
+    posts = list(page["items"])
+    while page["next_cursor"]:
+        page = get(harness, path, source="arrivals", task_id="T20", limit=12, cursor=page["next_cursor"])
+        posts.extend(page["items"])
+    assert len({p["key"] for p in posts}) == 40
+    assert all(p["first_saved_at"] == now and p["published_ts"] < now - 86400 * 365 for p in posts)
+    assert len(get(harness, path, source="arrivals", limit=60)["items"]) == 40
+    assert not get(harness, path, source="arrivals", platform="tiktok")["items"]
+    assert len(get(harness, path, source="arrivals", task_id="T19")["items"]) == 1
+    assert not get(harness, path, source="arrivals", task_id="T21")["items"]
+    # Alternate folders and identical publication timestamps must not replace a profile's posts.
+    side = harness.root / "UID1_Ann_喜欢作品"
+    side.mkdir()
+    name = "2020-01-01 02.00.00-视频-Ann-other.mp4"
+    (side / name).touch()
+    count.account_folder = side
+    with harness.server._observe_account_downloads("douyin", account, "T22"):
+        Downloader.add_count(f"【{_('视频')}】other", "other", count, side / name)
+    other = get(harness, path, source="arrivals", task_id="T22")["items"][0]
+    assert other["key"] not in {p["key"] for p in posts}
+    assert other["media"][0]["path"] == f"{side.name}/{name}"
+    assert put_mark(harness, "save", other["key"]).status_code == 200
+    assert get(harness, path, source="saves")["items"][0]["key"] == other["key"]
+    assert get(harness, "/ui/api/feed/post", key=other["key"])["work_id"] == "other"
+    (side / name).unlink()
+    assert get(harness, path, source="arrivals", task_id="T22")["items"] == []
+    assert put_mark(harness, "block", "douyin::https://example.test/ann").status_code == 200
+    blocked = get(harness, path, source="arrivals", task_id="T20")
+    assert blocked["summary"]["total"] == 40 and blocked["available_total"] == 0
+    assert not blocked["items"]
+
+
+@pytest.mark.asyncio
+async def test_arrival_is_written_after_the_media_file_is_committed(harness):
+    from unittest.mock import AsyncMock, Mock
+    from httpx import ReadError
+    from src.downloader.download import Downloader
+    from src.translation import _
+
+    folder = harness.root / "UID1_Ann_发布作品"
+    final = folder / "2021-04-06 12.00.00-视频-Ann-confirmed.mp4"
+    cache = harness.tmp / "transfer.part"
+    writer = Downloader.__new__(Downloader)
+    writer.truncate, writer.chunk = 80, 1024
+    writer.log, writer.recorder = Mock(), AsyncMock()
+    count = SimpleNamespace(account_folder=folder, downloaded_video=set())
+    account = {"url": "https://example.test/ann", "mark": "Ann"}
+
+    async def failing(_):
+        yield b"partial"
+        raise ReadError("interrupted")
+
+    async def complete(_):
+        yield b"saved"
+
+    args = (cache, final, f"【{_('视频')}】sample", "fresh")
+    tail = (5, 0, count, Mock())
+    with harness.server._observe_account_downloads("douyin", account, "T90"):
+        assert not await writer.download_file(*args, SimpleNamespace(aiter_bytes=failing), *tail)
+        assert not final.exists()
+        assert harness.service.state.arrival_summary("T90")["total"] == 0
+        cache.unlink()
+        assert await writer.download_file(*args, SimpleNamespace(aiter_bytes=complete), *tail)
+    assert final.read_bytes() == b"saved"
+    page = get(harness, "/ui/api/feed/posts", source="arrivals", task_id="T90")
+    assert page["summary"]["total"] == 1
+    assert page["items"][0]["media"][0]["path"].endswith(final.name)

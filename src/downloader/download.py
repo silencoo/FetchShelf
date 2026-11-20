@@ -32,6 +32,7 @@ from ..tools import (
     format_size,
 )
 from ..translation import _
+from .arrivals import media_saved
 
 if TYPE_CHECKING:
     from httpx import AsyncClient
@@ -306,6 +307,7 @@ class Downloader:
 
     async def batch_processing(self, data: list[dict], root: Path, **kwargs):
         count = SimpleNamespace(
+            account_folder=root,
             downloaded_image=set(),
             skipped_image=set(),
             downloaded_video=set(),
@@ -780,8 +782,8 @@ class Downloader:
         self.save_file(temp, actual)
         self.log.info(_("{show} 文件下载成功").format(show=show))
         self.log.info(f"文件路径 {actual.resolve()}", False)
+        self.add_count(show, id_, count, actual)
         await self.recorder.update_id(id_)
-        self.add_count(show, id_, count)
         return True
 
     async def download_file(
@@ -821,8 +823,8 @@ class Downloader:
         self.save_file(cache, actual)
         self.log.info(_("{show} 文件下载成功").format(show=show))
         self.log.info(f"文件路径 {actual.resolve()}", False)
+        self.add_count(show, id_, count, actual)
         await self.recorder.update_id(id_)
-        self.add_count(show, id_, count)
         return True
 
     def __record_request_messages(
@@ -846,13 +848,19 @@ class Downloader:
         return (headers or self.headers_tiktok if tiktok else self.headers).copy()
 
     @staticmethod
-    def add_count(show: str, id_: str, count: SimpleNamespace):
+    def add_count(show: str, id_: str, count: SimpleNamespace, actual: Path):
         if show.startswith(f"【{_('图集')}】"):
-            count.downloaded_image.add(id_)
+            saved, kind = count.downloaded_image, "images"
         elif show.startswith(f"【{_('视频')}】"):
-            count.downloaded_video.add(id_)
+            saved, kind = count.downloaded_video, "video"
         elif show.startswith(f"【{_('实况')}】"):
-            count.downloaded_live.add(id_)
+            saved, kind = count.downloaded_live, "live"
+        else:
+            return
+        observer = media_saved.get()
+        if observer is not None:
+            observer(id_, kind, count.account_folder, actual)
+        saved.add(id_)
 
     @staticmethod
     def data_classification(

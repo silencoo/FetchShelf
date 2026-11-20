@@ -34,8 +34,13 @@ import {
 const FEED_PATH = "/ui/feed";
 let feedModule = null;
 let feedLoading = null;
+let openedTaskArrivals = false;
 
 function exitFeed() {
+  if (history.state?.arrivalRoute) {
+    history.back();
+    return;
+  }
   if (window.location.pathname === FEED_PATH) {
     window.history.replaceState(null, "", "/ui");
   }
@@ -5765,6 +5770,82 @@ async function loadTaskDetail(taskId) {
   }
 }
 
+let arrivalsRequest = 0;
+
+async function renderTaskArrivals(taskId, show) {
+  const request = ++arrivalsRequest;
+  const section = refs.taskArrivals;
+  section.hidden = !show;
+  section.replaceChildren();
+  if (!show) return;
+  const title = document.createElement("h4");
+  title.textContent = "新入库";
+  const info = document.createElement("p");
+  info.textContent = "正在读取新增作品…";
+  section.append(title, info);
+  try {
+    const params = new URLSearchParams({ source: "arrivals", task_id: taskId, limit: "3" });
+    const page = await fetchJson(`/ui/api/feed/posts?${params}`, { headers: headerOptions(false) });
+    if (request !== arrivalsRequest) return;
+    const summary = page.summary;
+    if (!summary?.tracked && !summary?.total) {
+      info.textContent = "此任务没有逐作品入库记录";
+      return;
+    }
+    title.textContent = `新入库 ${summary.total} 件作品`;
+    const counts = [`${summary.videos} 个视频`, `${summary.images} 个图集`];
+    if (summary.live) counts.push(`${summary.live} 个实况`);
+    if (summary.partial) counts.push("仅含启用记录后的下载");
+    if (page.available_total > 0 && page.available_total < summary.total) counts.push(`可浏览 ${page.available_total} 件`);
+    info.textContent = counts.join(" · ");
+    if (!page.items?.length) {
+      if (summary.total) info.textContent += " · 暂无可浏览作品";
+      return;
+    }
+    const browse = document.createElement("a");
+    browse.className = "btn primary";
+    browse.textContent = "浏览新增作品";
+    browse.href = `/ui/feed?arrivals=${encodeURIComponent(taskId)}`;
+    browse.addEventListener("click", (event) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
+      event.preventDefault();
+      openedTaskArrivals = true;
+      history.pushState({ arrivalRoute: true }, "", browse.href);
+      switchTab("feed");
+    });
+    section.append(browse);
+    const previews = document.createElement("div");
+    previews.className = "task-arrivals-previews";
+    for (const post of page.items) {
+      const image = document.createElement("img");
+      image.loading = "lazy";
+      image.alt = post.caption || post.author.name;
+      image.src = `/ui/api/feed/thumb?${new URLSearchParams({ path: post.cover, w: "320" })}`;
+      previews.append(image);
+    }
+    section.append(previews);
+  } catch (error) {
+    if (request !== arrivalsRequest) return;
+    info.textContent = `读取失败：${error.message}`;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "btn ghost";
+    retry.textContent = "重试";
+    retry.onclick = () => void renderTaskArrivals(taskId, true);
+    section.append(retry);
+  }
+}
+
+window.addEventListener("popstate", (event) => {
+  if (event.state?.arrivalRoute && state.activeTab !== "feed") {
+    openedTaskArrivals = true;
+    switchTab("feed");
+  } else if (openedTaskArrivals && !new URLSearchParams(location.search).has("arrivals")) {
+    openedTaskArrivals = false;
+    switchTab("workbench");
+  }
+});
+
 function renderTaskResult(task) {
   detailRequestVersion++;
   pendingDetailId = "";
@@ -5791,6 +5872,9 @@ function renderTaskResult(task) {
   const isAccountBatch = endpoint.endsWith("/account_batch");
   const taskFinishedWhileSelected =
     !taskChanged && ACTIVE_TASK_STATUSES.has(previousStatus) && !ACTIVE_TASK_STATUSES.has(status);
+  if (taskChanged || status !== previousStatus) {
+    void renderTaskArrivals(nextTaskId, isAccountBatch && ["success", "partial_success", "failed", "canceled"].includes(status));
+  }
   state.selectedTaskStatus = status;
   state.selectedTaskRenderKey = taskRenderKey(task);
   refs.taskSummary.textContent = `${task.task_id || "-"} · ${taskStatusLabel(

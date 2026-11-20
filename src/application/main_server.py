@@ -102,6 +102,10 @@ from ..webui_security import (
     is_protected_project_path,
     redact_webui_value,
 )
+from ..downloader.arrivals import observe_media_saves
+from ..webui.feed_index import (
+    media_post_key, media_time_key, parse_media_name, published_timestamp, uid_from_folder,
+)
 from ..webui.feed_state import FeedState
 from ..webui.files import (
     IMAGE_SUFFIXES,
@@ -5363,6 +5367,25 @@ class APIServer(TikTok, ServerRoutesMixin):
         result, _, _ = await operation(self, CollectorCredentials(), "")
         return result, "", "global_fallback"
 
+    def _observe_account_downloads(self, platform: str, item: dict, task_id: str):
+        account_key = self._account_pin_key(platform, item["url"])
+
+        def record(work_id: str, kind: str, folder: Path, actual: Path) -> None:
+            parsed = parse_media_name(actual.name, item["mark"])
+            uid = uid_from_folder(folder.name)
+            time_key = media_time_key(parsed)
+            # Use the same key as the gallery even with a custom filename format.
+            key = media_post_key(uid, time_key, parsed.kind)
+            self.feed_state.record_arrival(
+                platform=platform, work_id=work_id, account_key=account_key, post_key=key,
+                name=item["mark"] or folder.name, kind=kind, task_id=task_id,
+                folder=relative_path(self._scope_root("download"), folder),
+                file=actual.relative_to(folder).as_posix(), caption=parsed.caption,
+                published_ts=published_timestamp(parsed.time_key),
+            )
+
+        return observe_media_saves(record)
+
     async def _run_ui_account_batch(
         self,
         payload: dict,
@@ -5423,6 +5446,9 @@ class APIServer(TikTok, ServerRoutesMixin):
             if journal is not None
             else []
         )
+        if task_id:
+            already_processed = any(a["status"] not in {"pending", "waiting"} for a in journal_accounts)
+            self.feed_state.start_arrival_run(task_id, partial=already_processed)
         if journal_accounts:
             queued_items = []
             for account in journal_accounts:
@@ -5740,26 +5766,27 @@ class APIServer(TikTok, ServerRoutesMixin):
                             "affects_identity_health": False,
                         }
                     else:
-                        raw_outcome = await worker.deal_account_detail(
-                            index,
-                            sec_user_id=sec_user_id,
-                            mark=item["mark"],
-                            url=item["url"],
-                            tab=item["tab"],
-                            earliest=item["earliest"],
-                            latest=item["latest"],
-                            pages=item["pages"],
-                            api=False,
-                            source=False,
-                            cookie=(
-                                worker.parameter.cookie_str_tiktok
-                                if tiktok else identity_cookie
-                            ),
-                            proxy=identity_proxy,
-                            tiktok=tiktok,
-                            return_context=True,
-                            return_outcome=True,
-                        )
+                        with self._observe_account_downloads(platform, item, task_id):
+                            raw_outcome = await worker.deal_account_detail(
+                                index,
+                                sec_user_id=sec_user_id,
+                                mark=item["mark"],
+                                url=item["url"],
+                                tab=item["tab"],
+                                earliest=item["earliest"],
+                                latest=item["latest"],
+                                pages=item["pages"],
+                                api=False,
+                                source=False,
+                                cookie=(
+                                    worker.parameter.cookie_str_tiktok
+                                    if tiktok else identity_cookie
+                                ),
+                                proxy=identity_proxy,
+                                tiktok=tiktok,
+                                return_context=True,
+                                return_outcome=True,
+                            )
                         outcome = self._normalize_account_worker_outcome(raw_outcome)
                         identity_request_failed = bool(
                             outcome.get("affects_identity_health")

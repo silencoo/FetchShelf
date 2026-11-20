@@ -8,6 +8,7 @@ const IMMERSIVE_VIEWPORT =
   "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
 
 let root: Root | null = null;
+let arrivalTask = "";
 let savedViewport: string | null = null;
 let savedThemeColor: string | null = null;
 
@@ -41,11 +42,12 @@ function setChrome(immersive: boolean) {
 export function activateFeed(container: HTMLElement, onExit: () => void) {
   setChrome(true);
   root ??= createRoot(container);
-  root.render(<FeedApp active onExit={onExit} />);
+  arrivalTask = new URLSearchParams(location.search).get("arrivals") || "";
+  root.render(<FeedApp key={arrivalTask} active arrivalTask={arrivalTask} onExit={onExit} />);
 }
 
 export function deactivateFeed(onExit: () => void) {
   setChrome(false);
-  root?.render(<FeedApp active={false} onExit={onExit} />);
+  root?.render(<FeedApp key={arrivalTask} active={false} arrivalTask={arrivalTask} onExit={onExit} />);
   mediaPool.release();
 }

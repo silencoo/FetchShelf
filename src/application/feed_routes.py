@@ -5,7 +5,7 @@ from __future__ import annotations
 from asyncio import Semaphore, sleep, to_thread
 from collections import OrderedDict
 from datetime import datetime
-from json import loads
+from json import dumps, loads
 import os
 from pathlib import Path
 from subprocess import SubprocessError
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 __all__ = ["FeedService", "register_feed_routes"]
 
 _POST_SOURCES = frozenset(
-    {"foryou", "latest", "following", "account", "likes", "saves", "popular", "search", "tag", "music"}
+    {"foryou", "arrivals", "latest", "following", "account", "likes", "saves", "popular", "search", "tag", "music"}
 )
 _COMMENT_CACHE_SECONDS = 900.0
 _COMMENT_CACHE_SIZE = 64
@@ -109,8 +109,7 @@ def comment_payload(raw: dict) -> dict:
 class FeedService:
     def __init__(self, server: "APIServer"):
         self.server = server
-        settings_dir = Path(server.parameter.settings.path).parent
-        self.index = FeedIndex(settings_dir / "ui_feed_index.sqlite3")
+        self.index = FeedIndex(Path(server.parameter.settings.path).parent / "ui_feed_index.sqlite3")
         self.state = server.feed_state
         self.worker = FeedWorker(
             self.index,
@@ -325,6 +324,7 @@ class FeedService:
                     "key": row["post_key"],
                     "kind": row["kind"],
                     "published_ts": row["published_ts"],
+                    **({"first_saved_at": row["first_saved_at"]} if "first_saved_at" in row else {}),
                     "caption": row.get("full_caption") or row["caption"],
                     "tags": str(row.get("tags") or "").split(),
                     "duration": row.get("duration"),
@@ -439,6 +439,41 @@ class FeedService:
         except OSError as error:
             self._log(f"Feed account refresh skipped: {type(error).__name__}")
 
+    def arrival_rows(self, receipts: list[dict], indexed: dict | None = None) -> list[dict]:
+        if indexed is None:
+            indexed = {r["post_key"]: r for r in self.index.posts_by_keys([r["post_key"] for r in receipts])}
+        result = []
+        for receipt in receipts:
+            key = receipt["post_key"]
+            row = indexed.get(key)
+            files = loads(receipt["files"])
+            if (row and row["account_key"] == receipt["account_key"] and (
+                (row["folder"] == receipt["folder"] and set(files).issubset(loads(row["files"])))
+                or (row["folder"] != receipt["folder"] and row.get("work_id") == receipt["work_id"])
+            )):
+                row = {**row, "work_id": row.get("work_id") or receipt["work_id"]}
+            else:
+                # A completed job can be opened before the indexer reaches its folder.
+                # Editor-only targets and alternate tabs can also live outside the profile index.
+                try:
+                    folder = resolve_within_root(self.media_root(), receipt["folder"])
+                    files = [name for name in files if resolve_within_root(folder, name).is_file()]
+                except (OSError, ValueError):
+                    continue
+                if not files:
+                    continue
+                files.sort(key=lambda name: (parse_media_name(os.path.basename(name)).index, name))
+                row = {**receipt, "files": dumps(files), "poster": "", "url": receipt["account_key"].partition("::")[2]}
+            result.append({**row, "first_saved_at": receipt["saved_at"]})
+        return result
+
+    def stored_posts(self, keys: list[str]) -> list[dict]:
+        rows = {r["post_key"]: r for r in self.index.posts_by_keys(keys)}
+        missing = [key for key in keys if key not in rows]
+        if missing:
+            rows.update((r["post_key"], r) for r in self.arrival_rows(self.state.arrivals_by_keys(missing), {}))
+        return [rows[key] for key in keys if key in rows]
+
     def list_posts(
         self,
         *,
@@ -450,6 +485,7 @@ class FeedService:
         cursor: dict,
         limit: int,
         platform: str = "",
+        task_id: str = "",
     ) -> dict:
         # The profile and its grid load in parallel. Refresh here as well so a
         # grid cannot keep old filenames after a collector nickname rename.
@@ -462,6 +498,7 @@ class FeedService:
         pinned = ""
         rows: list[dict] = []
         following: dict | None = None
+        available_total = None
         if source == "foryou":
             rows, following = index.foryou_page(
                 limit=limit,
@@ -469,6 +506,18 @@ class FeedService:
                 favorites=state.affinity_accounts(),
                 hidden=hidden, platform=platform,
             )
+        elif source == "arrivals":
+            receipts, following, available_total = state.arrival_page(
+                task_id=task_id, platform=platform, hidden=hidden, cursor=cursor, limit=limit,
+            )
+            rows = self.arrival_rows(receipts)
+            while len(rows) < limit and following is not None:
+                receipts, following, _ = state.arrival_page(
+                    task_id=task_id, platform=platform, hidden=hidden, cursor=following, limit=limit-len(rows),
+                )
+                rows.extend(self.arrival_rows(receipts))
+            if not cursor and following is None:
+                available_total = len(rows)
         elif source == "latest":
             rows, following = index.latest_posts(limit=limit, cursor=cursor, hidden=hidden, platform=platform)
         elif source == "following":
@@ -491,7 +540,7 @@ class FeedService:
             mark = "like" if source == "likes" else "save"
             offset = max(0, int(cursor.get("o", 0)))
             keys, total = state.page(mark, limit=limit, offset=offset, account_key=account, platform=platform)
-            rows = index.posts_by_keys(keys)
+            rows = self.stored_posts(keys)
             if offset + limit < total:
                 following = {"o": offset + limit}
         elif source == "popular":
@@ -503,6 +552,8 @@ class FeedService:
                     query, field=field, limit=limit, cursor=cursor, hidden=hidden, platform=platform,
                 )
         return {
+            **({"available_total": available_total} if available_total is not None else {}),
+            **({"summary": state.arrival_summary(task_id)} if task_id and source == "arrivals" and not cursor else {}),
             "items": self.posts_payload(rows, pinned=pinned),
             "next_cursor": encode_cursor(following) if following else None,
         }
@@ -543,7 +594,8 @@ class FeedService:
     def set_mark(self, mark: FeedMark) -> dict:
         account_key = ""
         if mark.kind in {"like", "save"}:
-            post = self.index.post(mark.target)
+            posts = self.stored_posts([mark.target])
+            post = posts[0] if posts else None
             # Removing stays possible after the media itself has gone.
             if post is None and mark.on:
                 raise HTTPException(status_code=404, detail="Post not found.")
@@ -617,7 +669,8 @@ class FeedService:
         return page
 
     async def comments(self, request: Request, post_key: str, cursor: int, reply_to: str) -> dict:
-        post = await to_thread(self.index.post, post_key)
+        posts = await to_thread(self.stored_posts, [post_key])
+        post = posts[0] if posts else None
         if post is None:
             raise HTTPException(status_code=404, detail="Post not found.")
         if post["platform"] != "douyin":
@@ -706,6 +759,7 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
     def feed_posts(
         platform: Literal["", "douyin", "tiktok", "kuaishou", "rednote", "weibo"] = Query(""),
         source: str = Query("foryou", max_length=20),
+        task_id: str = Query("", max_length=80),
         account: str = Query("", max_length=2300),
         q: str = Query("", max_length=120),
         sort: Literal["latest", "oldest", "popular"] = Query("latest"),
@@ -718,8 +772,13 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
             raise HTTPException(status_code=400, detail="Unknown feed source.")
         if source == "account" and not account:
             raise HTTPException(status_code=400, detail="account is required.")
+        if source == "arrivals" and task_id and not cursor:
+            summary = server.feed_state.arrival_summary(task_id)
+            if summary["total"] == 0:
+                return {"items": [], "next_cursor": None, "available_total": 0, "summary": summary}
         return service().list_posts(
             source=source,
+            task_id=task_id,
             account=account,
             query=q.strip(),
             platform=platform,
@@ -735,7 +794,8 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         token: str = Depends(token_dependency),
     ):
         feed = service()
-        row = feed.index.post(key)
+        posts = feed.stored_posts([key])
+        row = posts[0] if posts else None
         if row is None:
             raise HTTPException(status_code=404, detail="Post not found.")
         if not row.get("work_id"):

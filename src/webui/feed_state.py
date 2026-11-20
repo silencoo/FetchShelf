@@ -26,6 +26,29 @@ CREATE TABLE IF NOT EXISTS marks (
     created_at REAL NOT NULL,
     PRIMARY KEY (kind, target)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS arrival_runs (
+    task_id TEXT PRIMARY KEY,
+    partial INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS arrivals (
+    id INTEGER PRIMARY KEY,
+    platform TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    account_key TEXT NOT NULL,
+    post_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    saved_at INTEGER NOT NULL,
+    task_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    files TEXT NOT NULL,
+    caption TEXT NOT NULL,
+    published_ts INTEGER NOT NULL,
+    UNIQUE(platform, work_id),
+    UNIQUE(post_key)
+);
+CREATE INDEX IF NOT EXISTS arrivals_task ON arrivals(task_id, id);
+CREATE INDEX IF NOT EXISTS arrivals_week ON arrivals(saved_at);
 CREATE TABLE IF NOT EXISTS preferences (
     key TEXT PRIMARY KEY,
     value INTEGER NOT NULL CHECK(value IN (0, 1))
@@ -59,6 +82,70 @@ class FeedState:
             yield connection
         finally:
             connection.close()
+
+    def start_arrival_run(self, task_id: str, partial: bool) -> None:
+        with self._connect() as connection:
+            connection.execute("INSERT OR IGNORE INTO arrival_runs VALUES (?, ?)", (task_id, partial))
+
+    def record_arrival(self, *, platform: str, work_id: str, account_key: str, post_key: str,
+                       kind: str, task_id: str, name: str, folder: str, file: str,
+                       caption: str, published_ts: int | None) -> None:
+        # Concurrent slides and resumed tasks attach files to the original receipt.
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO arrivals(platform, work_id, account_key, post_key, kind, saved_at, task_id, "
+                "name, folder, files, caption, published_ts) "
+                "VALUES (?, ?, ?, CASE WHEN EXISTS(SELECT 1 FROM arrivals WHERE post_key=? AND "
+                "(platform<>? OR work_id<>?)) THEN ? ELSE ? END, ?, ?, ?, ?, ?, json_array(?), ?, ?) "
+                "ON CONFLICT(platform, work_id) DO UPDATE SET files=json_insert(arrivals.files, '$[#]', ?) "
+                "WHERE arrivals.folder=excluded.folder AND arrivals.post_key=excluded.post_key "
+                "AND NOT EXISTS (SELECT 1 FROM json_each(arrivals.files) WHERE value=?)",
+                (platform, work_id, account_key, post_key, platform, work_id, f"arrival:{platform}:{work_id}",
+                 post_key, kind, int(time()), task_id, name, folder,
+                 file, caption, published_ts or 0, file, file),
+            )
+
+    def arrival_page(self, *, task_id: str, platform: str, hidden: list[str], cursor: dict,
+                     limit: int) -> tuple[list[dict], dict | None, int | None]:
+        if task_id:
+            clauses, params = ["task_id=?"], [task_id]
+        else:
+            clauses, params = ["saved_at>=?"], [int(time()) - 7 * 86400]
+        if platform:
+            clauses.append("platform=?")
+            params.append(platform)
+        if hidden:
+            clauses.append("account_key NOT IN (SELECT value FROM json_each(?))")
+            params.append(dumps(hidden))
+        if isinstance(cursor.get("before"), int):
+            clauses.append("id<?")
+            params.append(cursor["before"])
+        where = " AND ".join(clauses)
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            total = None
+            if task_id and not cursor:
+                total = connection.execute(f"SELECT COUNT(*) FROM arrivals WHERE {where}", params).fetchone()[0]
+            rows = connection.execute(f"SELECT * FROM arrivals WHERE {where} ORDER BY id DESC LIMIT ?",
+                                      [*params, limit + 1]).fetchall()
+        following = {"before": rows[limit - 1]["id"]} if len(rows) > limit else None
+        return [dict(row) for row in rows[:limit]], following, total
+
+    def arrivals_by_keys(self, keys: list[str]) -> list[dict]:
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM arrivals WHERE post_key IN (SELECT value FROM json_each(?))", (dumps(keys),)
+            )]
+
+    def arrival_summary(self, task_id: str) -> dict:
+        with self._connect() as connection:
+            run = connection.execute("SELECT partial FROM arrival_runs WHERE task_id=?", (task_id,)).fetchone()
+            counts = dict(connection.execute(
+                "SELECT kind, COUNT(*) FROM arrivals WHERE task_id=? GROUP BY kind", (task_id,)
+            ))
+        return {"tracked": run is not None, "partial": bool(run and run[0]), "total": sum(counts.values()),
+                "videos": counts.get("video", 0), "images": counts.get("images", 0), "live": counts.get("live", 0)}
 
     def preferences(self) -> dict:
         with self._connect() as connection:

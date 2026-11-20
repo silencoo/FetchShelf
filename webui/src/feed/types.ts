@@ -37,6 +37,7 @@ export interface Post {
   key: string;
   kind: PostKind;
   published_ts: number;
+  first_saved_at?: number;
   caption: string;
   tags: string[];
   duration: number | null;
@@ -122,12 +123,14 @@ export type KindFilter = "all" | "video" | "images";
 
 export type PostSource = { platform?: string } & (
   | { type: "foryou" | "latest" | "following" | "popular" }
+  | { type: "arrivals"; taskId?: string }
   | { type: "account"; account: string; sort?: AccountSort; kind?: KindFilter }
   | { type: "likes" | "saves"; account?: string }
   | { type: "search" | "tag" | "music"; q: string });
 
 export interface PostPage {
   items: Post[];
+  available_total?: number;
   next_cursor: string | null;
 }
 
