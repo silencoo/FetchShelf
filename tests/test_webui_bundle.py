@@ -454,11 +454,10 @@ def test_account_board_cards_remain_usable_at_high_density():
     assert "function syncNaturalMediaRatio(" in script
     assert 'container.style.setProperty("--media-aspect"' in script
     assert 'state.accountBoard.viewMode === "avatar" && hasMedia' in script
-    assert '<option value="avatar">瀑布流</option>' in index
-    assert "aspect-ratio: var(--media-aspect, 3 / 4);" in styles
+    assert '<option value="avatar">精简卡片</option>' in index
+    assert ".profile-media-wrap-image {\n  aspect-ratio: var(--media-aspect, 3 / 4);" in styles
     assert "account-gallery-thumb-media-${item.kind}" in script
     assert ".account-gallery-thumb-media-image img {\n  width: 100%;\n  height: auto;" in styles
-    assert ".profile-media-wrap-image img {\n  width: 100%;\n  height: auto;" in styles
     assert (
         ".account-gallery-media-frame :is(img, video) {\n"
         "  display: block;\n"

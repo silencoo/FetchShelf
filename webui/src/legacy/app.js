@@ -2579,16 +2579,15 @@ let boardMasonryObserver;
 
 function layoutBoardMasonry() {
   const board = refs.boardGrid;
-  boardMasonryObserver?.disconnect();
-  board.classList.remove("profile-board-masonry");
-  if (state.accountBoard.viewMode !== "avatar" || typeof ResizeObserver !== "function") return;
+  if (typeof ResizeObserver !== "function") return;
 
   const cards = Array.from(board.querySelectorAll(":scope > .profile-card"));
   if (!cards.length) return;
   const styles = getComputedStyle(board);
   const rowSize = parseFloat(styles.getPropertyValue("--board-masonry-unit"));
-  const gap = parseFloat(styles.columnGap);
+  const gap = parseFloat(styles.getPropertyValue("--board-masonry-gap"));
   const setSpan = (card, height) => {
+    if (!height) return;
     const span = String(Math.max(1, Math.ceil((height + gap) / rowSize)));
     if (card.style.getPropertyValue("--board-rows") !== span) {
       card.style.setProperty("--board-rows", span);
@@ -2617,7 +2616,6 @@ function applyBoardColumns(persist = true) {
   }
   refs.boardDensity?.setAttribute("aria-valuetext", `${next} 列`);
   if (refs.boardGrid) {
-    const wasCompact = refs.boardGrid.classList.contains("profile-board-compact");
     refs.boardGrid.style.setProperty("--board-columns", String(next));
     refs.boardGrid.classList.toggle("profile-board-immersive", state.accountBoard.viewMode === "immersive");
     refs.boardGrid.classList.toggle("profile-board-compact", state.accountBoard.viewMode === "avatar");
@@ -2625,7 +2623,6 @@ function applyBoardColumns(persist = true) {
       "profile-board-ultra",
       state.accountBoard.viewMode === "avatar" && next >= 8,
     );
-    if (wasCompact !== (state.accountBoard.viewMode === "avatar")) layoutBoardMasonry();
   }
   if (persist) {
     try {
@@ -2824,8 +2821,7 @@ function renderBoardCardPreview(card) {
   }
   mediaWrap.classList.add(`profile-media-wrap-${preview.kind}`);
   if (preview.kind === "image" || preview.kind === "video") {
-    const compact = state.accountBoard.viewMode === "avatar";
-    appendBoardMediaThumbnail(mediaWrap, src, preview.kind, "", compact ? card.dataset.previewPriority : "");
+    appendBoardMediaThumbnail(mediaWrap, src, preview.kind, "", card.dataset.previewPriority);
     return;
   }
   const empty = document.createElement("div");

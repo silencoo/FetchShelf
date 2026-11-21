@@ -5341,6 +5341,8 @@ select.batch-field-select + .app-select-mount {
 
 .profile-board {
   --board-columns: 4;
+  --board-masonry-unit: 4px;
+  --board-masonry-gap: 8px;
   min-height: 120px;
   display: grid;
   grid-template-columns: repeat(var(--board-columns), minmax(0, 1fr));
@@ -5349,13 +5351,12 @@ select.batch-field-select + .app-select-mount {
 }
 
 .profile-board.profile-board-compact {
-  --board-masonry-unit: 4px;
   gap: 8px;
 }
 
 .profile-board.profile-board-masonry {
   grid-auto-rows: var(--board-masonry-unit);
-  row-gap: 0;
+  gap: 0 var(--board-masonry-gap);
 }
 
 .profile-board > .empty-tip {
@@ -5399,13 +5400,7 @@ select.batch-field-select + .app-select-mount {
 }
 
 .profile-media-wrap-image {
-  aspect-ratio: auto;
-}
-
-.profile-media-wrap-image img {
-  width: 100%;
-  height: auto;
-  max-height: none;
+  aspect-ratio: var(--media-aspect, 3 / 4);
 }
 
 .profile-empty {
@@ -5662,10 +5657,6 @@ select.batch-field-select + .app-select-mount {
   min-height: 72px;
   max-height: 420px;
   border-radius: calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px) 0 0;
-}
-
-.profile-board-compact .profile-media-wrap img {
-  height: 100%;
 }
 
 .profile-board-compact .profile-media-wrap .profile-empty {
