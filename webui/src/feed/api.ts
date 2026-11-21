@@ -85,10 +85,10 @@ export interface FeedPreferences {
   ultraVideos: number;
 }
 
-export const ultraLimits = {
-  ultraColumns: { max: 6, default: 3 },
-  ultraRows: { max: 5, default: 2 },
-  ultraVideos: { max: 8, default: 2 },
+export const ultraDefaults = {
+  ultraColumns: 3,
+  ultraRows: 2,
+  ultraVideos: 2,
 } as const;
 
 async function preferenceRequest(values?: Partial<FeedPreferences>, initialize = false) {

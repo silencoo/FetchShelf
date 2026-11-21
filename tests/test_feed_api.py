@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 from time import monotonic, time
 from types import SimpleNamespace
 
@@ -679,7 +680,7 @@ def test_shared_preferences_merge_initialize_validate_and_persist(harness):
                                 json={"sound": True, "autoNext": False}).json() == first
     harness.client.patch(url, headers=HEADERS, json={"sound": True})
     harness.client.patch(url, headers=HEADERS, json={"pinchZoom": False})
-    ultra = {"ultraImmersive": True, "ultraOpenSingle": False, "ultraRows": 2, "ultraColumns": 4, "ultraVideos": 3}
+    ultra = {"ultraImmersive": True, "ultraOpenSingle": False, "ultraRows": 10, "ultraColumns": 12, "ultraVideos": 16}
     harness.client.patch(url, headers=HEADERS, json=ultra)
     expected = {**first, **ultra, "sound": True, "pinchZoom": False}
     assert harness.client.patch(url + "?initialize=true", headers=HEADERS,
@@ -687,8 +688,22 @@ def test_shared_preferences_merge_initialize_validate_and_persist(harness):
     assert get(harness, url) == expected
     assert FeedState(harness.service.state.path).preferences() == expected
     for invalid in ({"sound": None}, {"sound": "false"}, {"unknown": True},
-                    {"ultraRows": 0}, {"ultraColumns": 7}, {"ultraVideos": True}, {"ultraVideos": "2"}):
+                    {"ultraRows": 0}, {"ultraColumns": 2**53}, {"ultraVideos": True},
+                    {"ultraVideos": "2"}, {"ultraRows": 1.5}):
         assert harness.client.patch(url, headers=HEADERS, json=invalid).status_code == 422
+
+
+def test_preferences_upgrade_preserves_saved_limits_and_accepts_custom_values(tmp_path):
+    path = tmp_path / "ui_feed_state.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE preference_limits "
+                           "(key TEXT PRIMARY KEY, value INTEGER NOT NULL CHECK(value BETWEEN 1 AND 8)) WITHOUT ROWID")
+        connection.execute("INSERT INTO preference_limits VALUES ('ultraRows', 4), ('ultraVideos', 2)")
+
+    state = FeedState(path)
+    assert state.preferences() == {"ultraRows": 4, "ultraVideos": 2}
+    assert state.update_preferences({"ultraVideos": 12}) == {"ultraRows": 4, "ultraVideos": 12}
+    assert FeedState(path).preferences() == {"ultraRows": 4, "ultraVideos": 12}
 
 
 @pytest.mark.asyncio

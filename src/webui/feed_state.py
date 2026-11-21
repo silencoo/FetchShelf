@@ -18,9 +18,14 @@ from time import time
 MARK_KINDS = frozenset({"like", "save", "follow", "hide", "block"})
 _POST_KINDS = frozenset({"like", "save"})
 _BOOLEAN_PREFERENCES = frozenset({"sound", "autoNext", "showPauseIcon", "pinchZoom", "ultraImmersive", "ultraOpenSingle"})
-ULTRA_LIMITS = {"ultraColumns": 6, "ultraRows": 5, "ultraVideos": 8}
+_ULTRA_LIMIT_KEYS = frozenset({"ultraColumns", "ultraRows", "ultraVideos"})
+MAX_SAFE_PREFERENCE_INTEGER = 2**53 - 1
 
-_SCHEMA = """
+_LIMITS_TABLE = f"""(
+    key TEXT PRIMARY KEY,
+    value INTEGER NOT NULL CHECK(value BETWEEN 1 AND {MAX_SAFE_PREFERENCE_INTEGER})
+) WITHOUT ROWID"""
+_SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS marks (
     kind TEXT NOT NULL,
     target TEXT NOT NULL,
@@ -55,10 +60,7 @@ CREATE TABLE IF NOT EXISTS preferences (
     key TEXT PRIMARY KEY,
     value INTEGER NOT NULL CHECK(value IN (0, 1))
 ) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS preference_limits (
-    key TEXT PRIMARY KEY,
-    value INTEGER NOT NULL CHECK(value BETWEEN 1 AND 8)
-) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS preference_limits {_LIMITS_TABLE};
 CREATE INDEX IF NOT EXISTS marks_recent ON marks(kind, created_at);
 CREATE INDEX IF NOT EXISTS marks_account ON marks(kind, account_key, created_at);
 """
@@ -80,6 +82,7 @@ class FeedState:
                     try:
                         connection.execute("PRAGMA journal_mode=WAL")
                         connection.executescript(_SCHEMA)
+                        self._migrate_preference_limits(connection)
                     finally:
                         connection.close()
                     self._prepared = True
@@ -88,6 +91,21 @@ class FeedState:
             yield connection
         finally:
             connection.close()
+
+    @staticmethod
+    def _migrate_preference_limits(connection: sqlite3.Connection) -> None:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            if connection.execute("PRAGMA user_version").fetchone()[0] == 0:
+                connection.execute(f"CREATE TABLE preference_limits_upgrade {_LIMITS_TABLE}")
+                connection.execute("INSERT INTO preference_limits_upgrade SELECT key, value FROM preference_limits")
+                connection.execute("DROP TABLE preference_limits")
+                connection.execute("ALTER TABLE preference_limits_upgrade RENAME TO preference_limits")
+                connection.execute("PRAGMA user_version = 1")
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
 
     def start_arrival_run(self, task_id: str, partial: bool) -> None:
         with self._connect() as connection:
@@ -176,7 +194,7 @@ class FeedState:
                 for key, value in values.items():
                     if key in _BOOLEAN_PREFERENCES and type(value) is bool:
                         table = "preferences"
-                    elif key in ULTRA_LIMITS and type(value) is int and 1 <= value <= ULTRA_LIMITS[key]:
+                    elif key in _ULTRA_LIMIT_KEYS and type(value) is int and 1 <= value <= MAX_SAFE_PREFERENCE_INTEGER:
                         table = "preference_limits"
                     else:
                         raise ValueError("invalid feed preference")

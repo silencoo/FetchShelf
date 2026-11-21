@@ -1,7 +1,7 @@
 import { getPlatform } from "./platform";
 import { useSyncExternalStore } from "react";
 
-import { api, ultraLimits, type FeedPreferences } from "./api";
+import { api, ultraDefaults, type FeedPreferences } from "./api";
 import type { Author, Post, PostSource } from "./types";
 
 type Listener = () => void;
@@ -181,10 +181,10 @@ function readPreference(key: string, fallback: boolean) {
   }
 }
 
-function readLimit(key: string, { max, default: fallback }: { max: number; default: number }) {
+function readLimit(key: string, fallback: number) {
   try {
     const value = Number(localStorage.getItem(key));
-    return Number.isInteger(value) && value >= 1 && value <= max ? value : fallback;
+    return Number.isSafeInteger(value) && value >= 1 ? value : fallback;
   } catch {
     return fallback;
   }
@@ -219,9 +219,9 @@ class Preferences extends Observable implements FeedPreferences {
   pinchZoom = readPreference(preferenceKeys.pinchZoom, true);
   ultraImmersive = readPreference(preferenceKeys.ultraImmersive, false);
   ultraOpenSingle = readPreference(preferenceKeys.ultraOpenSingle, true);
-  ultraColumns = readLimit(preferenceKeys.ultraColumns, ultraLimits.ultraColumns);
-  ultraRows = readLimit(preferenceKeys.ultraRows, ultraLimits.ultraRows);
-  ultraVideos = readLimit(preferenceKeys.ultraVideos, ultraLimits.ultraVideos);
+  ultraColumns = readLimit(preferenceKeys.ultraColumns, ultraDefaults.ultraColumns);
+  ultraRows = readLimit(preferenceKeys.ultraRows, ultraDefaults.ultraRows);
+  ultraVideos = readLimit(preferenceKeys.ultraVideos, ultraDefaults.ultraVideos);
   syncState: "loading" | "saved" | "pending" | "error" = "loading";
   private pending: Partial<FeedPreferences> = {};
   private syncing = false;

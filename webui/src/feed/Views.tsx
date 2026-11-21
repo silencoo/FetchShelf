@@ -2,6 +2,7 @@ import { type Platform } from "./platform";
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -10,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 
-import { api, avatarUrl, setAccountBlocked, thumbUrl, ultraLimits } from "./api";
+import { api, avatarUrl, setAccountBlocked, thumbUrl, type ultraDefaults } from "./api";
 import { AccountCover } from "./AccountCover";
 import { formatCount, formatDuration, formatRelativeTime, initialOf } from "./format";
 import { useMediaQuery } from "./hooks";
@@ -1039,6 +1040,46 @@ function indexDescription(status: IndexStatus) {
   return `${status.accounts} 个账号 · ${status.posts} 个作品`;
 }
 
+function UltraLimitField({ field, label }: { field: keyof typeof ultraDefaults; label: string }) {
+  const errorId = useId();
+  const [draft, setDraft] = useState<string>();
+  const [invalid, setInvalid] = useState(false);
+
+  return (
+    <label className="fa-setting-row">
+      <span>{label}{invalid && <small id={errorId}>请输入有效的正整数</small>}</span>
+      <input className="fa-ultra-limit" type="number" inputMode="numeric" min={1} step={1}
+        aria-label={label} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}
+        value={draft ?? preferences[field]}
+        onChange={(event) => {
+          setDraft(event.currentTarget.value);
+          setInvalid(false);
+        }}
+        onBlur={(event) => {
+          if (draft === undefined) return;
+          const value = event.currentTarget.valueAsNumber;
+          if (!Number.isSafeInteger(value) || value < 1) {
+            setInvalid(true);
+            return;
+          }
+          setDraft(undefined);
+          setInvalid(false);
+          if (value !== preferences[field]) preferences.change(field, value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          } else if (event.key === "Escape" && draft !== undefined) {
+            event.preventDefault();
+            setDraft(undefined);
+            setInvalid(false);
+          }
+        }} />
+    </label>
+  );
+}
+
 export function MeView({ actions, visible, platform, onPlatform }: { actions: ViewActions; visible: boolean; platform: Platform; onPlatform(value: Platform): void }) {
   useObservable(preferences);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -1140,15 +1181,7 @@ export function MeView({ actions, visible, platform, onPlatform }: { actions: Vi
               ["ultraRows", "最多行数"],
               ["ultraVideos", "同时播放的视频数"],
             ] as const).map(([key, label]) => (
-              <label key={key} className="fa-setting-row">
-                <span>{label}</span>
-                <select className="fa-ultra-limit" data-ui-select="false" aria-label={label} value={preferences[key]}
-                  onChange={(event) => preferences.change(key, Number(event.target.value))}>
-                  {Array.from({ length: ultraLimits[key].max }, (_, index) => (
-                    <option key={index + 1} value={index + 1}>{index + 1}</option>
-                  ))}
-                </select>
-              </label>
+              <UltraLimitField key={key} field={key} label={label} />
             ))}
             <label className="fa-switch-row">
               <span>点击进入单条播放<small>关闭后，点击在当前屏内放大</small></span>

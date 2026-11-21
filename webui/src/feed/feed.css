@@ -1507,14 +1507,20 @@
 }
 
 .fa .fa-ultra-limit {
-  min-width: 60px;
-  min-height: 36px;
+  width: min(7ch, 40%);
+  min-height: 44px;
   padding: 0 8px;
   border: 1px solid var(--fa-line);
   border-radius: 8px;
   color: var(--fa-text);
   background: var(--fa-surface);
   color-scheme: dark;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fa .fa-ultra-limit[aria-invalid="true"] {
+  border-color: var(--fa-accent);
 }
 
 .fa-switch-row input {
