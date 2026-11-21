@@ -2,14 +2,16 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 
 import { fileUrl, thumbUrl } from "./api";
 import { usePagedWheel } from "./hooks";
-import type { PagerHandle } from "./Pager";
+import { IMAGE_SECONDS, type PagerHandle } from "./Pager";
+import { resumeVideo } from "./resumeVideo";
 import { preferences, useObservable, type PostList } from "./store";
-import type { Post } from "./types";
+import type { MediaItem, Post } from "./types";
 
 interface Tile {
   post: Post;
   index: number;
   aspect: number;
+  media: MediaItem[];
 }
 
 type Row = Tile[];
@@ -17,6 +19,16 @@ type Row = Tile[];
 function postAspect(post: Post) {
   const aspect = (post.width ?? 0) / (post.height ?? 0);
   return Number.isFinite(aspect) && aspect > 0 ? aspect : 2 / 3;
+}
+
+function playbackMedia(post: Post) {
+  if (post.kind === "images") return post.media;
+  const firstClip = post.media.findIndex((item) => item.kind === "video");
+  if (post.kind === "video" && firstClip >= 0) return post.media.slice(firstClip, firstClip + 1);
+  if (post.kind === "live" && firstClip > 0) {
+    return [...post.media.slice(firstClip), ...post.media.slice(0, firstClip)];
+  }
+  return post.media;
 }
 
 function packPosts(posts: Post[], columns: number, rows: number, targetAspect: number): Row[][] {
@@ -33,7 +45,7 @@ function packPosts(posts: Post[], columns: number, rows: number, targetAspect: n
         // Give wide media more room on tall screens by ending the row
         // once another tile would move farther from its target height.
         if (width >= targetAspect || (width > 0 && width * (width + aspect) > targetAspect ** 2)) break;
-        row.push({ post, index, aspect });
+        row.push({ post, index, aspect, media: playbackMedia(post) });
         width += aspect;
         index += 1;
       }
@@ -44,24 +56,46 @@ function packPosts(posts: Post[], columns: number, rows: number, targetAspect: n
   return batches;
 }
 
-function videoPath(post: Post) {
-  const media = post.media[0];
-  return post.kind === "video" && media?.kind === "video" ? media.path : undefined;
-}
-
-function UltraTile({ tile, widthShare, current, expanded, covered, play, onMeasure, onClick }: {
+function UltraTile({ tile, frame, widthShare, current, expanded, covered, play, paused, onAdvance, onMeasure, onClick }: {
   tile: Tile;
+  frame: number;
   widthShare: number;
   current: boolean;
   expanded?: boolean;
   covered: boolean;
   play: boolean;
+  paused: boolean;
+  onAdvance(tile: Tile): void;
   onMeasure(tile: Tile, width: number, height: number): void;
   onClick(): void;
 }) {
-  const { post } = tile;
-  const path = play ? videoPath(post) : undefined;
-  const preview = post.cover || post.media[0]?.path;
+  const { post, media } = tile;
+  const item = media[frame];
+  const [failedPath, setFailedPath] = useState<string>();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const path = play && item?.kind === "video" && item.path !== failedPath ? item.path : undefined;
+  const preview = item && (item.kind === "image" || post.kind === "live" || frame > 0)
+    ? item.path : post.cover || item?.path;
+  const running = current && !covered && !paused;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (running) {
+      video.muted = true;
+      void resumeVideo(video).catch(() => undefined);
+      return () => video.pause();
+    } else {
+      video.pause();
+    }
+  }, [path, running]);
+
+  useEffect(() => {
+    if (!running || media.length < 2 || path) return;
+    const timer = window.setTimeout(() => onAdvance(tile), IMAGE_SECONDS * 1000);
+    return () => window.clearTimeout(timer);
+  }, [running, media.length, frame, path, onAdvance, tile]);
+
   return (
     <button type="button" className="fa-ultra-tile" inert={covered} style={{ flexGrow: widthShare }}
       aria-label={[post.author.name, post.caption].filter(Boolean).join(" · ") || "浏览作品"}
@@ -69,10 +103,14 @@ function UltraTile({ tile, widthShare, current, expanded, covered, play, onMeasu
       {preview && <img src={thumbUrl(preview)} alt="" draggable={false} decoding="async"
         loading={current ? "eager" : "lazy"}
         onLoad={({ currentTarget: image }) => {
-          if (!path) onMeasure(tile, image.naturalWidth, image.naturalHeight);
+          if (frame === 0 && !path) onMeasure(tile, image.naturalWidth, image.naturalHeight);
         }} />}
-      {path && <video src={fileUrl(path)} muted playsInline autoPlay loop preload="metadata"
-        onLoadedMetadata={({ currentTarget: video }) => onMeasure(tile, video.videoWidth, video.videoHeight)} />}
+      {path && <video key={path} ref={videoRef} src={fileUrl(path)} muted playsInline loop={media.length === 1} preload="metadata"
+        onLoadedMetadata={({ currentTarget: video }) => {
+          if (frame === 0) onMeasure(tile, video.videoWidth, video.videoHeight);
+        }}
+        onEnded={() => { if (media.length > 1) onAdvance(tile); }}
+        onError={() => setFailedPath(path)} />}
     </button>
   );
 }
@@ -99,6 +137,8 @@ export function UltraPager({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [position, setPosition] = useState(0);
   const [expanded, setExpanded] = useState<string>();
+  const [paused, setPaused] = useState(false);
+  const [frames, setFrames] = useState<Record<string, number>>({});
   const [measuredAspects, setMeasuredAspects] = useState(() => new Map<string, number>());
   const openPlayer = preferences.ultraOpenSingle ? openSingle : undefined;
   const anchor = useRef<string | undefined>(undefined);
@@ -113,11 +153,16 @@ export function UltraPager({
   const expandedKey = openPlayer ? undefined : expanded;
   const selected = tiles.find(({ post }) => post.key === expandedKey);
   const activePost = selected?.post ?? tiles[0]?.post;
-  const videos = tiles.filter(({ post }) => videoPath(post)).slice(0, preferences.ultraVideos);
-  if (selected && videoPath(selected.post) && !videos.includes(selected)) {
+  const frameFor = (tile: Tile) => (frames[tile.post.key] ?? 0) % Math.max(1, tile.media.length);
+  const videos = tiles.filter((tile) => tile.media[frameFor(tile)]?.kind === "video").slice(0, preferences.ultraVideos);
+  if (selected && selected.media[frameFor(selected)]?.kind === "video" && !videos.includes(selected)) {
     videos[Math.min(videos.length, preferences.ultraVideos - 1)] = selected;
   }
   const videoKeys = new Set(videos.map(({ post }) => post.key));
+
+  const advanceTile = useCallback(({ post, media }: Tile) => {
+    setFrames((previous) => ({ ...previous, [post.key]: ((previous[post.key] ?? 0) + 1) % media.length }));
+  }, []);
 
   const onMeasure = (tile: Tile, width: number, height: number) => {
     if (!width || !height) return;
@@ -188,11 +233,7 @@ export function UltraPager({
     const handle: PagerHandle = {
       next: () => go(1),
       previous: () => go(-1),
-      togglePause: () => {
-        const players = Array.from(node?.querySelectorAll("video") ?? []);
-        if (players.some((video) => !video.paused)) players.forEach((video) => video.pause());
-        else players.forEach((video) => void video.play().catch(() => undefined));
-      },
+      togglePause: () => setPaused((value) => !value),
       seek: (delta) => {
         const video = node?.querySelector("video");
         if (video && Number.isFinite(video.duration)) {
@@ -217,6 +258,8 @@ export function UltraPager({
     anchor.current = batches[next][0][0].post.key;
     setPosition(next);
     setExpanded(undefined);
+    setPaused(false);
+    setFrames({});
   };
 
   const status = list.error ? (
@@ -249,9 +292,12 @@ export function UltraPager({
                     return (
                       <UltraTile key={tile.post.key} tile={tile}
                         widthShare={aspects[rowIndex][columnIndex] * heights[rowIndex]}
+                        frame={visible ? frameFor(tile) : 0}
                         current={visible} expanded={openPlayer ? undefined : isExpanded}
                         covered={batchIndex === active && Boolean(selected) && !isExpanded}
                         play={visible && videoKeys.has(tile.post.key)}
+                        paused={paused}
+                        onAdvance={advanceTile}
                         onMeasure={onMeasure}
                         onClick={() => openPlayer
                           ? openPlayer(list, tile.index)

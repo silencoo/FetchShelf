@@ -42,7 +42,7 @@ import type { Post } from "./types";
 
 const OVERSCAN = 2;
 const LOAD_AHEAD = 4;
-const IMAGE_SECONDS = 4;
+export const IMAGE_SECONDS = 4;
 const SETTLE_FRAMES = 6;
 const SETTLE_FRAMES_MAX = 90;
 
