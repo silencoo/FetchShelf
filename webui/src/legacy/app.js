@@ -69,6 +69,7 @@ function switchTab(tab, { load = true } = {}) {
     ? tab
     : fallbackTab;
   if (state.activeTab === "profiles" && nextTab !== "profiles") {
+    state.accountBoard.restoreScrollY = Math.max(0, window.scrollY || 0);
     persistAccountBoardState();
   }
   if (state.activeTab === "feed" && nextTab !== "feed") {
@@ -2393,9 +2394,11 @@ function boardAssetUrl(path, scope = "download") {
   return `/ui/api/file?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path || "")}`;
 }
 
-function appendBoardMediaThumbnail(container, src, kind, alt = "", priority = "") {
+const boardPreviewMetadata = new WeakMap();
+
+function appendBoardMediaThumbnail(container, src, priority = "", dimensions) {
   const image = document.createElement("img");
-  image.alt = alt;
+  image.alt = "";
   image.loading = priority ? "eager" : "lazy";
   if (priority === "high") image.setAttribute("fetchpriority", "high");
   image.decoding = "async";
@@ -2405,9 +2408,15 @@ function appendBoardMediaThumbnail(container, src, kind, alt = "", priority = ""
     message.textContent = "预览不可用";
     image.replaceWith(message);
   }, { once: true });
-  image.src = kind === "video" ? src + "&thumbnail=true" : src;
-  syncNaturalMediaRatio(image, container);
+  if (dimensions?.width > 0 && dimensions.height > 0) {
+    image.width = dimensions.width;
+    image.height = dimensions.height;
+    setMediaRatio(container, dimensions.width, dimensions.height);
+  } else {
+    syncNaturalMediaRatio(image, container);
+  }
   container.appendChild(image);
+  image.src = src;
 }
 
 function persistAccountBoardState() {
@@ -2507,6 +2516,12 @@ function jumpToValidatedPage(input, pages, onValid, onInvalid) {
   onValid(requested);
 }
 
+function setMediaRatio(container, width, height) {
+  container.style.setProperty("--media-aspect", `${width} / ${height}`);
+  container.dataset.orientation =
+    width > height ? "landscape" : width < height ? "portrait" : "square";
+}
+
 function syncNaturalMediaRatio(element, container) {
   if (!element || !container) {
     return;
@@ -2518,15 +2533,13 @@ function syncNaturalMediaRatio(element, container) {
     if (!(width > 0 && height > 0)) {
       return false;
     }
-    container.style.setProperty("--media-aspect", `${width} / ${height}`);
-    container.dataset.orientation =
-      width > height ? "landscape" : width < height ? "portrait" : "square";
+    setMediaRatio(container, width, height);
     return true;
   };
-  state.accountBoard.restoreScrollY = Math.max(0, window.scrollY || 0);
-  persistAccountBoardState();
   if (!update()) {
-    element.addEventListener(isVideo ? "loadedmetadata" : "load", update, { once: true });
+    element.addEventListener(isVideo ? "loadedmetadata" : "load", () => {
+      if (element.parentElement === container) update();
+    }, { once: true });
   }
 }
 
@@ -2686,20 +2699,10 @@ function selectedBoardPreview(card) {
     scope: card.dataset.avatarScope || "project",
     pinned: true,
   };
-  const isPinnedProfile = card.dataset.pinned === "1";
   const hasAvatar = Boolean(avatarPreview.path);
   const forcedMode = String(card.dataset.previewMode || "").toLowerCase();
-  if (forcedMode === "media" && hasMedia) {
-    return mediaPreview;
-  }
   if (forcedMode === "avatar" && hasAvatar) {
     return avatarPreview;
-  }
-  if (state.accountBoard.viewMode === "avatar" && hasMedia) {
-    return mediaPreview;
-  }
-  if (isPinnedProfile && hasMedia) {
-    return mediaPreview;
   }
   if (hasMedia) {
     return mediaPreview;
@@ -2712,7 +2715,7 @@ function selectedBoardPreview(card) {
   return mediaPreview;
 }
 
-function renderBoardCardPreview(card) {
+function renderBoardCardPreview(card, { reuseMedia = false } = {}) {
   const mediaWrap = card.querySelector(".profile-media-wrap");
   const galleryButtons = card.querySelectorAll('[data-action="board-open-gallery"]');
   const filesBtn = card.querySelector('[data-action="board-open-files"]');
@@ -2791,7 +2794,7 @@ function renderBoardCardPreview(card) {
   if (filesBtn) {
     filesBtn.disabled = !card.dataset.folderPath;
   }
-  if (!mediaWrap) {
+  if (!mediaWrap || reuseMedia) {
     return;
   }
   mediaWrap.innerHTML = "";
@@ -2815,13 +2818,19 @@ function renderBoardCardPreview(card) {
     mediaWrap.appendChild(empty);
     return;
   }
-  let src = boardAssetUrl(preview.path, preview.scope || "download");
-  if (preview.kind === "video" && Number(card.dataset.posterSecond) > 0) {
-    src += "&poster_second=" + Number(card.dataset.posterSecond);
-  }
   mediaWrap.classList.add(`profile-media-wrap-${preview.kind}`);
   if (preview.kind === "image" || preview.kind === "video") {
-    appendBoardMediaThumbnail(mediaWrap, src, preview.kind, "", card.dataset.previewPriority);
+    const hint = boardPreviewMetadata.get(card);
+    const metadata = hint?.path === preview.path && hint.scope === preview.scope ? hint : null;
+    const query = new URLSearchParams({
+      path: preview.path,
+      scope: preview.scope,
+      v: metadata?.version || "",
+    });
+    if (preview.kind === "video" && Number(card.dataset.posterSecond) > 0) {
+      query.set("second", card.dataset.posterSecond);
+    }
+    appendBoardMediaThumbnail(mediaWrap, `/ui/api/feed/thumb?${query}`, card.dataset.previewPriority, metadata);
     return;
   }
   const empty = document.createElement("div");
@@ -2830,7 +2839,8 @@ function renderBoardCardPreview(card) {
   mediaWrap.appendChild(empty);
 }
 
-function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false, second = 0) {
+function setBoardCardMedia(card, mediaPath, mediaKind, pinned = false, second = 0, metadata) {
+  if (metadata !== undefined) boardPreviewMetadata.set(card, metadata);
   card.dataset.posterSecond = String(second);
   card.dataset.mediaPath = mediaPath || "";
   card.dataset.mediaKind = mediaKind || "";
@@ -3071,7 +3081,7 @@ function renderAccountGalleryGrid() {
     const media = document.createElement("span");
     media.className = `account-gallery-thumb-media account-gallery-thumb-media-${item.kind}`;
     const src = boardAssetUrl(item.path, "download");
-    appendBoardMediaThumbnail(media, src, item.kind);
+    appendBoardMediaThumbnail(media, item.kind === "video" ? src + "&thumbnail=true" : src);
     if (item.kind === "video") {
       const play = document.createElement("span");
       play.className = "account-gallery-thumb-play";
@@ -3257,7 +3267,7 @@ async function pinAccountGalleryMedia() {
     return;
   }
   try {
-    await fetchJson("/ui/api/accounts/board/pin", {
+    const payload = await fetchJson("/ui/api/accounts/board/pin", {
       method: "POST",
       headers: headerOptions(true),
       body: JSON.stringify({
@@ -3273,7 +3283,7 @@ async function pinAccountGalleryMedia() {
     );
     if (card) {
       card.dataset.previewMode = "media";
-      setBoardCardMedia(card, item.path, item.kind || "", true);
+      setBoardCardMedia(card, item.path, item.kind || "", true, payload.poster_second, payload.preview);
     }
     setBoardStatus(`已将 ${item.name || "当前媒体"} 设为看板媒体`);
     setApiStatus("就绪", "ok");
@@ -3557,7 +3567,9 @@ function renderAccountBoard(items) {
     card.appendChild(mediaWrap);
     card.appendChild(body);
     if (item.blocked && state.accountBoard.status === "blocked") card.append(blockedAccountActions(item));
-    setBoardCardMedia(card, item.media_path || "", item.media_kind || "", Boolean(item.pinned), item.poster_second);
+    setBoardCardMedia(
+      card, item.media_path || "", item.media_kind || "", Boolean(item.pinned), item.poster_second, item.preview,
+    );
     if (item.cover_pending) card.dataset.coverPending = "1";
     fragment.appendChild(card);
   }
@@ -3672,6 +3684,7 @@ async function refreshBoardCard(card, preferKind = "auto", automatic = false) {
       payload.media_kind || "",
       Boolean(payload.pinned),
       payload.poster_second,
+      payload.preview,
     );
     if (automatic) return;
     const usedKind = String(payload.media_kind || "").trim();
@@ -6932,16 +6945,19 @@ function bindEvents() {
     } catch {}
     applyBoardColumns(true);
     for (const card of refs.boardGrid.querySelectorAll(".profile-card")) {
-      renderBoardCardPreview(card);
+      renderBoardCardPreview(card, { reuseMedia: true });
     }
   });
 
   refs.boardDensity.addEventListener("input", () => {
     state.accountBoard.columns = Number(refs.boardDensity.value || "4");
-    applyBoardColumns(true);
+    applyBoardColumns(false);
   });
 
-  refs.boardDensity.addEventListener("change", () => saveBoardPreference("columns"));
+  refs.boardDensity.addEventListener("change", () => {
+    applyBoardColumns(true);
+    saveBoardPreference("columns");
+  });
 
   refs.boardPageSize.addEventListener("change", () => {
     state.accountBoard.pageSize = Number(refs.boardPageSize.value || "24");

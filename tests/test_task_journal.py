@@ -1142,6 +1142,8 @@ async def test_shutdown_does_not_leave_running_worker_waiting_for_queue():
 
 
 def test_board_keeps_covers_and_only_replaces_the_requested_account(tmp_path, monkeypatch):
+    from PIL import Image
+
     monkeypatch.setenv("FETCHSHELF_API_TOKEN", "board-test-token")
     server = APIServer.__new__(APIServer)
     server.server = FastAPI()
@@ -1156,6 +1158,9 @@ def test_board_keeps_covers_and_only_replaces_the_requested_account(tmp_path, mo
         folder.mkdir()
         for filename in ("a.jpg", "b.mp4"):
             (folder / filename).touch()
+    exif = Image.Exif()
+    exif[274] = 6
+    Image.new("RGB", (1600, 1000), "blue").save(tmp_path / "UID1_Alpha/a.jpg", exif=exif)
     server.setup_routes()
     client = TestClient(server.server, headers={"token": "board-test-token"})
     base = "/ui/api/accounts/board"
@@ -1167,6 +1172,20 @@ def test_board_keeps_covers_and_only_replaces_the_requested_account(tmp_path, mo
     initial = board()
     assert initial == {"alpha": ("UID1_Alpha/a.jpg", True), "beta": ("UID1_Beta/b.mp4", True), "empty": ("", False)}
     assert board() == initial
+    alpha, _, empty = client.get(base).json()["items"]
+    preview = alpha["preview"]
+    assert (preview["width"], preview["height"]) == (1000, 1600)
+    assert "preview" not in empty
+    params = {"path": preview["path"], "scope": preview["scope"], "v": preview["version"]}
+    thumbnail = client.get("/ui/api/feed/thumb", params=params)
+    assert thumbnail.is_success
+    assert len(thumbnail.content) < (tmp_path / preview["path"]).stat().st_size
+    old_tag = thumbnail.headers["etag"]
+    assert client.get("/ui/api/feed/thumb", params=params, headers={"if-none-match": old_tag}).status_code == 304
+    Image.new("RGB", (700, 1000), "red").save(tmp_path / preview["path"])
+    replaced = client.get("/ui/api/feed/thumb", params=params, headers={"if-none-match": old_tag})
+    assert replaced.is_success and replaced.headers["cache-control"] == "private, no-cache"
+    assert client.get(base).json()["items"][0]["preview"]["version"] != preview["version"]
     def pick(url, mode):
         return client.post(base + "/random", json={
             "url": url, "current_path": board()[url][0], "face_cover": mode,

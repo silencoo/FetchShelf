@@ -30,7 +30,7 @@ from ..webui.feed_index import (
     uid_from_folder,
 )
 from ..webui.files import IMAGE_SUFFIXES, VIDEO_SUFFIXES, resolve_within_root
-from ..webui.video_preview import image_preview, video_preview
+from ..webui.video_preview import image_preview, preview_revision, video_preview
 
 if TYPE_CHECKING:
     from .main_server import APIServer
@@ -916,6 +916,7 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         scope: Literal["download", "project"] = Query("download"),
         second: int = Query(0, ge=0, le=3),
         w: int = Query(480, ge=64, le=1080),
+        v: str | None = Query(None, max_length=80),
         token: str = Depends(token_dependency),
     ):
         root = server._scope_root(scope)
@@ -932,9 +933,9 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         is_image = suffix in IMAGE_SUFFIXES
         if not target.is_file() or not (is_image or (suffix in VIDEO_SUFFIXES and scope == "download")):
             raise HTTPException(status_code=404, detail="File does not exist.")
-        etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}-{w}-{second}"'
-        # Downloads never change in place, but a regenerated avatar keeps its path.
-        cache = _THUMB_CACHE if scope == "download" else "private, no-cache"
+        revision = preview_revision(stat)
+        etag = f'"{revision}-{w}-{second}"'
+        cache = _THUMB_CACHE if scope == "download" and (v is None or v == revision) else "private, no-cache"
         headers = {"Cache-Control": cache, "ETag": etag}
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers=headers)

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from src.application.main_server import APIServer
+from src.webui.video_preview import preview_metadata
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="requires ffmpeg")
@@ -32,7 +33,12 @@ def test_video_thumbnail_uses_file_permissions_and_tracks_replacements(tmp_path,
     assert preview.headers["content-type"] == "image/jpeg"
     with Image.open(BytesIO(preview.content)) as image:
         assert image.size == (270, 480)
+    if shutil.which("ffprobe"):
+        assert {key: preview_metadata(path)[key] for key in ("width", "height")} == {
+            "width": 360, "height": 640,
+        }
     assert client.get(url).content == path.read_bytes()
     path.write_bytes(b"broken video")
     assert client.get(url + "&thumbnail=true").status_code == 422
+    assert "width" not in preview_metadata(path)
     assert client.get(url.replace("short.mp4", "../outside.mp4") + "&thumbnail=true").status_code == 400

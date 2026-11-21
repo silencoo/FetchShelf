@@ -82,7 +82,7 @@ from ..webui.files import (
 )
 from ..webui.profile_avatar import choose_face_cover, generate_face_avatar
 from ..webui.preferences import BoardPreferences, BoardPreferenceStore
-from ..webui.video_preview import video_preview
+from ..webui.video_preview import preview_metadata, video_preview
 from .feed_routes import register_feed_routes
 from ..webui_security import (
     redact_webui_json_text,
@@ -118,8 +118,26 @@ def token_dependency(
 class ServerRoutesMixin:
     def setup_routes(self):
         preview_slots = Semaphore(2)
+        board_metadata_slots = Semaphore(3)
         cover_slot = self._account_board_cover_slot()
         register_feed_routes(self, token_dependency)
+
+        def read_board_preview(path, scope):
+            root = self._scope_root(scope)
+            try:
+                target = resolve_within_root(root, path)
+                self._ensure_public_file_scope_path(scope, root, target)
+                if target.is_file():
+                    return {"path": path, "scope": scope, **preview_metadata(target)}
+            except (HTTPException, OSError, ValueError):
+                pass
+            return None
+
+        async def describe_board_preview(path, scope="download"):
+            if path:
+                async with board_metadata_slots:
+                    return await to_thread(read_board_preview, path, scope)
+            return None
 
         # Construct lazily: route-only test harnesses need no settings directory.
         board_preferences = None
@@ -1458,7 +1476,7 @@ class ServerRoutesMixin:
             sort: str = Query("configured"),
             token: str = Depends(token_dependency),
         ):
-            return self._build_account_board_page(
+            board = self._build_account_board_page(
                 platform=platform,
                 page=page,
                 page_size=page_size,
@@ -1467,6 +1485,16 @@ class ServerRoutesMixin:
                 sort_by=sort,
                 blocked_keys=set(self.feed_state.targets("block")),
             )
+            items = board["items"]
+            previews = await gather(*(
+                describe_board_preview(item["media_path"]) if item.get("media_path")
+                else describe_board_preview(item.get("avatar_path"), item.get("avatar_scope", "project"))
+                for item in items
+            ))
+            for item, preview in zip(items, previews):
+                if preview:
+                    item["preview"] = preview
+            return board
 
         @self.server.get(
             "/ui/api/accounts/board/gallery",
@@ -1561,7 +1589,10 @@ class ServerRoutesMixin:
                     else:
                         return result(before, "no_face")
                     self._save_account_board_pins(pins)
-                    return result(pins[key], "selected" if selected else "no_face")
+                payload = result(pins[key], "selected" if selected else "no_face")
+                if selected:
+                    payload["preview"] = await describe_board_preview(payload["media_path"])
+                return payload
 
             media = self._pick_account_board_media(
                 root=root,
@@ -1582,6 +1613,7 @@ class ServerRoutesMixin:
                 "folder_path": relative_path(root, folder),
                 "media_path": media.get("path", ""),
                 "media_kind": media.get("kind", ""),
+                "preview": await describe_board_preview(media.get("path")),
                 "pinned": pin,
                 "prefer_kind": prefer_kind,
             }
@@ -1631,6 +1663,8 @@ class ServerRoutesMixin:
                 "platform": platform,
                 "url": url,
                 "path": media_path,
+                "poster_second": pins[key].get("second", 0),
+                "preview": await describe_board_preview(media_path),
             }
 
         @self.server.post(
