@@ -213,4 +213,6 @@ async def test_start_uses_only_cloak_and_preserves_profile_proxy(tmp_path, monke
     assert kwargs["proxy"] == {"server": "http://proxy:7890"}
     assert kwargs["headless"] is False
     assert kwargs["no_viewport"] is True
+    assert f"--window-size={manager.width},{manager.height}" in kwargs["args"]
+    assert "--window-position=0,0" in kwargs["args"]
     assert "channel" not in kwargs

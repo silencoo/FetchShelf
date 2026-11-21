@@ -239,7 +239,7 @@ class CollectorLoginBrowserManager:
                         "--disable-dev-shm-usage",
                         "--disable-quic",
                         f"--window-size={self.width},{self.height}",
-                        "--start-maximized",
+                        "--window-position=0,0",
                     ],
                 }
                 if proxy := self._playwright_proxy(credentials.proxy):
