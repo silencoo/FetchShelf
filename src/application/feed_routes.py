@@ -541,6 +541,8 @@ class FeedService:
             offset = max(0, int(cursor.get("o", 0)))
             keys, total = state.page(mark, limit=limit, offset=offset, account_key=account, platform=platform)
             rows = self.stored_posts(keys)
+            if source == "likes" and account and not cursor:
+                available_total = total
             if offset + limit < total:
                 following = {"o": offset + limit}
         elif source == "popular":
@@ -572,6 +574,32 @@ class FeedService:
             "total": total,
             "next_offset": offset + limit if offset + limit < total else None,
         }
+
+    def liked_accounts(self, *, platform: str, limit: int, offset: int) -> dict:
+        groups, next_offset = self.state.liked_accounts(platform=platform, limit=limit, offset=offset)
+        keys = [key for group in groups for key in loads(group["previews"])]
+        previews = {post["key"]: post for post in self.posts_payload(self.stored_posts(keys))}
+        items = []
+        for group in groups:
+            key = group["account_key"]
+            posts = [previews[k] for k in loads(group["previews"]) if k in previews]
+            if posts:
+                author = posts[0]["author"]
+            else:
+                account = self.index.account(key)
+                platform_name, _, url = key.partition("::")
+                author = {
+                    "key": key,
+                    "name": account["name"] if account else url,
+                    "avatar": self.avatar_for(key, account["cover_path"]) if account else None,
+                    "platform": platform_name,
+                }
+            items.append({
+                "author": author,
+                "count": group["count"],
+                "previews": [{"key": post["key"], "cover": post["cover"]} for post in posts],
+            })
+        return {"items": items, "next_offset": next_offset}
 
     def top_tags(self, platform: str = "") -> list[dict]:
         stamp, tags = self._tags.get(platform, (0.0, []))
@@ -838,6 +866,15 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         return service().list_accounts(
             query=q.strip(), sort=sort, scope=scope, limit=limit, offset=offset, platform=platform,
         )
+
+    @app.get("/ui/api/feed/liked-accounts", tags=["沉浸浏览"], summary="按账号查看我的喜欢")
+    def feed_liked_accounts(
+        platform: Literal["", "douyin", "tiktok", "kuaishou", "rednote", "weibo"] = Query(""),
+        limit: int = Query(24, ge=1, le=60),
+        offset: int = Query(0, ge=0),
+        token: str = Depends(token_dependency),
+    ):
+        return service().liked_accounts(platform=platform, limit=limit, offset=offset)
 
     @app.get("/ui/api/feed/tags", tags=["沉浸浏览"], summary="常见话题")
     def feed_tags(platform: Literal["", "douyin", "tiktok", "kuaishou", "rednote", "weibo"] = Query(""), token: str = Depends(token_dependency)):

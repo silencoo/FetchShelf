@@ -119,6 +119,7 @@ export class PostList extends Observable {
 }
 
 class Marks extends Observable {
+  likesRevision = 0;
   private liked = new Map<string, boolean>();
   private saved = new Map<string, boolean>();
   private followed = new Map<string, boolean>();
@@ -147,6 +148,10 @@ class Marks extends Observable {
     this.emit();
     try {
       await api.setMark(kind, key, next);
+      if (kind === "like") {
+        this.likesRevision += 1;
+        this.emit();
+      }
     } catch {
       if (before === undefined) {
         map.delete(key);

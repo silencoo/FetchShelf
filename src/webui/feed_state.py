@@ -232,6 +232,35 @@ class FeedState:
             ).fetchall()
         return [row[0] for row in rows], total
 
+    def liked_accounts(self, *, platform: str, limit: int, offset: int) -> tuple[list[dict], int | None]:
+        condition = "kind='like' AND account_key<>''"
+        params = []
+        if platform:
+            condition += " AND account_key LIKE ?"
+            params.append(platform + "::%")
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                f"""
+                WITH accounts AS (
+                    SELECT account_key, COUNT(*) AS count, MAX(created_at) AS latest_like
+                    FROM marks WHERE {condition}
+                    GROUP BY account_key
+                    ORDER BY latest_like DESC, account_key LIMIT ? OFFSET ?
+                )
+                SELECT account_key, count, (
+                    SELECT json_group_array(target) FROM (
+                        SELECT target FROM marks
+                        WHERE kind='like' AND account_key=accounts.account_key
+                        ORDER BY created_at DESC, target LIMIT 3
+                    )
+                ) AS previews
+                FROM accounts ORDER BY latest_like DESC, account_key
+                """,
+                [*params, limit + 1, offset],
+            ).fetchall()
+        return [dict(row) for row in rows[:limit]], offset + limit if len(rows) > limit else None
+
     def counts(self, platform: str = "") -> dict[str, int]:
         with self._connect() as connection:
             found = dict(

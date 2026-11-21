@@ -8,6 +8,7 @@ import type {
   AvatarSource,
   CommentPage,
   IndexStatus,
+  LikedAccountPage,
   MeSummary,
   Post,
   PostPage,
@@ -124,6 +125,8 @@ export const api = {
     limit?: number;
     offset?: number;
   }) => request<AccountPage>(`/ui/api/feed/accounts?${query({ ...options, platform: platformFilter() })}`),
+  likedAccounts: (offset: number, signal: AbortSignal) =>
+    request<LikedAccountPage>(`/ui/api/feed/liked-accounts?${query({ offset, platform: platformFilter() })}`, { signal }),
   tags: () =>
     request<{ items: Array<{ tag: string; count: number }> }>(`/ui/api/feed/tags?platform=${platformFilter()}`),
   me: () => request<MeSummary>(`/ui/api/feed/me?platform=${platformFilter()}`),

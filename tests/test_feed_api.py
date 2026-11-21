@@ -83,6 +83,7 @@ def put_mark(harness, kind, target, on=True):
         ("get", "/ui/api/feed/post?key=x"),
         ("get", "/ui/api/feed/account?key=x"),
         ("get", "/ui/api/feed/accounts"),
+        ("get", "/ui/api/feed/liked-accounts"),
         ("get", "/ui/api/feed/tags"),
         ("get", "/ui/api/feed/me"),
         ("get", "/ui/api/feed/comments?key=x"),
@@ -93,6 +94,34 @@ def put_mark(harness, kind, target, on=True):
 )
 def test_every_feed_route_requires_the_token(harness, method, path):
     assert getattr(harness.client, method)(path).status_code == 403
+
+
+def test_liked_accounts_group_all_marks_and_page_by_latest_like(harness):
+    ann_key = "douyin::https://example.test/ann"
+    bob_key = "douyin::https://example.test/bob"
+    path = "/ui/api/feed/liked-accounts"
+    assert get(harness, path) == {"items": [], "next_offset": None}
+
+    first, second = "1:20260101100000:v", "1:20260102100000:v"
+    gallery, bob = "1:20260103100000:i", "2:20260201100000:v"
+    for key in (first, second, gallery, bob):
+        assert put_mark(harness, "like", key).status_code == 200
+    result = get(harness, path, limit=1, platform="douyin")
+    assert result["next_offset"] == 1
+    assert result["items"][0]["author"]["key"] == bob_key
+    assert result["items"][0]["count"] == 1
+
+    group = get(harness, path, limit=1, offset=1)["items"][0]
+    assert group["author"]["key"] == ann_key
+    assert group["count"] == 3
+    assert [post["key"] for post in group["previews"]] == [gallery, second, first]
+    assert not get(harness, path, platform="tiktok")["items"]
+
+    assert put_mark(harness, "like", gallery, on=False).status_code == 200
+    linked = get(harness, "/ui/api/feed/posts", source="likes", account=ann_key)
+    assert linked["available_total"] == 2
+    assert [post["key"] for post in linked["items"]] == [second, first]
+    assert get(harness, path, offset=1, limit=1)["items"][0]["count"] == 2
 
 
 def test_marks_route_requires_the_token(harness):

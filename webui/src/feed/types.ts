@@ -134,6 +134,17 @@ export interface PostPage {
   next_cursor: string | null;
 }
 
+export interface LikedAccount {
+  author: Pick<Author, "key" | "name" | "avatar" | "platform">;
+  count: number;
+  previews: Array<Pick<Post, "key" | "cover">>;
+}
+
+export interface LikedAccountPage {
+  items: LikedAccount[];
+  next_offset: number | null;
+}
+
 export interface AccountPage {
   items: Account[];
   total: number;
