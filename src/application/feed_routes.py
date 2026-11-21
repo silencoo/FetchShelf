@@ -316,6 +316,10 @@ class FeedService:
                 for name in loads(row["files"])
             ]
             work_id = row.get("work_id") or row.get("work_hint") or ""
+            # The extractor can use the work ID as a placeholder for a blank caption.
+            caption = row.get("full_caption") or row["caption"]
+            if work_id and caption.strip() == work_id:
+                caption = ""
             music_title = row.get("music_title") or ""
             music_url = _http_url(row.get("music_url"))
             has_counts = row.get("likes") is not None
@@ -325,7 +329,7 @@ class FeedService:
                     "kind": row["kind"],
                     "published_ts": row["published_ts"],
                     **({"first_saved_at": row["first_saved_at"]} if "first_saved_at" in row else {}),
-                    "caption": row.get("full_caption") or row["caption"],
+                    "caption": caption,
                     "tags": str(row.get("tags") or "").split(),
                     "duration": row.get("duration"),
                     "width": row.get("width"),

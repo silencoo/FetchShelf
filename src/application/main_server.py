@@ -4106,6 +4106,11 @@ class APIServer(TikTok, ServerRoutesMixin):
                 payload.get("immediate_crawl"),
                 default=False,
             ),
+            "last_scrape_progress": (
+                payload["last_scrape_progress"]
+                if isinstance(payload.get("last_scrape_progress"), dict)
+                else {}
+            ),
             "default_tab": self._normalize_collect_tab(payload.get("default_tab")),
             "default_earliest": self._normalize_string(payload.get("default_earliest")),
             "default_latest": self._normalize_string(payload.get("default_latest")),
@@ -4464,7 +4469,70 @@ class APIServer(TikTok, ServerRoutesMixin):
                 _("Bark 通知发送失败：{error}").format(error=error),
             )
 
+    @cached_property
+    def _active_collect_monitors(self) -> dict[str, dict]:
+        return {}
+
+    def _collect_monitor_progress(self, run: dict) -> dict:
+        accounts = run["accounts"].values()
+        saved = self.feed_state.arrivals_per_account(run["id"]) if accounts else {}
+        return {
+            "label": run["label"],
+            "accounts": [
+                {**row, "new_works": saved.get(self._account_pin_key("douyin", row["url"]), 0)}
+                for row in accounts
+            ],
+        }
+
+    def _previous_collect_monitor_scrape(self, schedule: dict) -> dict:
+        previous = schedule.get("last_scrape_progress")
+        if previous:
+            return previous
+        # Older runs saved routes and failures, but had no download counts per run.
+        result = (schedule.get("last_result") or {}).get("immediate_result") or {}
+        data = result.get("data") or {}
+        routes = data.get("routes") or []
+        if not routes:
+            return {}
+        marks = {
+            row["url"]: row["mark"]
+            for row in self._normalize_account_items(self._account_rows(False))
+        }
+        failed = {row["url"] for row in data.get("failures", [])}
+        completed_status = "done" if data.get("skipped") else "success"
+        return {
+            "finished_at": schedule.get("last_run_at"),
+            "accounts": [
+                {
+                    "url": row["url"],
+                    "name": marks.get(row["url"], ""),
+                    "status": "failed" if row["url"] in failed else completed_status,
+                }
+                for row in routes
+            ],
+        }
+
+    def _collect_monitor_public(self, schedule: dict) -> dict:
+        live = self._active_collect_monitors.get(schedule["schedule_id"])
+        return self._schedule_public({
+            **schedule,
+            "last_scrape_progress": self._previous_collect_monitor_scrape(schedule),
+            **({"live_progress": self._collect_monitor_progress(live)} if live else {}),
+        })
+
     async def _run_collect_monitor_once(self, schedule: dict) -> dict:
+        schedule_id = self._normalize_string(schedule.get("schedule_id"))
+        run = {"id": f"monitor-{uuid4().hex}", "label": _("正在读取收藏夹"), "accounts": {}}
+        schedule["last_scrape_progress"] = self._previous_collect_monitor_scrape(schedule)
+        if schedule_id:
+            self._active_collect_monitors[schedule_id] = run
+        try:
+            return await self._collect_monitor_pass(schedule, run)
+        finally:
+            if schedule_id:
+                self._active_collect_monitors.pop(schedule_id, None)
+
+    async def _collect_monitor_pass(self, schedule: dict, run: dict) -> dict:
         collect_id = self._normalize_string(schedule.get("collect_id"))
         if not collect_id:
             return {
@@ -4576,6 +4644,15 @@ class APIServer(TikTok, ServerRoutesMixin):
             default=False,
         )
         if summary.get("ok") and new_rows and immediate_crawl:
+            run["accounts"] = {
+                row["url"]: {
+                    "url": row["url"],
+                    "name": row["mark"],
+                    "status": "pending" if row["enable"] else "skipped",
+                }
+                for row in new_rows
+            }
+            run["label"] = _("等待采集")
             scheduled_identity_id = self._normalize_string(
                 schedule.get("identity_id")
             )
@@ -4596,7 +4673,13 @@ class APIServer(TikTok, ServerRoutesMixin):
                     ),
                 },
                 tiktok=False,
+                progress_callback=lambda progress: run.update(label=progress["label"]),
+                monitor_run=run,
             )
+            schedule["last_scrape_progress"] = {
+                **self._collect_monitor_progress(run),
+                "finished_at": self._now_text(),
+            }
             immediate_result = {
                 "message": batch.message,
                 "data": batch.data,
@@ -4803,6 +4886,8 @@ class APIServer(TikTok, ServerRoutesMixin):
                 continue
             schedule_type = self._normalize_schedule_type(schedule.get("schedule_type"))
             if schedule_type == self.COLLECT_MONITOR_SCHEDULE:
+                if schedule_id in self._active_collect_monitors:
+                    continue
                 try:
                     result = await self._run_collect_monitor_once(schedule)
                 except Exception as error:  # noqa: BLE001
@@ -5392,6 +5477,8 @@ class APIServer(TikTok, ServerRoutesMixin):
         tiktok: bool,
         progress_callback: Callable[[dict], None] | None = None,
         pause_control: dict[str, Callable] | None = None,
+        *,
+        monitor_run: dict | None = None,
     ) -> DataResponse:
         use_settings = payload.get("use_settings", True)
         cookie = self._normalize_string(payload.get("cookie")) or None
@@ -5508,6 +5595,9 @@ class APIServer(TikTok, ServerRoutesMixin):
                 await pause_checkpoint()
 
         def mark_unit_started(item: dict, identity_id: str = "") -> None:
+            if monitor_run is not None:
+                monitor_run["accounts"][item["url"]]["status"] = "running"
+                monitor_run["label"] = _("正在执行账号批次")
             if journal is not None:
                 journal.mark_account_running(
                     task_id,
@@ -5555,6 +5645,8 @@ class APIServer(TikTok, ServerRoutesMixin):
             normalized_status = (
                 status if status in {"success", "failed", "skipped"} else "failed"
             )
+            if monitor_run is not None:
+                monitor_run["accounts"][item["url"]]["status"] = normalized_status
             if journal is not None:
                 journal.mark_account_finished(
                     task_id,
@@ -5766,7 +5858,9 @@ class APIServer(TikTok, ServerRoutesMixin):
                             "affects_identity_health": False,
                         }
                     else:
-                        with self._observe_account_downloads(platform, item, task_id):
+                        with self._observe_account_downloads(
+                            platform, item, monitor_run["id"] if monitor_run is not None else task_id
+                        ):
                             raw_outcome = await worker.deal_account_detail(
                                 index,
                                 sec_user_id=sec_user_id,

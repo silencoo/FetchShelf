@@ -152,18 +152,14 @@ export function createCollectorController({
     }[value] || "待验证";
   }
 
-  function collectorStateClass(value) {
-    if (value === "ready") {
-      return "success";
-    }
-    if (["error", "unconfigured"].includes(value)) {
-      return "failed";
-    }
-    if (value === "disabled") {
-      return "canceled";
-    }
-    return "pending";
-  }
+  const collectorStateTone = {
+    ready: "success",
+    login: "active",
+    cooldown: "warning",
+    unconfigured: "warning",
+    warning: "warning",
+    error: "danger",
+  };
 
   function collectorTimeLabel(value) {
     if (!value) {
@@ -216,7 +212,7 @@ export function createCollectorController({
   }
 
   function collectorCredentialChip(label, configured) {
-    return `<span class="collector-credential-chip ${configured ? "configured" : "missing"}">${
+    return `<span class="collector-credential-chip">${
       configured ? "✓" : "—"
     } ${escapeHtml(label)}</span>`;
   }
@@ -257,7 +253,7 @@ export function createCollectorController({
     items.forEach((identity) => {
       const visualState = collectorIdentityState(identity);
       const card = document.createElement("article");
-      card.className = `collector-identity-card state-${visualState}`;
+      card.className = "collector-identity-card";
       card.dataset.identityId = identity.identity_id;
       const tiktokChips = identity.platform === "tiktok"
         ? `${collectorCredentialChip("Device ID", identity.device_id_configured)}${collectorCredentialChip(
@@ -275,9 +271,8 @@ export function createCollectorController({
           }" data-collector-action="login-browser">${
             identity.login_browser_active ? "返回登录窗口" : "管理账号登录"
           }</button>`;
-      const authModeBadge = identity.platform === "tiktok"
-        ? `<span class="badge">${escapeHtml(collectorAuthModeLabel(identity.auth_mode))}</span>`
-        : "";
+      const context = [collectorPlatformLabel(identity.platform)];
+      if (identity.platform === "tiktok") context.push(collectorAuthModeLabel(identity.auth_mode));
       const pending = pendingTargetCheck(identity);
       const issue = identity.last_error_code && !pending
         ? `<p class="collector-identity-error">最近异常：${escapeHtml(identity.last_error_code)}</p>`
@@ -288,14 +283,13 @@ export function createCollectorController({
       card.innerHTML = `
         <div class="collector-identity-head">
           <div>
-            <div class="collector-identity-badges">
-              <span class="badge">${escapeHtml(collectorPlatformLabel(identity.platform))}</span>
-              ${authModeBadge}
-              <span class="task-status ${collectorStateClass(visualState)}">${escapeHtml(
+            <div class="collector-identity-heading">
+              <h4>${escapeHtml(identity.name)}</h4>
+              <span class="dashboard-status" data-tone="${collectorStateTone[visualState] || "neutral"}">${escapeHtml(
                 collectorStateLabel(visualState),
               )}</span>
             </div>
-            <h4>${escapeHtml(identity.name)}</h4>
+            <div class="collector-identity-context">${escapeHtml(context.join(" · "))}</div>
             <span class="collector-identity-id">${escapeHtml(identity.identity_id || "—")}</span>
           </div>
           <span class="collector-lease-badge" title="当前占用租约">${identity.active_leases} 占用</span>

@@ -839,7 +839,7 @@ html.feed-active .app-shell {
   min-width: 0;
 }
 
-/* The tab is a layout container; its sections own their visible frames. */
+/* Keep workspace layout separate from the surfaces that need a frame. */
 .workspace-content > .card.tab-panel {
   border: 0;
   border-radius: 0;
@@ -885,10 +885,7 @@ html.feed-active .app-shell {
   align-items: end;
   gap: 12px;
   margin-bottom: 16px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle-faint);
-  padding: 12px;
+  padding-block-end: 12px;
 }
 
 .settings-console-copy {
@@ -955,10 +952,8 @@ html.feed-active .app-shell {
 
 .tool-block {
   min-width: 0;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-tool);
-  padding: 14px;
+  border-block-start: 1px solid var(--line);
+  padding-block: 14px;
 }
 
 .tool-block h3 {
@@ -1010,10 +1005,8 @@ html.feed-active .app-shell {
 }
 
 .workbench-overview {
-  overflow: hidden;
-  border-color: var(--line-strong);
-  background: var(--bg-panel-raised);
-  padding: 0;
+  border-block-start: 0;
+  padding-block: 0;
 }
 
 .overview-header {
@@ -1024,7 +1017,7 @@ html.feed-active .app-shell {
   flex-wrap: wrap;
   gap: 14px;
   border-bottom: 1px solid var(--line-soft);
-  padding: 11px 14px;
+  padding-block: 11px;
 }
 
 .overview-header > :first-child {
@@ -1069,10 +1062,6 @@ html.feed-active .app-shell {
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 5fr);
-}
-
-.overview-domain-crawl {
-  background: var(--bg-primary-faint);
 }
 
 .overview-domain {
@@ -1123,25 +1112,6 @@ html.feed-active .app-shell {
   min-height: 32px;
   padding: 4px 8px;
   font-size: 12px;
-}
-
-.overview-state-text {
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 720;
-  text-align: end;
-}
-
-.overview-state-text[data-state="running"] {
-  color: var(--text-warning);
-}
-
-.overview-state-text[data-state="warning"] {
-  color: var(--text-warning);
-}
-
-.overview-state-text[data-state="failed"] {
-  color: var(--text-danger);
 }
 
 .overview-metrics {
@@ -1391,14 +1361,6 @@ html.feed-active .app-shell {
   letter-spacing: 0.03em;
 }
 
-.workbench-primary {
-  border-color: var(--primary-line);
-  background:
-    linear-gradient(135deg, var(--primary-soft), transparent 46%),
-    var(--bg-tool);
-  box-shadow: inset 0 1px 0 var(--line-soft);
-}
-
 .tool-block-heading,
 .task-detail-heading {
   display: flex;
@@ -1523,10 +1485,6 @@ html.feed-active .app-shell {
   margin-top: auto;
 }
 
-.workbench-task-center {
-  background: var(--bg-panel-raised);
-}
-
 .task-center-heading {
   align-items: center;
 }
@@ -1648,7 +1606,7 @@ html.feed-active .app-shell {
 .task-center-layout {
   display: grid;
   grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr);
-  gap: 12px;
+  gap: 16px;
   margin-top: 12px;
 }
 
@@ -1673,10 +1631,8 @@ html.feed-active .app-shell {
   display: flex;
   min-height: 420px;
   flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--bg-code);
-  padding: 10px;
+  border-inline-start: 1px solid var(--line-soft);
+  padding-inline-start: 16px;
 }
 
 .task-detail-heading {
@@ -1696,11 +1652,7 @@ html.feed-active .app-shell {
 .task-progress-block {
   display: grid;
   gap: 6px;
-  margin-top: 10px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle-faint);
-  padding: 9px;
+  margin-block: 12px 0;
 }
 
 .task-progress-block[hidden] {
@@ -1721,7 +1673,8 @@ html.feed-active .app-shell {
   font-variant-numeric: tabular-nums;
 }
 
-.task-progress-block progress {
+.task-progress-block progress,
+.monitor-crawl progress {
   width: 100%;
   height: 7px;
   overflow: hidden;
@@ -1730,26 +1683,27 @@ html.feed-active .app-shell {
   background: var(--bg-skeleton);
 }
 
-.task-progress-block progress::-webkit-progress-bar {
+.task-progress-block progress::-webkit-progress-bar,
+.monitor-crawl progress::-webkit-progress-bar {
   border-radius: 999px;
   background: var(--bg-skeleton);
 }
 
-.task-progress-block progress::-webkit-progress-value {
+.task-progress-block progress::-webkit-progress-value,
+.monitor-crawl progress::-webkit-progress-value {
   border-radius: 999px;
   background: var(--primary);
 }
 
-.task-progress-block progress::-moz-progress-bar {
+.task-progress-block progress::-moz-progress-bar,
+.monitor-crawl progress::-moz-progress-bar {
   border-radius: 999px;
   background: var(--primary);
 }
 
 .task-account-checkpoints {
-  margin-top: 10px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle-faint);
+  margin-block-start: 14px;
+  border-block-start: 1px solid var(--line);
 }
 
 .task-account-checkpoints[hidden] {
@@ -1762,7 +1716,7 @@ html.feed-active .app-shell {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 10px;
+  padding-block: 8px;
   color: var(--text-strong);
   cursor: pointer;
   font-size: 10px;
@@ -1786,8 +1740,7 @@ html.feed-active .app-shell {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
-  border-top: 1px solid var(--line-soft);
-  padding: 7px 8px;
+  padding-block: 7px;
   color: var(--text-muted);
   font-size: 10px;
 }
@@ -1804,8 +1757,7 @@ html.feed-active .app-shell {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px 12px;
-  border-top: 1px solid var(--line-soft);
-  padding: 7px 8px;
+  padding-block: 7px;
 }
 
 .task-account-selection-status {
@@ -1851,8 +1803,7 @@ html.feed-active .app-shell {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 7px;
-  border-top: 1px solid var(--line-soft);
-  padding: 7px 8px;
+  padding-block: 7px;
 }
 
 .page-jump {
@@ -2103,7 +2054,7 @@ html.feed-active .app-shell {
   grid-template-rows: auto auto;
   gap: 2px 12px;
   align-items: center;
-  padding: 12px 14px;
+  padding-block: 12px;
   transition: background-color 140ms ease;
 }
 
@@ -2181,8 +2132,7 @@ html.feed-active .app-shell {
 }
 
 .disclosure-content {
-  border-top: 1px solid var(--line);
-  padding: 12px;
+  padding-block: 12px;
 }
 
 .workbench-secondary-grid {
@@ -2193,10 +2143,7 @@ html.feed-active .app-shell {
 
 .secondary-tool {
   min-width: 0;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle-faint);
-  padding: 12px;
+  padding-block: 8px;
 }
 
 .secondary-tool h3 {
@@ -2879,15 +2826,18 @@ select.batch-field-select + .app-select-mount {
 .collector-overview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 9px;
+  gap: 12px;
+  padding-block-end: 10px;
 }
 
 .collector-metric {
   min-width: 0;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-tool);
-  padding: 12px;
+  padding-block: 8px;
+}
+
+.collector-metric + .collector-metric {
+  border-inline-start: 1px solid var(--line-soft);
+  padding-inline-start: 12px;
 }
 
 .collector-metric-label,
@@ -2910,10 +2860,8 @@ select.batch-field-select + .app-select-mount {
 
 .collector-section {
   min-width: 0;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-tool);
-  padding: 14px;
+  border-block-start: 1px solid var(--line);
+  padding-block: 14px;
 }
 
 .collector-section-head,
@@ -2985,33 +2933,6 @@ select.batch-field-select + .app-select-mount {
   box-shadow: var(--panel-highlight);
 }
 
-.collector-identity-card::before {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
-  background: var(--warning);
-  content: "";
-}
-
-.collector-identity-card.state-ready::before {
-  background: var(--success);
-}
-
-.collector-identity-card.state-login::before {
-  background: var(--primary);
-}
-
-.collector-identity-card.state-disabled::before {
-  background: var(--text-faint);
-}
-
-.collector-identity-card.state-error::before,
-.collector-identity-card.state-unconfigured::before {
-  background: var(--danger);
-}
-
 .collector-identity-head {
   display: flex;
   min-width: 0;
@@ -3024,21 +2945,27 @@ select.batch-field-select + .app-select-mount {
   min-width: 0;
 }
 
-.collector-identity-badges {
+.collector-identity-heading {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  align-items: center;
+  gap: 4px 8px;
 }
 
-.collector-identity-head h4 {
-  overflow: hidden;
-  margin: 8px 0 2px;
+.collector-identity-heading h4 {
+  min-width: 0;
+  margin: 0;
   color: var(--text-strong);
   font-size: 13px;
   font-weight: 720;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.collector-identity-context {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .collector-identity-id {
@@ -3099,22 +3026,9 @@ select.batch-field-select + .app-select-mount {
 }
 
 .collector-credential-chip {
-  display: inline-flex;
-  min-height: 22px;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--bg-subtle-faint);
-  color: var(--text-faint);
-  padding: 3px 7px;
-  font-size: 8px;
-  font-weight: 650;
-}
-
-.collector-credential-chip.configured {
-  border-color: var(--success-line);
-  background: var(--success-soft);
-  color: var(--text-success);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 550;
 }
 
 .collector-identity-timeline {
@@ -3159,7 +3073,7 @@ select.batch-field-select + .app-select-mount {
   display: grid;
   min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 16px;
 }
 
 .collector-form-stack {
@@ -3199,10 +3113,7 @@ select.batch-field-select + .app-select-mount {
   align-items: flex-end;
   gap: 8px 12px;
   margin-bottom: 9px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle-faint);
-  padding: 8px;
+  padding-block: 4px;
 }
 
 .account-verify-route .field {
@@ -3296,7 +3207,6 @@ select.batch-field-select + .app-select-mount {
   min-width: 0;
   max-height: 260px;
   overflow: auto;
-  gap: 6px;
   overscroll-behavior: contain;
 }
 
@@ -3306,10 +3216,11 @@ select.batch-field-select + .app-select-mount {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle-soft);
-  padding: 8px;
+  padding-block: 8px;
+}
+
+.collector-binding-row + .collector-binding-row {
+  border-block-start: 1px solid var(--line-soft);
 }
 
 .collector-binding-main {
@@ -3955,10 +3866,11 @@ select.batch-field-select + .app-select-mount {
 .quick-settings-panel,
 .account-editor-panel {
   min-width: 0;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-tool);
-  padding: 12px;
+}
+
+.account-editor-panel + .account-editor-panel {
+  border-block-start: 1px solid var(--line);
+  padding-block-start: 14px;
 }
 
 .quick-settings-panel {
@@ -4078,10 +3990,7 @@ select.batch-field-select + .app-select-mount {
   align-items: flex-end;
   gap: 7px;
   margin-bottom: 9px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle-faint);
-  padding: 8px;
+  padding-block: 4px;
 }
 
 .batch-field-select {
@@ -4120,10 +4029,7 @@ select.batch-field-select + .app-select-mount {
   flex-wrap: wrap;
   gap: 7px;
   margin-top: 7px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle-faint);
-  padding: 6px 7px;
+  padding-block: 6px;
 }
 
 .table-pager-summary {
@@ -4306,7 +4212,6 @@ select.batch-field-select + .app-select-mount {
 
 .log-stream,
 .json-output,
-.task-queue-list,
 .files-list {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -5444,7 +5349,13 @@ select.batch-field-select + .app-select-mount {
 }
 
 .profile-board.profile-board-compact {
+  --board-masonry-unit: 4px;
   gap: 8px;
+}
+
+.profile-board.profile-board-masonry {
+  grid-auto-rows: var(--board-masonry-unit);
+  row-gap: 0;
 }
 
 .profile-board > .empty-tip {
@@ -5738,12 +5649,27 @@ select.batch-field-select + .app-select-mount {
 }
 
 .profile-board.profile-board-compact .profile-card {
-  margin-bottom: 8px;
   border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+
+.profile-board-masonry > .profile-card {
+  grid-row-end: span var(--board-rows, 1);
 }
 
 .profile-board.profile-board-compact .profile-media-wrap {
+  aspect-ratio: var(--media-aspect, 3 / 4);
+  min-height: 72px;
+  max-height: 420px;
   border-radius: calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px) 0 0;
+}
+
+.profile-board-compact .profile-media-wrap img {
+  height: 100%;
+}
+
+.profile-board-compact .profile-media-wrap .profile-empty {
+  min-height: 0;
 }
 
 .profile-board.profile-board-compact .profile-body {
@@ -5752,24 +5678,41 @@ select.batch-field-select + .app-select-mount {
 }
 
 .profile-board.profile-board-compact .profile-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 7px;
   margin-bottom: 4px;
 }
 
 .profile-board.profile-board-compact .profile-name {
-  min-height: 2.5em;
-  font-size: 11px;
-  line-height: 1.25;
+  flex: 1 1 6em;
+  min-height: 0;
+  font-size: 12px;
+  line-height: 1.3;
 }
 
 .profile-board.profile-board-compact .profile-state-row {
-  gap: 3px;
-  margin-bottom: 6px;
+  gap: 3px 9px;
+  margin-bottom: 5px;
 }
 
 .profile-board.profile-board-compact .profile-state-row .badge {
-  min-height: 18px;
-  padding: 1px 5px;
-  font-size: 7.5px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.profile-board-compact .profile-state-row .badge::before,
+.profile-board-compact .profile-state-row .profile-enable-badge.ok {
+  display: none;
+}
+
+.profile-board.profile-board-compact .profile-enable-badge.warn {
+  color: var(--warning);
 }
 
 .profile-board.profile-board-compact .profile-url,
@@ -5780,8 +5723,10 @@ select.batch-field-select + .app-select-mount {
 .profile-board.profile-board-compact .profile-activity {
   gap: 0;
   margin-bottom: 7px;
-  padding-top: 6px;
-  font-size: 8.5px;
+  border-top-color: var(--line-soft);
+  padding-top: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .profile-board.profile-board-compact .profile-latest-full,
@@ -5867,15 +5812,13 @@ select.batch-field-select + .app-select-mount {
   display: grid;
   min-width: 0;
   gap: 7px;
-  margin: 10px 0 0;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle-soft);
-  padding: 8px 10px 10px;
+  margin: 14px 0 0;
+  border: 0;
+  padding: 6px 0;
 }
 
 .notification-panel legend {
-  padding: 0 5px;
+  padding: 0;
   color: var(--text);
   font-size: 10px;
   font-weight: 680;
@@ -5957,20 +5900,24 @@ select.batch-field-select + .app-select-mount {
   background: var(--bg-primary-faint);
 }
 
-.task-state-text {
+/* Status labels share one treatment across account cards, tasks and identities. */
+:is(.dashboard-status, .task-state-text, .overview-state-text) {
   display: inline-flex;
   width: max-content;
+  max-width: 100%;
   align-items: center;
-  gap: 6px;
-  color: var(--text-faint);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 9px;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: var(--line-soft);
+  color: var(--text-muted);
+  font-size: 10px;
   font-weight: 650;
-  line-height: 1.35;
+  line-height: 1.3;
   white-space: nowrap;
 }
 
-.task-state-text::before {
+:is(.dashboard-status, .task-state-text, .overview-state-text)::before {
   width: 5px;
   height: 5px;
   flex: 0 0 auto;
@@ -5979,21 +5926,40 @@ select.batch-field-select + .app-select-mount {
   content: "";
 }
 
-.task-state-text.is-active,
-.task-state-text.is-pending {
-  color: var(--text-muted);
+.dashboard-status[data-tone="success"],
+.task-state-text.is-success,
+.overview-state-text[data-state="success"] {
+  background: var(--success-soft);
+  color: var(--success);
 }
 
-.task-state-text.is-success {
-  color: var(--text-success);
+.dashboard-status[data-tone="danger"],
+.task-state-text.is-error,
+.overview-state-text[data-state="failed"] {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
-.task-state-text.is-error {
-  color: var(--text-danger);
+.dashboard-status[data-tone="warning"],
+.task-state-text.is-warning,
+.overview-state-text[data-state="warning"] {
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 
-.task-state-text.is-muted {
-  color: var(--text-disabled);
+.dashboard-status[data-tone="active"],
+.task-state-text.is-running,
+.overview-state-text[data-state="running"] {
+  background: var(--primary-soft);
+  color: var(--text-accent);
+}
+
+.dashboard-status.profile-outcome-badge {
+  display: none;
+}
+
+.profile-board-compact .dashboard-status.profile-outcome-badge {
+  display: inline-flex;
 }
 
 .task-row.active {
@@ -6449,6 +6415,10 @@ select.batch-field-select + .app-select-mount {
 
   .task-detail-panel {
     min-height: 300px;
+    border-block-start: 1px solid var(--line-soft);
+    border-inline-start: 0;
+    padding-block-start: 12px;
+    padding-inline-start: 0;
   }
 
   .monitor-grid {
@@ -6675,8 +6645,9 @@ select.batch-field-select + .app-select-mount {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .collector-section {
-    padding: 11px;
+  .collector-metric:nth-child(odd) {
+    border-inline-start: 0;
+    padding-inline-start: 0;
   }
 
   .collector-section-head,
@@ -6809,7 +6780,7 @@ select.batch-field-select + .app-select-mount {
 
   .workbench-primary,
   .workbench-task-center {
-    padding: 12px;
+    padding-block: 12px;
   }
 
   .quick-download-layout {
@@ -6827,12 +6798,7 @@ select.batch-field-select + .app-select-mount {
   }
 
   .workbench-disclosure > summary {
-    padding: 11px 12px;
-  }
-
-  .disclosure-content,
-  .secondary-tool {
-    padding: 11px;
+    padding-block: 11px;
   }
 
   .workbench-task-center .task-queue-list {
@@ -7172,8 +7138,7 @@ select.batch-field-select + .app-select-mount {
   .tool-block,
   .account-table-wrap,
   .log-stream,
-  .files-list,
-  .task-queue-list {
+  .files-list {
     border-width: 2px;
   }
 
@@ -7272,3 +7237,33 @@ select.batch-field-select + .app-select-mount {
   object-fit: cover;
   border-radius: 6px;
 }
+
+#monitor-list {
+  max-height: none;
+  overflow: visible;
+}
+
+.monitor-crawl {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 8px 0 2px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 12px;
+}
+
+.monitor-crawl summary { cursor: pointer; font-weight: 600; }
+.monitor-crawl progress { margin-top: 6px; }
+.monitor-crawl ul { list-style: none; margin: 5px 0 0; padding: 0; }
+
+.monitor-crawl li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4em minmax(6em, auto);
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.monitor-crawl li:last-child { border-bottom: 0; }
+.monitor-crawl li a { color: inherit; overflow-wrap: anywhere; }
+.monitor-crawl li span:last-child { text-align: end; }

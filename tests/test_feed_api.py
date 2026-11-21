@@ -124,6 +124,22 @@ def test_liked_accounts_group_all_marks_and_page_by_latest_like(harness):
     assert get(harness, path, offset=1, limit=1)["items"][0]["count"] == 2
 
 
+@pytest.mark.parametrize("caption", ["7708565108570498673", "12345", "1234567890123456789"])
+def test_feed_hides_id_placeholder_and_preserves_other_numeric_captions(harness, caption):
+    work_id = "7708565108570498673"
+    harness.service.index.apply_detail_rows(
+        "1",
+        [("2026-01-01 10:00:00", work_id, caption, "", "", "", None, None, "",
+          "", "", "", "", "", "", None, None, None, None, None)],
+        "UID1_Ann_发布作品",
+        1,
+    )
+    post = get(harness, "/ui/api/feed/post", key="1:20260101100000:v")
+    assert post["caption"] == ("" if caption == work_id else caption)
+    assert post["work_id"] == work_id
+    assert post["share_url"] == f"https://www.douyin.com/video/{work_id}"
+
+
 def test_marks_route_requires_the_token(harness):
     response = harness.client.put(
         "/ui/api/feed/marks", json={"kind": "like", "target": "x", "on": True},

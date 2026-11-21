@@ -159,7 +159,9 @@ def test_task_account_rows_offer_safe_external_navigation():
     assert 'nameNode.target = "_blank"' in script
     assert 'nameNode.rel = "noopener noreferrer"' in script
     assert 'action.textContent = "无可用链接"' in script
-    assert 'document.createTextNode("打开账号")' in script
+    assert 'action.target = "_blank"' in script
+    assert 'action.rel = "noopener noreferrer"' in script
+    assert 'action.setAttribute("aria-label", `在新标签页打开账号：${accountName}`)' in script
     assert "refreshIcons(refs.taskAccountList)" in script
     assert ".task-account-open" in styles
     assert ".task-account-link:hover" in styles
@@ -173,7 +175,7 @@ def test_task_account_rows_offer_safe_external_navigation():
     assert 'id="task-account-clear-selection-btn"' in index
     assert 'id="task-account-open-selected-btn"' in index
     assert 'id="task-account-archive-selected-btn"' in index
-    assert 'document.createTextNode("移出名单")' in script
+    assert 'archiveAction.setAttribute("aria-label", `将账号移出采集名单：${accountName}`)' in script
     assert '"/ui/api/accounts/archive-batch"' in script
     assert '"/ui/api/accounts/archive"' in script
     assert "account.configured !== false" in script
@@ -418,18 +420,15 @@ def test_account_board_cards_remain_usable_at_high_density():
     ):
         assert index.count(hook) == 1
 
-    assert "column-count: var(--board-columns);" in styles
-    assert ".profile-board > .empty-tip {\n  column-span: all;" in styles
+    assert "grid-template-columns: repeat(var(--board-columns), minmax(0, 1fr));" in styles
+    assert "grid-row-end: span var(--board-rows, 1);" in styles
+    assert ".profile-board > .empty-tip {\n  grid-column: 1 / -1;" in styles
     assert (
         ".profile-card {\n"
         "  position: relative;\n"
         "  display: inline-flex;\n"
         "  width: 100%;"
     ) in styles
-    profile_card_styles = styles[
-        styles.index(".profile-card {") : styles.index(".profile-card:hover")
-    ]
-    assert "break-inside: avoid;" in profile_card_styles
     assert "-webkit-line-clamp: 2;" in styles
     assert ".profile-state-row" in styles
     assert ".profile-actions-popover" in styles
@@ -443,9 +442,8 @@ def test_account_board_cards_remain_usable_at_high_density():
     assert "overflow-x: hidden;" in styles
     assert 'class="account-gallery-scroll"' in index
     assert ".account-gallery-scroll" in styles
-    assert "column-count: 3;" in styles
-    assert "break-inside: avoid;" in styles
-    assert "column-span: all;" in styles
+    assert "repeat(auto-fill, minmax(min(180px, 100%), 1fr))" in styles
+    assert ".account-gallery-grid > .account-gallery-list-empty {\n  grid-column: 1 / -1;" in styles
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in styles
     assert (
         ".account-gallery-thumb-media :is(img, video) {\n"
@@ -456,8 +454,8 @@ def test_account_board_cards_remain_usable_at_high_density():
     assert "function syncNaturalMediaRatio(" in script
     assert 'container.style.setProperty("--media-aspect"' in script
     assert 'state.accountBoard.viewMode === "avatar" && hasMedia' in script
-    assert '<option value="avatar">紧凑媒体</option>' in index
-    assert ".profile-board.profile-board-compact .profile-media-wrap {\n  border-radius:" in styles
+    assert '<option value="avatar">瀑布流</option>' in index
+    assert "aspect-ratio: var(--media-aspect, 3 / 4);" in styles
     assert "account-gallery-thumb-media-${item.kind}" in script
     assert ".account-gallery-thumb-media-image img {\n  width: 100%;\n  height: auto;" in styles
     assert ".profile-media-wrap-image img {\n  width: 100%;\n  height: auto;" in styles

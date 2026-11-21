@@ -2393,10 +2393,11 @@ function boardAssetUrl(path, scope = "download") {
   return `/ui/api/file?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path || "")}`;
 }
 
-function appendBoardMediaThumbnail(container, src, kind, alt = "") {
+function appendBoardMediaThumbnail(container, src, kind, alt = "", priority = "") {
   const image = document.createElement("img");
   image.alt = alt;
-  image.loading = "lazy";
+  image.loading = priority ? "eager" : "lazy";
+  if (priority === "high") image.setAttribute("fetchpriority", "high");
   image.decoding = "async";
   image.addEventListener("error", () => {
     const message = document.createElement("span");
@@ -2574,6 +2575,38 @@ function boardColumnsCap() {
   return Math.min(compactMode ? 10 : 6, widthCap);
 }
 
+let boardMasonryObserver;
+
+function layoutBoardMasonry() {
+  const board = refs.boardGrid;
+  boardMasonryObserver?.disconnect();
+  board.classList.remove("profile-board-masonry");
+  if (state.accountBoard.viewMode !== "avatar" || typeof ResizeObserver !== "function") return;
+
+  const cards = Array.from(board.querySelectorAll(":scope > .profile-card"));
+  if (!cards.length) return;
+  const styles = getComputedStyle(board);
+  const rowSize = parseFloat(styles.getPropertyValue("--board-masonry-unit"));
+  const gap = parseFloat(styles.columnGap);
+  const setSpan = (card, height) => {
+    const span = String(Math.max(1, Math.ceil((height + gap) / rowSize)));
+    if (card.style.getPropertyValue("--board-rows") !== span) {
+      card.style.setProperty("--board-rows", span);
+    }
+  };
+
+  const heights = cards.map((card) => card.getBoundingClientRect().height);
+  cards.forEach((card, index) => setSpan(card, heights[index]));
+  board.classList.add("profile-board-masonry");
+  // Single-column spans let Grid pack by height while keeping account and tab order.
+  boardMasonryObserver = new ResizeObserver((entries) => {
+    for (const { target, borderBoxSize } of entries) {
+      setSpan(target, borderBoxSize?.[0]?.blockSize ?? target.offsetHeight);
+    }
+  });
+  cards.forEach((card) => boardMasonryObserver.observe(card, { box: "border-box" }));
+}
+
 function applyBoardColumns(persist = true) {
   const cap = boardColumnsCap();
   const inputColumns = Number(state.accountBoard.columns || 4);
@@ -2584,6 +2617,7 @@ function applyBoardColumns(persist = true) {
   }
   refs.boardDensity?.setAttribute("aria-valuetext", `${next} 列`);
   if (refs.boardGrid) {
+    const wasCompact = refs.boardGrid.classList.contains("profile-board-compact");
     refs.boardGrid.style.setProperty("--board-columns", String(next));
     refs.boardGrid.classList.toggle("profile-board-immersive", state.accountBoard.viewMode === "immersive");
     refs.boardGrid.classList.toggle("profile-board-compact", state.accountBoard.viewMode === "avatar");
@@ -2591,6 +2625,7 @@ function applyBoardColumns(persist = true) {
       "profile-board-ultra",
       state.accountBoard.viewMode === "avatar" && next >= 8,
     );
+    if (wasCompact !== (state.accountBoard.viewMode === "avatar")) layoutBoardMasonry();
   }
   if (persist) {
     try {
@@ -2699,7 +2734,7 @@ function renderBoardCardPreview(card) {
     pinBadge.classList.toggle("ok", card.dataset.pinned === "1");
   }
   if (avatarBadge) {
-    avatarBadge.textContent = card.dataset.avatarPath ? "头像" : "未设置头像";
+    avatarBadge.textContent = card.dataset.avatarPath ? "已设头像" : "未设置头像";
     avatarBadge.classList.toggle("ok", Boolean(card.dataset.avatarPath));
   }
   if (displayBadge) {
@@ -2711,7 +2746,7 @@ function renderBoardCardPreview(card) {
       displayBadge.classList.add("warn");
       displayBadge.classList.remove("ok");
     } else if (compactMode && isPinnedProfile) {
-      displayBadge.textContent = "媒体固定";
+      displayBadge.textContent = "封面已固定";
       displayBadge.classList.add("ok");
       displayBadge.classList.remove("warn");
     } else if (compactMode) {
@@ -2789,7 +2824,8 @@ function renderBoardCardPreview(card) {
   }
   mediaWrap.classList.add(`profile-media-wrap-${preview.kind}`);
   if (preview.kind === "image" || preview.kind === "video") {
-    appendBoardMediaThumbnail(mediaWrap, src, preview.kind, card.dataset.mark || "");
+    const compact = state.accountBoard.viewMode === "avatar";
+    appendBoardMediaThumbnail(mediaWrap, src, preview.kind, "", compact ? card.dataset.previewPriority : "");
     return;
   }
   const empty = document.createElement("div");
@@ -3256,6 +3292,15 @@ const BOARD_OUTCOMES = {
   no_updates: "已检查，无符合范围的新作品", legacy_success: "历史成功（结果未细分）",
 };
 
+const BOARD_COMPACT_OUTCOMES = {
+  success: { label: "采集完成", tone: "success" },
+  failed: { label: "采集失败", tone: "danger" },
+  skipped: { label: "已跳过", tone: "warning" },
+  never: { label: "未检查" },
+  no_updates: { label: "无新作品" },
+  legacy_success: { label: "历史成功" },
+};
+
 function boardOutcomeText(item) {
   const label = BOARD_OUTCOMES[item.outcome] || BOARD_OUTCOMES[item.last_status] || BOARD_OUTCOMES.never;
   const reason = item.last_error || (item.outcome === "skipped" && TASK_ACCOUNT_OUTCOME_LABELS[item.outcome_code]);
@@ -3335,6 +3380,8 @@ function blockedAccountActions(item) {
 }
 
 function renderAccountBoard(items) {
+  boardMasonryObserver?.disconnect();
+  refs.boardGrid.classList.remove("profile-board-masonry");
   refs.boardGrid.innerHTML = "";
   if (!Array.isArray(items) || !items.length) {
     refs.boardGrid.innerHTML = '<div class="empty-tip">当前页没有可展示账号</div>';
@@ -3345,7 +3392,9 @@ function renderAccountBoard(items) {
     return;
   }
   const fragment = document.createDocumentFragment();
-  for (const item of items) {
+  const leadingCards = Number(refs.boardDensity.value);
+  let previews = 0;
+  for (const [index, item] of items.entries()) {
     const card = document.createElement("article");
     card.className = "profile-card";
     card.dataset.platform = item.platform || state.accountBoard.platform;
@@ -3362,6 +3411,10 @@ function renderAccountBoard(items) {
     card.dataset.lastCheckedAt = item.last_checked_at || "";
     card.dataset.lastStatus = item.last_status || "never";
     card.dataset.previewMode = "";
+    const preview = selectedBoardPreview(card);
+    if (index < leadingCards && preview.path && preview.kind) {
+      card.dataset.previewPriority = previews++ === 0 ? "high" : "eager";
+    }
 
     const mediaWrap = document.createElement("button");
     mediaWrap.type = "button";
@@ -3383,7 +3436,7 @@ function renderAccountBoard(items) {
     const badges = document.createElement("div");
     badges.className = "profile-state-row";
     const enableBadge = document.createElement("span");
-    enableBadge.className = `badge ${item.enable ? "ok" : "warn"}`;
+    enableBadge.className = `badge profile-enable-badge ${item.enable ? "ok" : "warn"}`;
     enableBadge.textContent = item.enable ? "启用" : "停用";
     const avatarBadge = document.createElement("span");
     avatarBadge.className = "badge profile-avatar-badge";
@@ -3449,6 +3502,16 @@ function renderAccountBoard(items) {
     const checkedLine = document.createElement("span");
     checkedLine.className = "profile-check-line";
     const statusLabel = boardOutcomeText(item);
+    const compactOutcome = BOARD_COMPACT_OUTCOMES[item.outcome]
+      || BOARD_COMPACT_OUTCOMES[item.last_status] || BOARD_COMPACT_OUTCOMES.never;
+    const outcomeBadge = document.createElement("span");
+    outcomeBadge.className = "dashboard-status profile-outcome-badge";
+    outcomeBadge.dataset.tone = compactOutcome.tone || "neutral";
+    outcomeBadge.textContent = compactOutcome.label;
+    outcomeBadge.title = item.last_checked_at
+      ? `${statusLabel} · ${formatBoardDate(item.last_checked_at)}`
+      : statusLabel;
+    titleRow.append(outcomeBadge);
     checkedLine.textContent = item.last_checked_at
       ? `${statusLabel} · ${formatBoardDate(item.last_checked_at)}`
       : statusLabel;
@@ -3505,6 +3568,7 @@ function renderAccountBoard(items) {
   refs.boardGrid.appendChild(fragment);
   void improveBoardCovers(refs.boardGrid.querySelectorAll('[data-cover-pending="1"]'));
   refreshIcons(refs.boardGrid);
+  layoutBoardMasonry();
 }
 
 let boardRequestVersion = 0;
@@ -4496,7 +4560,11 @@ function renderCollectMonitorList(items) {
   if (!refs.monitorList) {
     return;
   }
-  refs.monitorList.innerHTML = "";
+  const expanded = new Map(Array.from(refs.monitorList.querySelectorAll("details[data-monitor]"),
+    (details) => [details.dataset.monitor, details.open]));
+  const activeControl = document.activeElement?.closest("[data-action]");
+  const activeRow = activeControl?.closest("[data-monitor-row]");
+  refs.monitorList.replaceChildren();
   if (!Array.isArray(items) || !items.length) {
     refs.monitorList.innerHTML =
       '<div class="task-row"><div class="task-main"><span class="task-endpoint">暂无收藏夹监控</span></div></div>';
@@ -4505,6 +4573,7 @@ function renderCollectMonitorList(items) {
   const fragment = document.createDocumentFragment();
   items.forEach((item) => {
     const lastResult = item?.last_result && typeof item.last_result === "object" ? item.last_result : {};
+    const live = item.live_progress;
     const isEnabled = parseBooleanValue(item.enabled, false);
     const scheduleId = String(item.schedule_id || "");
     const hasLastResult = Object.keys(lastResult).length > 0;
@@ -4512,7 +4581,10 @@ function renderCollectMonitorList(items) {
     const barkConfigured = Boolean(String(item.bark_url || "").trim());
     let statusClass = "is-pending";
     let statusLabel = "等待首次运行";
-    if (!isEnabled) {
+    if (live) {
+      statusClass = "is-running";
+      statusLabel = "执行中";
+    } else if (!isEnabled) {
       statusClass = "is-muted";
       statusLabel = "已停用";
     } else if (lastRunOk === true) {
@@ -4533,6 +4605,7 @@ function renderCollectMonitorList(items) {
     ).trim();
     const row = document.createElement("div");
     row.className = "task-row";
+    row.dataset.monitorRow = scheduleId;
     row.innerHTML = `
       <span class="task-state-text ${statusClass}">${escapeHtml(statusLabel)}</span>
       <div class="task-main">
@@ -4576,7 +4649,7 @@ function renderCollectMonitorList(items) {
         }
         <button class="btn ghost" type="button" data-action="run" aria-label="立即执行 ${escapeAttr(
           item.name || scheduleId,
-        )}">立即执行</button>
+        )}" ${live ? "disabled" : ""}>立即执行</button>
         <button class="btn ghost" type="button" data-action="toggle" aria-label="${
           isEnabled ? "停用" : "启用"
         } ${escapeAttr(item.name || scheduleId)}">${isEnabled ? "停用" : "启用"}</button>
@@ -4601,21 +4674,91 @@ function renderCollectMonitorList(items) {
     row.querySelector('[data-action="delete"]')?.addEventListener("click", (event) => {
       withBusyButton(event.currentTarget, "删除中", () => deleteCollectMonitor(scheduleId));
     });
+    const run = live || (item.last_scrape_progress?.accounts?.length ? item.last_scrape_progress : null);
+    if (run) {
+      const accounts = run.accounts || [];
+      const finished = accounts.filter((account) => !["pending", "running"].includes(account.status)).length;
+      const total = accounts.reduce((count, account) => count + (account.new_works || 0), 0);
+      const details = document.createElement("details");
+      details.className = "monitor-crawl";
+      details.dataset.monitor = scheduleId;
+      details.open = expanded.get(scheduleId) ?? true;
+      const heading = document.createElement("summary");
+      heading.textContent = live
+        ? `${run.label || "执行中"}${accounts.length ? ` · ${finished} / ${accounts.length} 个账号 · ${total} 件新入库` : ""}`
+        : `最近一次新增账号采集 · ${accounts.length} 个账号${accounts.some((account) => account.new_works !== undefined) ? ` · ${total} 件新入库` : ""}`;
+      if (!live && run.finished_at) heading.textContent += ` · ${run.finished_at}`;
+      details.append(heading);
+      if (live && accounts.length) {
+        const progress = document.createElement("progress");
+        progress.max = accounts.length;
+        progress.value = finished;
+        progress.setAttribute("aria-label", "收藏夹新增账号采集进度");
+        details.append(progress);
+      }
+      if (accounts.length) {
+        const statuses = { pending: "等待", running: "采集中", success: "成功", skipped: "跳过", failed: "失败", done: "已处理" };
+        const list = document.createElement("ul");
+        for (const account of accounts) {
+          const entry = document.createElement("li");
+          const url = safeExternalHttpUrl(account.url);
+          const name = document.createElement(url ? "a" : "span");
+          name.textContent = account.name || conciseAccountUrl(account.url) || "未命名账号";
+          if (url) {
+            name.href = url;
+            name.target = "_blank";
+            name.rel = "noopener noreferrer";
+          }
+          const status = document.createElement("span");
+          status.className = `task-state-text ${taskStateClass(account.status)}`;
+          status.textContent = statuses[account.status] || "—";
+          const count = document.createElement("span");
+          count.textContent = account.new_works === undefined ? "—" : `${account.new_works} 件新入库`;
+          entry.append(name, status, count);
+          list.append(entry);
+        }
+        details.append(list);
+      }
+      row.append(details);
+    }
     fragment.appendChild(row);
   });
   refs.monitorList.appendChild(fragment);
+  if (activeRow) {
+    const replacement = Array.from(refs.monitorList.querySelectorAll("[data-monitor-row]"))
+      .find((row) => row.dataset.monitorRow === activeRow.dataset.monitorRow);
+    const button = Array.from(replacement?.querySelectorAll("[data-action]") || [])
+      .find((element) => element.dataset.action === activeControl.dataset.action);
+    button?.focus({ preventScroll: true });
+  }
 }
 
+let monitorRequest = 0;
+let monitorRequestPending = false;
+
 async function loadCollectMonitors() {
+  const request = ++monitorRequest;
+  monitorRequestPending = true;
   try {
     const payload = await fetchJson("/ui/api/collect-monitors", {
       method: "GET",
       headers: headerOptions(false),
     });
-    state.collectMonitorItems = payload.items || [];
-    renderCollectMonitorList(state.collectMonitorItems);
+    if (request !== monitorRequest) return;
+    if (refs.monitorStatus.dataset.monitorLoadError) {
+      delete refs.monitorStatus.dataset.monitorLoadError;
+      refs.monitorStatus.textContent = "";
+    }
+    const items = payload.items || [];
+    if (refs.monitorList.childElementCount && JSON.stringify(items) === JSON.stringify(state.collectMonitorItems)) return;
+    state.collectMonitorItems = items;
+    renderCollectMonitorList(items);
   } catch (error) {
-    refs.monitorStatus.textContent = `加载监控失败: ${error.message}`;
+    if (request !== monitorRequest) return;
+    refs.monitorStatus.dataset.monitorLoadError = "1";
+    refs.monitorStatus.textContent = `加载监控失败：${error.message}`;
+  } finally {
+    if (request === monitorRequest) monitorRequestPending = false;
   }
 }
 
@@ -4776,18 +4919,15 @@ function taskEndpointLabel(endpoint) {
 
 function taskStateClass(status) {
   const normalized = String(status || "");
-  if (["pending", "running", "pausing", "canceling"].includes(normalized)) {
-    return "is-active";
+  if (normalized === "running") return "is-running";
+  if (["partial_success", "paused", "pausing", "canceling", "skipped"].includes(normalized)) {
+    return "is-warning";
   }
-  if (normalized === "paused") {
-    return "is-pending";
-  }
+  if (normalized === "pending") return "is-pending";
   if (normalized === "success") {
     return "is-success";
   }
-  if (["partial_success", "failed", "canceled"].includes(normalized)) {
-    return "is-error";
-  }
+  if (normalized === "failed") return "is-error";
   return "is-muted";
 }
 
@@ -5027,6 +5167,8 @@ function renderOverview(payload) {
     refs.overviewCrawlStatus.dataset.state = "warning";
   } else if (["failed", "canceled"].includes(taskStatus)) {
     refs.overviewCrawlStatus.dataset.state = "failed";
+  } else if (displayTask?.status === "success") {
+    refs.overviewCrawlStatus.dataset.state = "success";
   } else {
     delete refs.overviewCrawlStatus.dataset.state;
   }
@@ -7668,8 +7810,11 @@ function startTaskPolling() {
     );
     const pollInterval = hasActiveTasks ? TASK_POLL_ACTIVE_MS : TASK_POLL_IDLE_MS;
     const pollDue = Date.now() - state.taskLastPollAt >= pollInterval;
-    if (!document.hidden && state.activeTab === "workbench" && pollDue) {
+    if (document.hidden) return;
+    if (state.activeTab === "workbench" && pollDue) {
       loadTaskList();
+    } else if (state.activeTab === "monitor" && !monitorRequestPending) {
+      void loadCollectMonitors();
     }
   }, TASK_POLL_ACTIVE_MS);
 }

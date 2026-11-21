@@ -2568,7 +2568,7 @@ class ServerRoutesMixin:
             token: str = Depends(token_dependency),
         ):
             items = [
-                self._schedule_public(item)
+                self._collect_monitor_public(item)
                 for item in sorted(
                     self._schedule_items_by_type(self.COLLECT_MONITOR_SCHEDULE),
                     key=lambda item: item.get("schedule_id", ""),
@@ -2668,6 +2668,8 @@ class ServerRoutesMixin:
             )
             if not schedule:
                 raise HTTPException(status_code=404, detail="Monitor not found.")
+            if schedule_id in self._active_collect_monitors:
+                raise HTTPException(status_code=409, detail=_("收藏夹监控正在执行"))
             try:
                 result = await self._run_collect_monitor_once(schedule)
             except Exception as error:  # noqa: BLE001

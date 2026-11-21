@@ -262,8 +262,29 @@ async def test_collect_monitor_uses_identity_runtime_and_only_forces_explicit_cr
             }
         ]
 
-    async def batch(payload, tiktok):
+    schedule = {
+        "schedule_id": "S000001",
+        "collect_id": "123",
+        "identity_id": "dy-monitor",
+        "immediate_crawl": True,
+    }
+
+    async def batch(payload, tiktok, *, progress_callback, monitor_run):
         captured_batches.append(payload)
+        row = next(iter(monitor_run["accounts"].values()))
+        assert row["status"] == "pending"
+        row["status"] = "running"
+        progress_callback({"label": "scraping"})
+        server.feed_state.record_arrival(
+            platform="douyin", work_id=row["url"], account_key=f'douyin::{row["url"]}',
+            post_key=monitor_run["id"], kind="video", task_id=monitor_run["id"],
+            name=row["name"], folder="demo", file="demo.mp4", caption="", published_ts=1,
+        )
+        if len(captured_batches) == 1:
+            live = server._collect_monitor_public(schedule)["live_progress"]
+            assert live == {"label": "scraping", "accounts": [{**row, "new_works": 1}]}
+        row["status"] = "success"
+        progress_callback({"label": "complete"})
         return SimpleNamespace(message="ok", data={})
 
     server._collect_monitor_fetch_aweme_items = fetch
@@ -277,13 +298,7 @@ async def test_collect_monitor_uses_identity_runtime_and_only_forces_explicit_cr
         lambda base, identity, credentials, settings_dir: _Runtime(identity),
     )
 
-    explicit = await server._run_collect_monitor_once(
-        {
-            "collect_id": "123",
-            "identity_id": "dy-monitor",
-            "immediate_crawl": True,
-        }
-    )
+    explicit = await server._run_collect_monitor_once(schedule)
     automatic = await server._run_collect_monitor_once(
         {
             "collect_id": "456",
@@ -310,6 +325,20 @@ async def test_collect_monitor_uses_identity_runtime_and_only_forces_explicit_cr
     assert captured_batches[0]["items"][0]["mark"] == "Example"
     assert captured_batches[0]["identity_id"] == "dy-monitor"
     assert captured_batches[1]["identity_id"] == ""
+
+    status = server._collect_monitor_public(schedule)
+    assert "live_progress" not in status
+    last_scrape = status["last_scrape_progress"]
+    assert last_scrape["accounts"][0]["status"] == "success"
+    assert last_scrape["accounts"][0]["new_works"] == 1
+
+    async def empty_collection(**kwargs):
+        return []
+
+    server._collect_monitor_fetch_aweme_items = empty_collection
+    no_new_accounts = await server._run_collect_monitor_once(schedule)
+    assert no_new_accounts["added_accounts"] == 0
+    assert server._collect_monitor_public(schedule)["last_scrape_progress"] == last_scrape
     server.collector_store.close()
 
 

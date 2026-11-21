@@ -54,10 +54,10 @@
       })();
     </script>
     <title>下载工作台 · FetchShelf</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-B6tf_ZYL.js"></script>
+    <script type="module" crossorigin src="/ui/static/assets/index-DwW2V8ZW.js"></script>
     <link rel="modulepreload" crossorigin href="/ui/static/assets/jsx-runtime-CNVhjzSW.js">
     <link rel="modulepreload" crossorigin href="/ui/static/assets/preload-helper-D9BqOEs6.js">
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-DAwitYhn.css">
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-D3r7SO59.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -359,9 +359,9 @@
               </div>
             </div>
             <div class="account-editor-grid">
-              <div class="account-editor-panel">
+              <section class="account-editor-panel" aria-labelledby="accounts-douyin-title">
                 <div class="card-head mini">
-                  <h3>抖音账号（accounts_urls）</h3>
+                  <h3 id="accounts-douyin-title">抖音账号（accounts_urls）</h3>
                   <div class="card-actions">
                     <input
                       id="accounts-douyin-search"
@@ -523,11 +523,11 @@
                   aria-label="已删除抖音账号分页"
                 ></div>
                 <div id="accounts-douyin-status" class="status-line"></div>
-              </div>
+              </section>
 
-              <div class="account-editor-panel">
+              <section class="account-editor-panel" aria-labelledby="accounts-tiktok-title">
                 <div class="card-head mini">
-                  <h3>TikTok 账号（accounts_urls_tiktok）</h3>
+                  <h3 id="accounts-tiktok-title">TikTok 账号（accounts_urls_tiktok）</h3>
                   <div class="card-actions">
                     <input
                       id="accounts-tiktok-search"
@@ -689,7 +689,7 @@
                   aria-label="已删除 TikTok 账号分页"
                 ></div>
                 <div id="accounts-tiktok-status" class="status-line"></div>
-              </div>
+              </section>
             </div>
             <div class="status-line">
               提示：保存配置后可长期复用；也可直接在“下载工作台”按当前表格执行。
@@ -1032,7 +1032,7 @@
             <label class="field compact">
               <span>展示模式</span>
               <select id="board-view-mode">
-                <option value="avatar">紧凑媒体</option>
+                <option value="avatar">瀑布流</option>
                 <option value="media">详细媒体</option>
                 <option value="immersive">纯媒体</option>
               </select>

@@ -138,6 +138,13 @@ class FeedState:
                 "SELECT * FROM arrivals WHERE post_key IN (SELECT value FROM json_each(?))", (dumps(keys),)
             )]
 
+    def arrivals_per_account(self, task_id: str) -> dict[str, int]:
+        with self._connect() as connection:
+            return dict(connection.execute(
+                "SELECT account_key, COUNT(*) FROM arrivals WHERE task_id=? GROUP BY account_key",
+                (task_id,),
+            ))
+
     def arrival_summary(self, task_id: str) -> dict:
         with self._connect() as connection:
             run = connection.execute("SELECT partial FROM arrival_runs WHERE task_id=?", (task_id,)).fetchone()
