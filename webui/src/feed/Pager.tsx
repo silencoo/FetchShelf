@@ -14,6 +14,7 @@ import {
 } from "react";
 
 import { api, avatarUrl, fileUrl, thumbUrl } from "./api";
+import { usePagedWheel } from "./hooks";
 import { useMediaZoom } from "./useMediaZoom";
 import { resumeVideo } from "./resumeVideo";
 import { seekVideo } from "./seekVideo";
@@ -63,6 +64,7 @@ export interface PagerHandle {
   seek(delta: number): void;
   slide(delta: number): boolean;
   post(): Post | undefined;
+  collapse?(): void;
 }
 
 /** Remembers the visible photo per post, for the download action. */
@@ -1145,43 +1147,7 @@ export function Pager({
     };
   }, [current, handleRef, list, next, previous]);
 
-  // Desktop wheels and trackpads: one gesture moves exactly one post.
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) {
-      return;
-    }
-    let lastEvent = 0;
-    let lastNavigation = 0;
-    let lastMagnitude = 0;
-    const onWheel = (event: WheelEvent) => {
-      if (event.ctrlKey) {
-        return;
-      }
-      event.preventDefault();
-      if (scroller.querySelector("[data-zoom-active]")) return;
-      const now = performance.now();
-      const delta = event.deltaY * (event.deltaMode === 1 ? 40 : 1);
-      const magnitude = Math.abs(delta);
-      const gap = now - lastEvent;
-      const freshGesture =
-        gap > 180 ||
-        (magnitude > lastMagnitude * 1.6 && magnitude > 20) ||
-        (now - lastNavigation > 700 && magnitude >= 40);
-      lastEvent = now;
-      lastMagnitude = magnitude;
-      if (freshGesture && magnitude >= 4 && now - lastNavigation > 280) {
-        lastNavigation = now;
-        if (delta > 0) {
-          next();
-        } else {
-          previous();
-        }
-      }
-    };
-    scroller.addEventListener("wheel", onWheel, { passive: false });
-    return () => scroller.removeEventListener("wheel", onWheel);
-  }, [next, previous]);
+  usePagedWheel(scrollerRef, (delta) => delta > 0 ? next() : previous());
 
   const onScroll = useMemo(() => {
     let frame = 0;

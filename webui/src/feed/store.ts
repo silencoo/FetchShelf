@@ -1,7 +1,7 @@
 import { getPlatform } from "./platform";
 import { useSyncExternalStore } from "react";
 
-import { api, type FeedPreferences } from "./api";
+import { api, ultraLimits, type FeedPreferences } from "./api";
 import type { Author, Post, PostSource } from "./types";
 
 type Listener = () => void;
@@ -181,28 +181,59 @@ function readPreference(key: string, fallback: boolean) {
   }
 }
 
-function writePreference(key: string, value: boolean) {
+function readLimit(key: string, { max, default: fallback }: { max: number; default: number }) {
   try {
-    localStorage.setItem(key, value ? "1" : "0");
+    const value = Number(localStorage.getItem(key));
+    return Number.isInteger(value) && value >= 1 && value <= max ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writePreference(key: string, value: boolean | number) {
+  try {
+    localStorage.setItem(key, String(Number(value)));
   } catch {
     // The setting still applies for this session when storage is blocked.
   }
 }
 
+const preferenceKeys: Record<keyof FeedPreferences, string> = {
+  sound: "feed.sound",
+  autoNext: "feed.autonext",
+  showPauseIcon: "feed.pause_icon",
+  pinchZoom: "feed.pinch_zoom",
+  ultraImmersive: "feed.ultra_immersive",
+  ultraOpenSingle: "feed.ultra_open_single",
+  ultraColumns: "feed.ultra_columns",
+  ultraRows: "feed.ultra_rows",
+  ultraVideos: "feed.ultra_videos",
+};
+const preferenceNames = Object.keys(preferenceKeys) as (keyof FeedPreferences)[];
+
 /** Shared server preferences, with a local cache for instant/offline rendering. */
-class Preferences extends Observable {
-  sound = readPreference("feed.sound", true);
-  autoNext = readPreference("feed.autonext", false);
-  showPauseIcon = readPreference("feed.pause_icon", true);
-  pinchZoom = readPreference("feed.pinch_zoom", true);
+class Preferences extends Observable implements FeedPreferences {
+  sound = readPreference(preferenceKeys.sound, true);
+  autoNext = readPreference(preferenceKeys.autoNext, false);
+  showPauseIcon = readPreference(preferenceKeys.showPauseIcon, true);
+  pinchZoom = readPreference(preferenceKeys.pinchZoom, true);
+  ultraImmersive = readPreference(preferenceKeys.ultraImmersive, false);
+  ultraOpenSingle = readPreference(preferenceKeys.ultraOpenSingle, true);
+  ultraColumns = readLimit(preferenceKeys.ultraColumns, ultraLimits.ultraColumns);
+  ultraRows = readLimit(preferenceKeys.ultraRows, ultraLimits.ultraRows);
+  ultraVideos = readLimit(preferenceKeys.ultraVideos, ultraLimits.ultraVideos);
   syncState: "loading" | "saved" | "pending" | "error" = "loading";
   private pending: Partial<FeedPreferences> = {};
   private syncing = false;
-  private keys = { sound: "feed.sound", autoNext: "feed.autonext", showPauseIcon: "feed.pause_icon", pinchZoom: "feed.pinch_zoom" };
 
-  private change(key: keyof FeedPreferences, value: boolean) {
-    this[key] = value;
-    writePreference(this.keys[key], value);
+  private apply<K extends keyof FeedPreferences>(key: K, value: FeedPreferences[K]) {
+    const state: FeedPreferences = this;
+    state[key] = value;
+    writePreference(preferenceKeys[key], value);
+  }
+
+  change<K extends keyof FeedPreferences>(key: K, value: FeedPreferences[K]) {
+    this.apply(key, value);
     this.pending[key] = value;
     this.syncState = "pending";
     this.emit();
@@ -218,15 +249,13 @@ class Preferences extends Observable {
     try {
       let values = await api.preferences(Object.keys(changes).length ? changes : undefined);
       const missing: Partial<FeedPreferences> = {};
-      for (const key of Object.keys(this.keys) as (keyof FeedPreferences)[]) {
-        if (typeof values[key] !== "boolean") missing[key] = this[key];
+      for (const key of preferenceNames) {
+        if (values[key] === undefined) Object.assign(missing, { [key]: this[key] });
       }
       if (Object.keys(missing).length) values = await api.preferences(missing, true);
-      for (const key of Object.keys(this.keys) as (keyof FeedPreferences)[]) {
-        if (!(key in this.pending) && typeof values[key] === "boolean") {
-          this[key] = values[key];
-          writePreference(this.keys[key], values[key]);
-        }
+      for (const key of preferenceNames) {
+        const value = values[key];
+        if (!(key in this.pending) && value !== undefined && typeof value === typeof this[key]) this.apply(key, value);
       }
       succeeded = true;
       this.syncState = Object.keys(this.pending).length ? "pending" : "saved";

@@ -266,6 +266,119 @@
   display: none;
 }
 
+.fa-ultra {
+  touch-action: pan-y pinch-zoom;
+}
+
+.fa-topbar .fa-ultra-fullscreen {
+  flex: none;
+  width: 44px;
+  height: 44px;
+}
+
+.fa-topbar:has(.fa-ultra-fullscreen) > .fa-topbar-side {
+  flex-basis: 84px;
+}
+
+.fa[data-ultra-fullscreen] {
+  --fa-tabbar: 0px;
+}
+
+.fa[data-ultra-fullscreen] :is(.fa-nav, .fa-tabbar),
+.fa[data-ultra-fullscreen] .fa-home > .fa-topbar > :not(.fa-topbar-end),
+.fa[data-ultra-fullscreen] .fa-home .fa-topbar-end > :not(.fa-ultra-fullscreen) {
+  display: none;
+}
+
+.fa[data-ultra-fullscreen] .fa-home > .fa-topbar {
+  justify-content: flex-end;
+  background: none;
+}
+
+.fa[data-ultra-fullscreen] .fa-home .fa-topbar-end {
+  pointer-events: none;
+}
+
+.fa[data-ultra-fullscreen] .fa-ultra-fullscreen {
+  pointer-events: auto;
+  background: rgb(0 0 0 / 0.55);
+  opacity: 0;
+}
+
+.fa[data-ultra-fullscreen] .fa-ultra-fullscreen:is([data-revealed], :focus-visible) {
+  opacity: 1;
+}
+
+@media (max-width: 380px) {
+  .fa-topbar:has(.fa-ultra-fullscreen) > .fa-topbar-side:first-child {
+    flex-basis: 44px;
+  }
+
+  .fa-topbar:has(.fa-ultra-fullscreen) .fa-home-tabs {
+    gap: 6px;
+  }
+}
+
+.fa-ultra-batch,
+.fa-ultra-state {
+  position: relative;
+  height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+.fa-ultra-batch {
+  display: flex;
+  flex-direction: column;
+}
+
+.fa-ultra-row,
+.fa-ultra-tile {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.fa-ultra-row {
+  display: flex;
+}
+
+.fa-ultra .fa-ultra-tile {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 0;
+  background: #000;
+}
+
+.fa-ultra-tile :is(img, video) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.fa-ultra .fa-ultra-tile[aria-pressed="true"] {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.fa-ultra-tile[aria-pressed="true"] :is(img, video) {
+  object-fit: contain;
+}
+
+.fa-ultra .fa-ultra-tile:focus-visible {
+  outline-offset: -3px;
+}
+
+.fa-ultra-state {
+  display: grid;
+  place-items: center;
+}
+
 /* Touch screens scroll without a visible bar, whatever the console styles. */
 @media (hover: none), (max-width: 699px) {
   .fa-view::-webkit-scrollbar {
@@ -1394,6 +1507,17 @@
 .fa-setting-row small {
   color: var(--fa-muted);
   font-size: 12px;
+}
+
+.fa .fa-ultra-limit {
+  min-width: 60px;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--fa-line);
+  border-radius: 8px;
+  color: var(--fa-text);
+  background: var(--fa-surface);
+  color-scheme: dark;
 }
 
 .fa-switch-row input {

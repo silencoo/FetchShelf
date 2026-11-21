@@ -78,7 +78,18 @@ export interface FeedPreferences {
   autoNext: boolean;
   showPauseIcon: boolean;
   pinchZoom: boolean;
+  ultraImmersive: boolean;
+  ultraOpenSingle: boolean;
+  ultraColumns: number;
+  ultraRows: number;
+  ultraVideos: number;
 }
+
+export const ultraLimits = {
+  ultraColumns: { max: 6, default: 3 },
+  ultraRows: { max: 5, default: 2 },
+  ultraVideos: { max: 8, default: 2 },
+} as const;
 
 async function preferenceRequest(values?: Partial<FeedPreferences>, initialize = false) {
   const controller = new AbortController();

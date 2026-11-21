@@ -17,6 +17,8 @@ from time import time
 
 MARK_KINDS = frozenset({"like", "save", "follow", "hide", "block"})
 _POST_KINDS = frozenset({"like", "save"})
+_BOOLEAN_PREFERENCES = frozenset({"sound", "autoNext", "showPauseIcon", "pinchZoom", "ultraImmersive", "ultraOpenSingle"})
+ULTRA_LIMITS = {"ultraColumns": 6, "ultraRows": 5, "ultraVideos": 8}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS marks (
@@ -52,6 +54,10 @@ CREATE INDEX IF NOT EXISTS arrivals_week ON arrivals(saved_at);
 CREATE TABLE IF NOT EXISTS preferences (
     key TEXT PRIMARY KEY,
     value INTEGER NOT NULL CHECK(value IN (0, 1))
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS preference_limits (
+    key TEXT PRIMARY KEY,
+    value INTEGER NOT NULL CHECK(value BETWEEN 1 AND 8)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS marks_recent ON marks(kind, created_at);
 CREATE INDEX IF NOT EXISTS marks_account ON marks(kind, account_key, created_at);
@@ -156,19 +162,28 @@ class FeedState:
 
     def preferences(self) -> dict:
         with self._connect() as connection:
-            return {key: bool(value) for key, value in connection.execute("SELECT key, value FROM preferences")}
+            return self._read_preferences(connection)
+
+    @staticmethod
+    def _read_preferences(connection: sqlite3.Connection) -> dict:
+        flags = {key: bool(value) for key, value in connection.execute("SELECT key, value FROM preferences")}
+        return flags | dict(connection.execute("SELECT key, value FROM preference_limits"))
 
     def update_preferences(self, values: dict, *, initialize: bool = False) -> dict:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 for key, value in values.items():
-                    if key not in {"sound", "autoNext", "showPauseIcon", "pinchZoom"} or type(value) is not bool:
+                    if key in _BOOLEAN_PREFERENCES and type(value) is bool:
+                        table = "preferences"
+                    elif key in ULTRA_LIMITS and type(value) is int and 1 <= value <= ULTRA_LIMITS[key]:
+                        table = "preference_limits"
+                    else:
                         raise ValueError("invalid feed preference")
-                    sql = "INSERT OR IGNORE INTO preferences VALUES (?, ?)" if initialize else (
-                        "INSERT INTO preferences VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+                    sql = f"INSERT OR IGNORE INTO {table} VALUES (?, ?)" if initialize else (
+                        f"INSERT INTO {table} VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
                     connection.execute(sql, (key, int(value)))
-                result = {key: bool(value) for key, value in connection.execute("SELECT key, value FROM preferences")}
+                result = self._read_preferences(connection)
                 connection.commit()
                 return result
             except BaseException:

@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import brandMark from "@/assets/brand/fetchshelf-mark-48.png";
 
 import { ACCOUNT_BLOCK_CHANGED, api, AuthRequiredError, onAuthRequired, signIn } from "./api";
-import { useMediaQuery } from "./hooks";
+import { useMediaFullscreen, useMediaQuery } from "./hooks";
 import {
   BackIcon,
   BookmarkIcon,
   CompassIcon,
   ExitIcon,
+  FullscreenIcon,
   HeartIcon,
   HomeIcon,
   MutedIcon,
@@ -18,6 +19,7 @@ import {
   VolumeIcon,
 } from "./icons";
 import { Pager, type PagerActions, type PagerHandle } from "./Pager";
+import { UltraPager } from "./UltraPager";
 import { mediaPool } from "./player";
 import { PostPanel, ShareSheet } from "./Sheets";
 import type { VideoSnapshot } from "./videoSnapshot";
@@ -376,6 +378,15 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
   }, []);
 
   useEffect(() => {
+    if (!active) return;
+    const restore = history.scrollRestoration;
+    history.scrollRestoration = "manual";
+    return () => {
+      history.scrollRestoration = restore;
+    };
+  }, [active]);
+
+  useEffect(() => {
     const onPop = (event: PopStateEvent) => {
       const depth = typeof event.state?.feedDepth === "number" ? event.state.feedDepth : 0;
       setLayers((current) => current.slice(0, depth));
@@ -466,6 +477,8 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
 
   const topLayer = layers[layers.length - 1];
   const homeCurrent = active && tab === "home" && !layers.length;
+  const canFullscreen = homeCurrent && preferences.ultraImmersive && !needsToken;
+  const { fullscreen, exitVisible, enter, leave, revealExit } = useMediaFullscreen(rootRef, canFullscreen);
 
   // Keyboard control for desks and iPad keyboards.
   useEffect(() => {
@@ -481,12 +494,17 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
         return;
       }
       if (event.key === "Escape") {
-        if (share) {
+        if (fullscreen) {
+          event.preventDefault();
+          leave();
+        } else if (share) {
           setShare(null);
         } else if (panel) {
           setPanel(null);
         } else if (layersRef.current.length) {
           back();
+        } else if (homeCurrent) {
+          handleRef.current?.collapse?.();
         }
         return;
       }
@@ -540,7 +558,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
           }
           break;
         case "c":
-          if (post) {
+          if (post && !fullscreen) {
             setPanel((current) => (current ? null : { post, tab: "comments" }));
           }
           break;
@@ -553,7 +571,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, back, homeCurrent, panel, share, topLayer?.type]);
+  }, [active, back, fullscreen, homeCurrent, leave, panel, share, topLayer?.type]);
 
   const panelIsDocked = Boolean(panel && docked);
   const needsSoundTap = active && preferences.sound && !soundUnlocked;
@@ -576,6 +594,8 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
       ref={rootRef}
       className={`fa${panelIsDocked ? " has-docked-panel" : ""}`}
       data-layers={layers.length}
+      data-ultra-fullscreen={fullscreen || undefined}
+      onClickCapture={fullscreen ? revealExit : undefined}
     >
       <aside className="fa-nav" aria-label="沉浸浏览导航">
         <div className="fa-brand">
@@ -617,34 +637,33 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
       <main className="fa-main">
         <div className="fa-tab-content">
           <section className="fa-home" hidden={tab !== "home"} aria-label="首页">
-            {HOME_TABS.filter((item) => visited.has(item.tab)).map((item) => (
-              <div key={item.tab} className="fa-home-pane" hidden={homeTab !== item.tab}>
-                <Pager
-                  list={homeLists[item.tab]}
-                  current={homeCurrent && homeTab === item.tab}
-                  actions={pagerActions}
-                  handleRef={handleRef}
-                  ariaLabel={`${item.label}作品流`}
-                  onActivePost={onActivePost}
-                  empty={
-                    item.tab === "following" ? (
-                      followingEmpty
-                    ) : item.tab === "arrivals" ? (
-                      <p>{arrivalTask ? "本次采集暂无可浏览的新增作品" : "最近 7 天暂无新入库作品"}</p>
-                    ) : !status ? (
-                      <span className="fa-spinner" aria-label="正在加载" />
-                    ) : status.phase !== "idle" ? (
-                      <IndexingNotice status={status} />
-                    ) : (
+            {HOME_TABS.filter((item) => visited.has(item.tab)).map((item) => {
+              const pager = {
+                list: homeLists[item.tab],
+                current: homeCurrent && homeTab === item.tab,
+                handleRef,
+                ariaLabel: `${item.label}作品流`,
+                onActivePost,
+                empty:
+                  item.tab === "following" ? followingEmpty
+                    : item.tab === "arrivals" ? <p>{arrivalTask ? "本次采集暂无可浏览的新增作品" : "最近 7 天暂无新入库作品"}</p>
+                    : !status ? <span className="fa-spinner" aria-label="正在加载" />
+                    : status.phase !== "idle" ? <IndexingNotice status={status} />
+                    : (
                       <div className="fa-state">
                         <p>媒体库里还没有作品</p>
                         <small>完成一次账号采集后，作品会自动出现在这里</small>
                       </div>
-                    )
-                  }
-                />
-              </div>
-            ))}
+                    ),
+              };
+              return (
+                <div key={item.tab} className="fa-home-pane" hidden={homeTab !== item.tab}>
+                  {preferences.ultraImmersive
+                    ? <UltraPager {...pager} openSingle={fullscreen ? undefined : viewActions.openPlayer} />
+                    : <Pager {...pager} actions={pagerActions} />}
+                </div>
+              );
+            })}
             <div className="fa-topbar">
               <span className="fa-topbar-side">
                 {arrivalTask && <button type="button" className="fa-icon-btn" aria-label="返回任务" onClick={exit}><BackIcon size={24} /></button>}
@@ -672,7 +691,24 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
                 >
                   <SearchIcon size={22} />
                 </button>
-                <SoundButton />
+                {!preferences.ultraImmersive && <SoundButton />}
+                {canFullscreen && (
+                  <button type="button" className="fa-icon-btn fa-ultra-fullscreen"
+                    aria-label={fullscreen ? "退出全屏" : "全屏观看"}
+                    data-revealed={(fullscreen && exitVisible) || undefined}
+                    onPointerEnter={fullscreen ? revealExit : undefined}
+                    onClick={() => {
+                      if (fullscreen) {
+                        leave();
+                      } else {
+                        setPanel(null);
+                        setShare(null);
+                        enter();
+                      }
+                    }}>
+                    <FullscreenIcon size={22} exit={fullscreen} />
+                  </button>
+                )}
               </span>
             </div>
           </section>
@@ -744,7 +780,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
           );
         })}
 
-        {needsSoundTap && (homeCurrent || topLayer?.type === "player") ? (
+        {needsSoundTap && ((homeCurrent && !preferences.ultraImmersive) || topLayer?.type === "player") ? (
           <button type="button" className="fa-sound-chip">
             <MutedIcon size={16} /> 点一下开启声音
           </button>
@@ -763,7 +799,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
         {share ? (
           <ShareSheet post={share.post} snapshot={share.snapshot} anchor={share.anchor} onClose={() => setShare(null)} onHideAuthor={hideAuthor} />
         ) : null}
-        {toaster.message ? (
+        {toaster.message && !fullscreen ? (
           <div className="fa-toast" role="status">
             {toaster.message}
           </div>

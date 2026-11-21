@@ -184,8 +184,8 @@ export const RefreshIcon = (p: IconProps) => (
     <path d="M20 11a8 8 0 1 0-1.6 5.8M20 5v6h-6" />
   </svg>
 );
-export const FullscreenIcon = (p: IconProps) => (
+export const FullscreenIcon = ({ exit, ...p }: IconProps & { exit?: boolean }) => (
   <svg {...base(p)} {...stroke}>
-    <path d="M8 3H4v4M16 3h4v4M8 21H4v-4M16 21h4v-4" />
+    <path d={exit ? "M4 8h5V3m11 5h-5V3M4 16h5v5m11-5h-5v5" : "M8 3H4v4M16 3h4v4M8 21H4v-4M16 21h4v-4"} />
   </svg>
 );

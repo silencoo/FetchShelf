@@ -10,7 +10,7 @@ import {
   type RefObject,
 } from "react";
 
-import { api, avatarUrl, setAccountBlocked, thumbUrl } from "./api";
+import { api, avatarUrl, setAccountBlocked, thumbUrl, ultraLimits } from "./api";
 import { AccountCover } from "./AccountCover";
 import { formatCount, formatDuration, formatRelativeTime, initialOf } from "./format";
 import { useMediaQuery } from "./hooks";
@@ -1128,6 +1128,35 @@ export function MeView({ actions, visible, platform, onPlatform }: { actions: Vi
           <input type="checkbox" role="switch" checked={preferences.pinchZoom}
             onChange={(event) => preferences.setPinchZoom(event.target.checked)} />
         </label>
+        <label className="fa-switch-row">
+          <span>超沉浸<small>每次滑动浏览一整屏作品</small></span>
+          <input type="checkbox" role="switch" checked={preferences.ultraImmersive}
+            onChange={(event) => preferences.change("ultraImmersive", event.target.checked)} />
+        </label>
+        {preferences.ultraImmersive && (
+          <>
+            {([
+              ["ultraColumns", "最多列数"],
+              ["ultraRows", "最多行数"],
+              ["ultraVideos", "同时播放的视频数"],
+            ] as const).map(([key, label]) => (
+              <label key={key} className="fa-setting-row">
+                <span>{label}</span>
+                <select className="fa-ultra-limit" data-ui-select="false" aria-label={label} value={preferences[key]}
+                  onChange={(event) => preferences.change(key, Number(event.target.value))}>
+                  {Array.from({ length: ultraLimits[key].max }, (_, index) => (
+                    <option key={index + 1} value={index + 1}>{index + 1}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <label className="fa-switch-row">
+              <span>点击进入单条播放<small>关闭后，点击在当前屏内放大</small></span>
+              <input type="checkbox" role="switch" checked={preferences.ultraOpenSingle}
+                onChange={(event) => preferences.change("ultraOpenSingle", event.target.checked)} />
+            </label>
+          </>
+        )}
         <div className="fa-setting-row">
           <span>
             媒体库

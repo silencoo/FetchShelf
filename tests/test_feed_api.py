@@ -679,10 +679,15 @@ def test_shared_preferences_merge_initialize_validate_and_persist(harness):
                                 json={"sound": True, "autoNext": False}).json() == first
     harness.client.patch(url, headers=HEADERS, json={"sound": True})
     harness.client.patch(url, headers=HEADERS, json={"pinchZoom": False})
-    expected = {**first, "sound": True, "pinchZoom": False}
+    ultra = {"ultraImmersive": True, "ultraOpenSingle": False, "ultraRows": 2, "ultraColumns": 4, "ultraVideos": 3}
+    harness.client.patch(url, headers=HEADERS, json=ultra)
+    expected = {**first, **ultra, "sound": True, "pinchZoom": False}
+    assert harness.client.patch(url + "?initialize=true", headers=HEADERS,
+                                json={"ultraRows": 1, "ultraImmersive": False}).json() == expected
     assert get(harness, url) == expected
     assert FeedState(harness.service.state.path).preferences() == expected
-    for invalid in ({"sound": None}, {"sound": "false"}, {"unknown": True}):
+    for invalid in ({"sound": None}, {"sound": "false"}, {"unknown": True},
+                    {"ultraRows": 0}, {"ultraColumns": 7}, {"ultraVideos": True}, {"ultraVideos": "2"}):
         assert harness.client.patch(url, headers=HEADERS, json=invalid).status_code == 422
 
 
