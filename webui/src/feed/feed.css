@@ -1884,7 +1884,6 @@
     align-items: flex-end;
     justify-content: center;
     gap: var(--fa-media-rail-gap);
-    padding: 12px 0;
   }
 
   .fa-stage-wrap {
@@ -1895,7 +1894,6 @@
     max-width: calc(100% - 92px);
     aspect-ratio: var(--ar);
     overflow: hidden;
-    border-radius: 14px;
     background: #000;
   }
 
@@ -1903,16 +1901,17 @@
     height: 32%;
   }
 
-  .fa-caption {
+  .fa-caption,
+  .fa-layer-player .fa-caption {
     right: 14px;
     left: 14px;
-    bottom: 16px;
+    bottom: calc(16px + var(--fa-safe-bottom));
   }
 
   .fa-fullscreen {
     top: auto;
     right: 12px;
-    bottom: 22px;
+    bottom: calc(22px + var(--fa-safe-bottom));
     left: auto;
     justify-content: center;
     width: 44px;
@@ -1933,15 +1932,11 @@
   .fa-layer-player .fa-rail {
     position: static;
     flex: none;
-    padding-bottom: 8px;
+    padding-bottom: calc(8px + var(--fa-safe-bottom));
   }
 
-  .fa-layer-player .fa-caption {
-    bottom: 16px;
-  }
-
-  .fa-layer-player .fa-seek {
-    bottom: 0;
+  .fa-seek {
+    bottom: var(--fa-safe-bottom);
   }
 
   .fa-rail-icon {
@@ -1999,13 +1994,9 @@
 
 /* Phones held sideways: the full rail would be taller than the screen. */
 @media (min-width: 700px) and (max-height: 520px) {
-  .fa-slide-inner {
-    padding: 4px 0;
-  }
-
   .fa-rail {
     gap: 5px;
-    padding-bottom: 0;
+    padding-bottom: var(--fa-safe-bottom);
   }
 
   .fa-rail-author {
@@ -2118,10 +2109,6 @@
 
   .fa-carousel-arrow.is-right {
     right: 10px;
-  }
-
-  .fa-slide-inner {
-    padding: 16px 0;
   }
 
   .fa-home:has(.fa-home-pane:not([hidden]) .fa-pager-wrap > .fa-pager-arrows),
