@@ -51,6 +51,29 @@ function sampleMediaColor(image: HTMLImageElement) {
   }
 }
 
+function UltraPreview({ path, current, original, onLoad }: {
+  path: string;
+  current: boolean;
+  original: boolean;
+  onLoad(image: HTMLImageElement): void;
+}) {
+  const [originalReady, setOriginalReady] = useState(false);
+
+  return (
+    <>
+      {!originalReady && <img src={thumbUrl(path)} alt="" draggable={false} decoding="async"
+        loading={current ? "eager" : "lazy"}
+        onLoad={({ currentTarget }) => onLoad(currentTarget)} />}
+      {original && <img src={fileUrl(path)} alt="" draggable={false} decoding="async"
+        style={{ visibility: originalReady ? undefined : "hidden" }}
+        onLoad={({ currentTarget }) => {
+          setOriginalReady(true);
+          onLoad(currentTarget);
+        }} />}
+    </>
+  );
+}
+
 function UltraTile({ tile, frame, style, current, expanded, covered, play, paused, onAdvance, onPreview, onMeasure, onClick }: {
   tile: Tile;
   frame: number;
@@ -72,6 +95,7 @@ function UltraTile({ tile, frame, style, current, expanded, covered, play, pause
   const path = play && item?.kind === "video" && item.path !== failedPath ? item.path : undefined;
   const preview = item && (item.kind === "image" || post.kind === "live" || frame > 0)
     ? item.path : post.cover || item?.path;
+  const original = current && item?.kind === "image";
   const running = current && !covered && !paused;
 
   useEffect(() => {
@@ -96,9 +120,8 @@ function UltraTile({ tile, frame, style, current, expanded, covered, play, pause
     <button type="button" className="fa-ultra-tile" inert={covered} style={style}
       aria-label={[post.author.name, post.caption].filter(Boolean).join(" · ") || "浏览作品"}
       aria-pressed={expanded} onClick={onClick}>
-      {preview && <img src={thumbUrl(preview)} alt="" draggable={false} decoding="async"
-        loading={current ? "eager" : "lazy"}
-        onLoad={({ currentTarget: image }) => {
+      {preview && <UltraPreview key={`${preview}:${original}`} path={preview} current={current} original={original}
+        onLoad={(image) => {
           if (frame === 0) onPreview(tile, image, !path);
         }} />}
       {path && <video key={path} ref={videoRef} src={fileUrl(path)} muted playsInline loop={media.length === 1} preload="metadata"
