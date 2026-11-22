@@ -14,12 +14,17 @@ from pathlib import Path
 import sqlite3
 from threading import Lock
 from time import time
+from typing import Literal
 
 MARK_KINDS = frozenset({"like", "save", "follow", "hide", "block"})
 _POST_KINDS = frozenset({"like", "save"})
 _BOOLEAN_PREFERENCES = frozenset({"sound", "autoNext", "showPauseIcon", "pinchZoom", "ultraImmersive", "ultraOpenSingle"})
 _ULTRA_LIMIT_KEYS = frozenset({"ultraColumns", "ultraRows", "ultraVideos"})
 MAX_SAFE_PREFERENCE_INTEGER = 2**53 - 1
+UltraLayout = Literal["adaptive", "rows", "portrait"]
+# Keep the layout enum in the existing numeric preference table.
+_ULTRA_LAYOUT_CODES: dict[UltraLayout, int] = {"adaptive": 1, "rows": 2, "portrait": 3}
+_ULTRA_LAYOUT_NAMES = {code: name for name, code in _ULTRA_LAYOUT_CODES.items()}
 
 _LIMITS_TABLE = f"""(
     key TEXT PRIMARY KEY,
@@ -185,7 +190,12 @@ class FeedState:
     @staticmethod
     def _read_preferences(connection: sqlite3.Connection) -> dict:
         flags = {key: bool(value) for key, value in connection.execute("SELECT key, value FROM preferences")}
-        return flags | dict(connection.execute("SELECT key, value FROM preference_limits"))
+        limits = dict(connection.execute("SELECT key, value FROM preference_limits"))
+        layout = _ULTRA_LAYOUT_NAMES.get(limits.pop("ultraLayout", None))
+        result = flags | limits
+        if layout is not None:
+            result["ultraLayout"] = layout
+        return result
 
     def update_preferences(self, values: dict, *, initialize: bool = False) -> dict:
         with self._connect() as connection:
@@ -196,6 +206,9 @@ class FeedState:
                         table = "preferences"
                     elif key in _ULTRA_LIMIT_KEYS and type(value) is int and 1 <= value <= MAX_SAFE_PREFERENCE_INTEGER:
                         table = "preference_limits"
+                    elif key == "ultraLayout" and type(value) is str and value in _ULTRA_LAYOUT_CODES:
+                        table = "preference_limits"
+                        value = _ULTRA_LAYOUT_CODES[value]
                     else:
                         raise ValueError("invalid feed preference")
                     sql = f"INSERT OR IGNORE INTO {table} VALUES (?, ?)" if initialize else (

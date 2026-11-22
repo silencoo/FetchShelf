@@ -73,6 +73,12 @@ function query(values: Record<string, string | number | undefined>) {
   return params.toString();
 }
 
+export type UltraLayout = "adaptive" | "rows" | "portrait";
+
+export function isUltraLayout(value: unknown): value is UltraLayout {
+  return value === "adaptive" || value === "rows" || value === "portrait";
+}
+
 export interface FeedPreferences {
   sound: boolean;
   autoNext: boolean;
@@ -83,6 +89,7 @@ export interface FeedPreferences {
   ultraColumns: number;
   ultraRows: number;
   ultraVideos: number;
+  ultraLayout: UltraLayout;
 }
 
 export const ultraDefaults = {

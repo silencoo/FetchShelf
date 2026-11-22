@@ -144,7 +144,8 @@ export function UltraPager({
   const columns = Math.min(preferences.ultraColumns, Math.max(1, Math.floor(size.width / 96)));
   const rows = Math.min(preferences.ultraRows, Math.max(1, Math.floor(size.height / 96)));
   const aspect = size.height > 0 ? size.width / size.height : 1;
-  const limits = useMemo(() => ({ aspect, columns, rows }), [aspect, columns, rows]);
+  const strategy = preferences.ultraLayout;
+  const limits = useMemo(() => ({ aspect, columns, rows, strategy }), [aspect, columns, rows, strategy]);
   const posts = useMemo(() => list.items.map((post, index): Tile => ({
     post, index, aspect: postAspect(post), media: playbackMedia(post),
   })), [list.items]);

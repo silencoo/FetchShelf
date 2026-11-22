@@ -680,17 +680,23 @@ def test_shared_preferences_merge_initialize_validate_and_persist(harness):
                                 json={"sound": True, "autoNext": False}).json() == first
     harness.client.patch(url, headers=HEADERS, json={"sound": True})
     harness.client.patch(url, headers=HEADERS, json={"pinchZoom": False})
-    ultra = {"ultraImmersive": True, "ultraOpenSingle": False, "ultraRows": 10, "ultraColumns": 12, "ultraVideos": 16}
+    ultra = {"ultraImmersive": True, "ultraOpenSingle": False, "ultraRows": 10, "ultraColumns": 12, "ultraVideos": 16,
+             "ultraLayout": "rows"}
     harness.client.patch(url, headers=HEADERS, json=ultra)
     expected = {**first, **ultra, "sound": True, "pinchZoom": False}
     assert harness.client.patch(url + "?initialize=true", headers=HEADERS,
-                                json={"ultraRows": 1, "ultraImmersive": False}).json() == expected
+                                json={"ultraRows": 1, "ultraImmersive": False, "ultraLayout": "adaptive"}).json() == expected
     assert get(harness, url) == expected
     assert FeedState(harness.service.state.path).preferences() == expected
     for invalid in ({"sound": None}, {"sound": "false"}, {"unknown": True},
                     {"ultraRows": 0}, {"ultraColumns": 2**53}, {"ultraVideos": True},
-                    {"ultraVideos": "2"}, {"ultraRows": 1.5}):
+                    {"ultraVideos": "2"}, {"ultraRows": 1.5}, {"ultraLayout": 1}, {"ultraLayout": "unknown"}):
         assert harness.client.patch(url, headers=HEADERS, json=invalid).status_code == 422
+    for layout in ("portrait", "adaptive"):
+        expected["ultraLayout"] = layout
+        result = harness.client.patch(url, headers=HEADERS, json={"ultraLayout": layout})
+        assert result.status_code == 200 and result.json() == expected
+        assert FeedState(harness.service.state.path).preferences() == expected
 
 
 def test_preferences_upgrade_preserves_saved_limits_and_accepts_custom_values(tmp_path):

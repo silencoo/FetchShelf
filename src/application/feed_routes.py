@@ -29,7 +29,7 @@ from ..webui.feed_index import (
     parse_media_name,
     uid_from_folder,
 )
-from ..webui.feed_state import MAX_SAFE_PREFERENCE_INTEGER
+from ..webui.feed_state import MAX_SAFE_PREFERENCE_INTEGER, UltraLayout
 from ..webui.files import IMAGE_SUFFIXES, VIDEO_SUFFIXES, resolve_within_root
 from ..webui.video_preview import image_preview, preview_revision, video_preview
 
@@ -58,6 +58,7 @@ class FeedPreferencesPatch(BaseModel):
     ultraColumns: int = Field(default=3, strict=True, ge=1, le=MAX_SAFE_PREFERENCE_INTEGER)
     ultraRows: int = Field(default=2, strict=True, ge=1, le=MAX_SAFE_PREFERENCE_INTEGER)
     ultraVideos: int = Field(default=2, strict=True, ge=1, le=MAX_SAFE_PREFERENCE_INTEGER)
+    ultraLayout: UltraLayout = "adaptive"
 
 
 class FeedMark(BaseModel):

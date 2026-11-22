@@ -1,3 +1,5 @@
+import type { UltraLayout } from "./api";
+
 interface Arrangement {
   spanning: boolean;
   rows: number[];
@@ -8,6 +10,7 @@ interface LayoutLimits {
   columns: number;
   rows: number;
   aspect: number;
+  strategy: UltraLayout;
 }
 
 interface BatchPlan extends Arrangement {
@@ -44,9 +47,10 @@ function greedyRows(aspects: readonly number[], start: number, limits: LayoutLim
 function bestArrangement(
   aspects: readonly number[], start: number, limits: LayoutLimits, fallback: Arrangement, exact = false,
 ): Arrangement {
-  const { aspect, columns, rows } = limits;
+  const { aspect, columns, rows, strategy } = limits;
   const end = Math.min(aspects.length, start + (exact ? fallback.count : SEARCH_POSTS));
   if (exact && fallback.count > SEARCH_POSTS) return fallback;
+  const canSpan = strategy !== "rows" && columns >= 2 && rows >= 2 && end - start >= 3 && aspects[start] < 1;
 
   let best = fallback;
   const score = (width: number, count: number) => Math.min(width / aspect, aspect / width) + 0.03 * Math.log2(count);
@@ -58,7 +62,7 @@ function bestArrangement(
     index += count;
   }
   const minimum = exact ? fallback.count : Math.min(2, columns * rows, aspects.length - start);
-  let bestScore = fallback.count >= minimum
+  let bestScore = fallback.count >= minimum && (!fallback.spanning || canSpan)
     ? score(1 / height + (fallback.spanning ? aspects[start] : 0), fallback.count)
     : 0;
 
@@ -66,7 +70,9 @@ function bestArrangement(
     const count = index - start;
     if (path.length && count >= minimum && (!exact || index === end) && (!spanning || path.length >= 2)) {
       const candidate = score(1 / height + (spanning ? aspects[start] : 0), count);
-      if (candidate > bestScore) {
+      const preferred = strategy === "portrait" && spanning;
+      const bestPreferred = strategy === "portrait" && best.spanning && canSpan;
+      if (preferred === bestPreferred ? candidate > bestScore : preferred) {
         best = { spanning, rows: path, count };
         bestScore = candidate;
       }
@@ -83,7 +89,7 @@ function bestArrangement(
   // Try ordered row breaks, plus a tall leading tile spanning the rows to its right.
   // The greedy fallback still handles batches larger than the lookahead.
   search(start, 0, [], false);
-  if (columns >= 2 && rows >= 2 && end - start >= 3 && aspects[start] < 1) search(start + 1, 0, [], true);
+  if (canSpan) search(start + 1, 0, [], true);
   return best;
 }
 

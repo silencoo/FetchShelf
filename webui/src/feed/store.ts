@@ -1,7 +1,7 @@
 import { getPlatform } from "./platform";
 import { useSyncExternalStore } from "react";
 
-import { api, ultraDefaults, type FeedPreferences } from "./api";
+import { api, isUltraLayout, ultraDefaults, type FeedPreferences, type UltraLayout } from "./api";
 import type { Author, Post, PostSource } from "./types";
 
 type Listener = () => void;
@@ -190,9 +190,18 @@ function readLimit(key: string, fallback: number) {
   }
 }
 
-function writePreference(key: string, value: boolean | number) {
+function readUltraLayout(key: string): UltraLayout {
   try {
-    localStorage.setItem(key, String(Number(value)));
+    const value = localStorage.getItem(key);
+    return isUltraLayout(value) ? value : "adaptive";
+  } catch {
+    return "adaptive";
+  }
+}
+
+function writePreference(key: string, value: FeedPreferences[keyof FeedPreferences]) {
+  try {
+    localStorage.setItem(key, String(typeof value === "boolean" ? Number(value) : value));
   } catch {
     // The setting still applies for this session when storage is blocked.
   }
@@ -208,6 +217,7 @@ const preferenceKeys: Record<keyof FeedPreferences, string> = {
   ultraColumns: "feed.ultra_columns",
   ultraRows: "feed.ultra_rows",
   ultraVideos: "feed.ultra_videos",
+  ultraLayout: "feed.ultra_layout",
 };
 const preferenceNames = Object.keys(preferenceKeys) as (keyof FeedPreferences)[];
 
@@ -222,6 +232,7 @@ class Preferences extends Observable implements FeedPreferences {
   ultraColumns = readLimit(preferenceKeys.ultraColumns, ultraDefaults.ultraColumns);
   ultraRows = readLimit(preferenceKeys.ultraRows, ultraDefaults.ultraRows);
   ultraVideos = readLimit(preferenceKeys.ultraVideos, ultraDefaults.ultraVideos);
+  ultraLayout = readUltraLayout(preferenceKeys.ultraLayout);
   syncState: "loading" | "saved" | "pending" | "error" = "loading";
   private pending: Partial<FeedPreferences> = {};
   private syncing = false;
@@ -255,6 +266,7 @@ class Preferences extends Observable implements FeedPreferences {
       if (Object.keys(missing).length) values = await api.preferences(missing, true);
       for (const key of preferenceNames) {
         const value = values[key];
+        if (key === "ultraLayout" && !isUltraLayout(value)) continue;
         if (!(key in this.pending) && value !== undefined && typeof value === typeof this[key]) this.apply(key, value);
       }
       succeeded = true;

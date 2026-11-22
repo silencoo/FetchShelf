@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 
-import { api, avatarUrl, setAccountBlocked, thumbUrl, type ultraDefaults } from "./api";
+import { api, avatarUrl, setAccountBlocked, thumbUrl, type ultraDefaults, type UltraLayout } from "./api";
 import { AccountCover } from "./AccountCover";
 import { formatCount, formatDuration, formatRelativeTime, initialOf } from "./format";
 import { useMediaQuery } from "./hooks";
@@ -1040,6 +1040,13 @@ function indexDescription(status: IndexStatus) {
   return `${status.accounts} 个账号 · ${status.posts} 个作品`;
 }
 
+const ULTRA_LAYOUT_OPTIONS = {
+  adaptive: { label: "自适应", detail: "根据屏幕和媒体比例选择布局" },
+  rows: { label: "仅分行", detail: "每一行独立排列" },
+  portrait: { label: "竖版优先", detail: "首条为竖向作品时优先跨行" },
+} satisfies Record<UltraLayout, { label: string; detail: string }>;
+const ULTRA_LAYOUT_KEYS = Object.keys(ULTRA_LAYOUT_OPTIONS) as UltraLayout[];
+
 function UltraLimitField({ field, label }: { field: keyof typeof ultraDefaults; label: string }) {
   const errorId = useId();
   const [draft, setDraft] = useState<string>();
@@ -1131,7 +1138,7 @@ export function MeView({ actions, visible, platform, onPlatform }: { actions: Vi
       <section className="fa-settings" aria-label="播放设置">
         <div className="fa-setting-row fa-platform-setting">
           <span>浏览平台</span>
-          <div className="fa-platform-switch" role="group" aria-label="浏览平台">
+          <div className="fa-segmented-control" role="group" aria-label="浏览平台">
             {([['douyin', '抖音'], ['tiktok', 'TikTok'], ['all', '全部']] as const).map(([value, label]) => (
               <button key={value} type="button" aria-pressed={platform === value} onClick={() => onPlatform(value)}>{label}</button>
             ))}
@@ -1176,6 +1183,17 @@ export function MeView({ actions, visible, platform, onPlatform }: { actions: Vi
         </label>
         {preferences.ultraImmersive && (
           <>
+            <div className="fa-setting-row fa-ultra-layout-setting">
+              <span>布局方式<small>{ULTRA_LAYOUT_OPTIONS[preferences.ultraLayout].detail}</small></span>
+              <div className="fa-segmented-control" role="group" aria-label="布局方式">
+                {ULTRA_LAYOUT_KEYS.map((value) => (
+                  <button key={value} type="button" aria-pressed={preferences.ultraLayout === value}
+                    onClick={() => preferences.change("ultraLayout", value)}>
+                    {ULTRA_LAYOUT_OPTIONS[value].label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {([
               ["ultraColumns", "最多列数"],
               ["ultraRows", "最多行数"],
