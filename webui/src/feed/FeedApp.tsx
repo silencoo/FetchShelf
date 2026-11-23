@@ -41,13 +41,13 @@ type HomeTab = "foryou" | "following" | "latest" | "arrivals";
 type Layer =
   | { id: number; type: "liked-account"; group: LikedAccount }
   | { id: number; type: "profile"; accountKey: string; name?: string }
-  | { id: number; type: "player"; list: PostList; index: number }
+  | { id: number; type: "player"; list: PostList; index: number; single?: boolean }
   | { id: number; type: "search"; q: string; mode: "search" | "tag" | "music" };
 
 type NewLayer =
   | { type: "liked-account"; group: LikedAccount }
   | { type: "profile"; accountKey: string; name?: string }
-  | { type: "player"; list: PostList; index: number }
+  | { type: "player"; list: PostList; index: number; single?: boolean }
   | { type: "search"; q: string; mode: "search" | "tag" | "music" };
 
 const NAV_ITEMS: Array<{ tab: Tab; label: string; icon: ReactNode }> = [
@@ -439,6 +439,10 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
     [back, exit, openProfile, openSearch, pushLayer],
   );
 
+  const openSinglePost = useCallback((list: PostList, index: number) => {
+    pushLayer({ type: "player", list, index, single: true });
+  }, [pushLayer]);
+
   const onActivePost = useCallback((post: Post) => {
     setPanel((current) => (current && current.post.key !== post.key ? { ...current, post } : current));
   }, []);
@@ -476,8 +480,27 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
 
   const topLayer = layers[layers.length - 1];
   const homeCurrent = active && tab === "home" && !layers.length;
-  const canFullscreen = homeCurrent && preferences.ultraImmersive && !needsToken;
+  const playerCurrent = active && topLayer?.type === "player";
+  const playerUltra = topLayer?.type === "player" && !topLayer.single && preferences.ultraImmersive;
+  const canFullscreen = active && !needsToken && ((homeCurrent && preferences.ultraImmersive) || playerUltra);
   const { fullscreen, exitVisible, enter, leave, revealExit } = useMediaFullscreen(rootRef, canFullscreen);
+  const fullscreenButton = canFullscreen && (
+    <button type="button" className="fa-icon-btn fa-ultra-fullscreen"
+      aria-label={fullscreen ? "退出全屏" : "全屏观看"}
+      data-revealed={(fullscreen && exitVisible) || undefined}
+      onPointerEnter={fullscreen ? revealExit : undefined}
+      onClick={() => {
+        if (fullscreen) {
+          leave();
+        } else {
+          setPanel(null);
+          setShare(null);
+          enter();
+        }
+      }}>
+      <FullscreenIcon size={22} exit={fullscreen} />
+    </button>
+  );
 
   // Keyboard control for desks and iPad keyboards.
   useEffect(() => {
@@ -500,14 +523,14 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
           setShare(null);
         } else if (panel) {
           setPanel(null);
+        } else if ((homeCurrent || playerCurrent) && handleRef.current?.collapse?.()) {
+          event.preventDefault();
         } else if (layersRef.current.length) {
           back();
-        } else if (homeCurrent) {
-          handleRef.current?.collapse?.();
         }
         return;
       }
-      const pagerVisible = homeCurrent || topLayer?.type === "player";
+      const pagerVisible = homeCurrent || playerCurrent;
       if (!pagerVisible) {
         return;
       }
@@ -570,7 +593,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, back, fullscreen, homeCurrent, leave, panel, share, topLayer?.type]);
+  }, [active, back, fullscreen, homeCurrent, leave, panel, share, playerCurrent]);
 
   const panelIsDocked = Boolean(panel && docked);
   const needsSoundTap = active && preferences.sound && !soundUnlocked;
@@ -658,7 +681,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
               return (
                 <div key={item.tab} className="fa-home-pane" hidden={homeTab !== item.tab}>
                   {preferences.ultraImmersive
-                    ? <UltraPager {...pager} openSingle={viewActions.openPlayer} />
+                    ? <UltraPager {...pager} openSingle={openSinglePost} />
                     : <Pager {...pager} actions={pagerActions} />}
                 </div>
               );
@@ -691,23 +714,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
                   <SearchIcon size={22} />
                 </button>
                 {!preferences.ultraImmersive && <SoundButton />}
-                {canFullscreen && (
-                  <button type="button" className="fa-icon-btn fa-ultra-fullscreen"
-                    aria-label={fullscreen ? "退出全屏" : "全屏观看"}
-                    data-revealed={(fullscreen && exitVisible) || undefined}
-                    onPointerEnter={fullscreen ? revealExit : undefined}
-                    onClick={() => {
-                      if (fullscreen) {
-                        leave();
-                      } else {
-                        setPanel(null);
-                        setShare(null);
-                        enter();
-                      }
-                    }}>
-                    <FullscreenIcon size={22} exit={fullscreen} />
-                  </button>
-                )}
+                {homeCurrent && fullscreenButton}
               </span>
             </div>
           </section>
@@ -742,6 +749,8 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
 
         {layers.map((layer, index) => {
           const isTop = index === layers.length - 1;
+          const isUltra = layer.type === "player" && !layer.single && preferences.ultraImmersive;
+          const Player = isUltra ? UltraPager : Pager;
           return (
             <LayerCard key={layer.id} kind={layer.type} isTop={isTop} onBack={back}>
               {layer.type === "profile" ? (
@@ -758,7 +767,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
                 <SearchView key={blockRevision} query={layer.q} mode={layer.mode} actions={viewActions} />
               ) : (
                 <>
-                  <Pager
+                  <Player
                     list={layer.list}
                     initialIndex={layer.index}
                     current={active && isTop}
@@ -766,12 +775,14 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
                     handleRef={handleRef}
                     ariaLabel="作品播放"
                     onActivePost={onActivePost}
+                    openSingle={openSinglePost}
+                    empty={<p>暂无作品</p>}
                   />
                   <div className="fa-topbar fa-topbar-player">
                     <button type="button" className="fa-icon-btn" aria-label="返回" onClick={back}>
                       <BackIcon size={24} />
                     </button>
-                    <SoundButton />
+                    {isUltra ? isTop && fullscreenButton : <SoundButton />}
                   </div>
                 </>
               )}
@@ -779,7 +790,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
           );
         })}
 
-        {needsSoundTap && ((homeCurrent && !preferences.ultraImmersive) || topLayer?.type === "player") ? (
+        {needsSoundTap && ((homeCurrent && !preferences.ultraImmersive) || (playerCurrent && !playerUltra)) ? (
           <button type="button" className="fa-sound-chip">
             <MutedIcon size={16} /> 点一下开启声音
           </button>

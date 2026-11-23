@@ -286,11 +286,12 @@
 
 .fa[data-ultra-fullscreen] :is(.fa-nav, .fa-tabbar),
 .fa[data-ultra-fullscreen] .fa-home > .fa-topbar > :not(.fa-topbar-end),
-.fa[data-ultra-fullscreen] .fa-home .fa-topbar-end > :not(.fa-ultra-fullscreen) {
+.fa[data-ultra-fullscreen] .fa-home .fa-topbar-end > :not(.fa-ultra-fullscreen),
+.fa[data-ultra-fullscreen] .fa-topbar-player > :not(.fa-ultra-fullscreen) {
   display: none;
 }
 
-.fa[data-ultra-fullscreen] .fa-home > .fa-topbar {
+.fa[data-ultra-fullscreen] :is(.fa-home > .fa-topbar, .fa-topbar-player) {
   justify-content: flex-end;
   background: none;
 }
@@ -322,7 +323,7 @@
 .fa-ultra-batch,
 .fa-ultra-state {
   position: relative;
-  height: 100%;
+  height: var(--fa-ultra-page-height, 100%);
   scroll-snap-align: start;
   scroll-snap-stop: always;
 }
@@ -359,6 +360,14 @@
 .fa-ultra-state {
   display: grid;
   place-items: center;
+}
+
+.fa-ultra-loading-more {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 16px;
+  margin-inline: auto;
+  pointer-events: none;
 }
 
 /* Touch screens scroll without a visible bar, whatever the console styles. */

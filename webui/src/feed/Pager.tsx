@@ -14,7 +14,7 @@ import {
 } from "react";
 
 import { api, avatarUrl, fileUrl, thumbUrl } from "./api";
-import { usePagedWheel } from "./hooks";
+import { usePagedWheel, usePagerSnapRecovery } from "./hooks";
 import { useMediaZoom } from "./useMediaZoom";
 import { resumeVideo } from "./resumeVideo";
 import { seekVideo } from "./seekVideo";
@@ -72,7 +72,7 @@ export interface PagerHandle {
   seek(delta: number): void;
   slide(delta: number): boolean;
   post(): Post | undefined;
-  collapse?(): void;
+  collapse?(): boolean;
 }
 
 /** Remembers the visible photo per post, for the download action. */
@@ -1175,6 +1175,7 @@ export function Pager({
   }, [current, handleRef, list, next, previous]);
 
   usePagedWheel(scrollerRef, (delta) => delta > 0 ? next() : previous());
+  usePagerSnapRecovery(scrollerRef, current, (measured) => measured === heightRef.current && !settlingRef.current);
 
   const onScroll = useMemo(() => {
     let frame = 0;

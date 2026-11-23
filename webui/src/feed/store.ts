@@ -50,7 +50,7 @@ export class PostList extends Observable {
     this.source = { ...source, platform: source.platform ?? getPlatform() };
   }
 
-  async load() {
+  async load(pageSize = this.pageSize) {
     if (this.loading || !this.hasMore) {
       return;
     }
@@ -59,7 +59,7 @@ export class PostList extends Observable {
     this.error = "";
     this.emit();
     try {
-      let page = await api.posts(this.source, this.cursor, this.pageSize);
+      let page = await api.posts(this.source, this.cursor, pageSize);
       // A page can be entirely repeats near the end of a shuffle; step past it.
       for (let attempt = 0; attempt < 3; attempt += 1) {
         if (generation !== this.generation) {
@@ -75,7 +75,7 @@ export class PostList extends Observable {
         if (fresh.length || !this.hasMore) {
           break;
         }
-        page = await api.posts(this.source, this.cursor, this.pageSize);
+        page = await api.posts(this.source, this.cursor, pageSize);
       }
     } catch (error) {
       if (generation === this.generation) {

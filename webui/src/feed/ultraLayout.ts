@@ -93,11 +93,20 @@ function bestArrangement(
   return best;
 }
 
-export function packUltraBatches(aspects: readonly number[], limits: LayoutLimits): BatchPlan[] {
+export function packUltraBatches(
+  aspects: readonly number[], limits: LayoutLimits, hasMore = false,
+): BatchPlan[] {
   const batches: BatchPlan[] = [];
+  const searchWindow = Math.min(SEARCH_POSTS, limits.columns * limits.rows);
   let start = 0;
   while (start < aspects.length) {
-    const plan = bestArrangement(aspects, start, limits, greedyRows(aspects, start, limits));
+    const remaining = aspects.length - start;
+    if (hasMore && remaining < searchWindow) break;
+    const fallback = greedyRows(aspects, start, limits);
+    // If the greedy pass ran out of posts, the next page can still change this batch.
+    const filled = fallback.rows.length === limits.rows && fallback.rows.at(-1) === limits.columns;
+    if (hasMore && fallback.count === remaining && !filled) break;
+    const plan = bestArrangement(aspects, start, limits, fallback);
     batches.push({ ...plan, start });
     start += plan.count;
   }

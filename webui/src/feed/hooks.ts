@@ -43,6 +43,59 @@ export function usePagedWheel(scroller: RefObject<HTMLElement | null>, navigate:
   }, [scroller]);
 }
 
+export function usePagerSnapRecovery(
+  scroller: RefObject<HTMLElement | null>,
+  current: boolean,
+  canAlign: (height: number) => boolean,
+) {
+  const ready = useEffectEvent(canAlign);
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node || !current) return;
+    let touching = false;
+    let timer = 0;
+
+    const align = () => {
+      window.clearTimeout(timer);
+      const height = node.clientHeight;
+      if (touching || !height || !ready(height) || node.querySelector("[data-zoom-active]")) return;
+      const top = node.scrollTop;
+      const page = Math.round(top / height) * height;
+      const target = Math.max(0, Math.min(page, node.scrollHeight - height));
+      if (Math.abs(top - target) > 1) node.scrollTop = target;
+    };
+    // Older WebKit can leave a fractional page offset without dispatching scrollend.
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (!touching) timer = window.setTimeout(align, 180);
+    };
+    const startTouch = () => {
+      touching = true;
+      window.clearTimeout(timer);
+    };
+    const endTouch = (event: TouchEvent) => {
+      if (!touching || event.touches.length) return;
+      touching = false;
+      schedule();
+    };
+
+    node.addEventListener("scroll", schedule, { passive: true });
+    node.addEventListener("scrollend", align);
+    node.addEventListener("touchstart", startTouch, { passive: true });
+    window.addEventListener("touchend", endTouch, { passive: true, capture: true });
+    window.addEventListener("touchcancel", endTouch, { passive: true, capture: true });
+    schedule();
+    return () => {
+      window.clearTimeout(timer);
+      node.removeEventListener("scroll", schedule);
+      node.removeEventListener("scrollend", align);
+      node.removeEventListener("touchstart", startTouch);
+      window.removeEventListener("touchend", endTouch, true);
+      window.removeEventListener("touchcancel", endTouch, true);
+    };
+  }, [scroller, current]);
+}
+
 export function useMediaFullscreen(root: RefObject<HTMLElement | null>, available: boolean) {
   const [fullscreen, setFullscreen] = useState(false);
   const [exitVisible, setExitVisible] = useState(false);

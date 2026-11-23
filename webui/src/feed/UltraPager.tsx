@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
 
 import { fileUrl, thumbUrl } from "./api";
-import { usePagedWheel } from "./hooks";
+import { usePagedWheel, usePagerSnapRecovery } from "./hooks";
 import { PlayIcon } from "./icons";
 import { IMAGE_SECONDS, type PagerHandle } from "./Pager";
 import { resumeVideo } from "./resumeVideo";
@@ -17,6 +17,7 @@ interface Tile {
 }
 
 const DOUBLE_TAP_MS = 300;
+const ULTRA_PAGE_SIZE = 24;
 
 function hasPlayback({ media }: Tile) {
   return media.length > 1 || media[0]?.kind === "video";
@@ -154,6 +155,7 @@ function UltraTile({ tile, frame, style, current, expanded, covered, play, pause
 
 export function UltraPager({
   list,
+  initialIndex = 0,
   current,
   handleRef,
   ariaLabel,
@@ -162,6 +164,7 @@ export function UltraPager({
   empty,
 }: {
   list: PostList;
+  initialIndex?: number;
   current: boolean;
   handleRef: MutableRefObject<PagerHandle | null>;
   ariaLabel: string;
@@ -173,6 +176,7 @@ export function UltraPager({
   const scroller = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [position, setPosition] = useState(0);
+  const [initialKey, setInitialKey] = useState<string | undefined>(() => list.items[initialIndex]?.key);
   const [expanded, setExpanded] = useState<string>();
   const [batchPaused, setBatchPaused] = useState(false);
   const [pausedTiles, setPausedTiles] = useState(() => new Set<string>());
@@ -181,7 +185,7 @@ export function UltraPager({
   const [measuredAspects, setMeasuredAspects] = useState(() => new Map<string, number>());
   const [mediaColors, setMediaColors] = useState(() => new Map<string, string>());
   const openPlayer = preferences.ultraOpenSingle ? openSingle : undefined;
-  const anchor = useRef<string | undefined>(undefined);
+  const anchor = useRef(initialKey);
   const previousHeight = useRef(0);
   const wasCurrent = useRef(false);
   const columns = Math.min(preferences.ultraColumns, Math.max(1, Math.floor(size.width / 96)));
@@ -192,9 +196,16 @@ export function UltraPager({
   const posts = useMemo(() => list.items.map((post, index): Tile => ({
     post, index, aspect: postAspect(post), media: playbackMedia(post),
   })), [list.items]);
-  const batches = useMemo(() => packUltraBatches(posts.map((tile) => tile.aspect), limits), [posts, limits]);
-  const active = Math.min(position, Math.max(0, batches.length - 1));
-  const activeBatch = batches[active];
+  const batches = useMemo(
+    () => packUltraBatches(posts.map((tile) => tile.aspect), limits, list.hasMore),
+    [posts, limits, list.hasMore],
+  );
+  const initialPost = initialKey ? posts.findIndex(({ post }) => post.key === initialKey) : -1;
+  const initialBatch = initialPost < 0 ? -1
+    : batches.findIndex(({ start, count }) => initialPost >= start && initialPost < start + count);
+  const waitingForStart = initialPost >= 0 && initialBatch < 0;
+  const active = initialBatch < 0 ? Math.min(position, Math.max(0, batches.length - 1)) : initialBatch;
+  const activeBatch = waitingForStart ? undefined : batches[active];
   const tiles = activeBatch ? posts.slice(activeBatch.start, activeBatch.start + activeBatch.count) : [];
   const expandedKey = openPlayer ? undefined : expanded;
   const selected = tiles.find(({ post }) => post.key === expandedKey);
@@ -294,7 +305,7 @@ export function UltraPager({
 
   useLayoutEffect(() => {
     const node = scroller.current;
-    if (!node || !size.height) return;
+    if (!node || !size.height || waitingForStart) return;
     // Preserve the enlarged tile on resize, or repack around the leading post.
     const visibleKey = expandedKey ?? anchor.current;
     const visibleIndex = posts.findIndex(({ post }) => post.key === visibleKey);
@@ -306,14 +317,20 @@ export function UltraPager({
     }
     wasCurrent.current = current;
     previousHeight.current = size.height;
-    anchor.current = batches[next] ? posts[batches[next].start].post.key : undefined;
-  }, [batches, posts, size.height, current]); // Ordinary scrolling changes the anchor directly.
+    // Keep the same work through width changes, including entering and exiting fullscreen.
+    // Only a user scroll chooses a new leading work.
+    anchor.current = match >= 0 ? visibleKey : batches[next] ? posts[batches[next].start].post.key : undefined;
+    if (initialKey) setInitialKey(undefined);
+  }, [batches, posts, size.height, current, initialKey, waitingForStart]); // Ordinary scrolling changes the anchor directly.
+
+  const loadMore = useCallback(() => void list.load(ULTRA_PAGE_SIZE), [list]);
 
   useEffect(() => {
-    if (current && size.height && list.hasMore && !list.loading && !list.error && active >= batches.length - 2) {
-      void list.load();
+    if (current && size.height && list.hasMore && !list.loading && !list.error &&
+      (waitingForStart || active >= batches.length - 2)) {
+      loadMore();
     }
-  }, [current, active, batches.length, list, list.loading, list.hasMore, list.error, list.items, size.height]);
+  }, [current, active, batches.length, loadMore, list.loading, list.hasMore, list.error, list.items, size.height, waitingForStart]);
 
   useEffect(() => {
     if (current && activePost) onActivePost(activePost);
@@ -322,11 +339,16 @@ export function UltraPager({
   const go = useCallback((delta: -1 | 1) => {
     const node = scroller.current;
     if (!current || !node) return;
+    if (waitingForStart) {
+      if (delta > 0 && list.error) loadMore();
+      return;
+    }
     const index = Math.max(0, Math.min(active + delta, batches.length - 1));
     if (index !== active) node.scrollTop = index * node.clientHeight;
-    else if (delta > 0 && list.error) void list.load();
-  }, [current, active, batches.length, list]);
+    else if (delta > 0 && list.error) loadMore();
+  }, [current, active, batches.length, list, loadMore, waitingForStart]);
   usePagedWheel(scroller, go);
+  usePagerSnapRecovery(scroller, current, (height) => height === size.height && !waitingForStart);
 
   useEffect(() => {
     if (!current) return;
@@ -343,17 +365,21 @@ export function UltraPager({
       },
       slide: () => false,
       post: () => activePost,
-      collapse: () => setExpanded(undefined),
+      collapse: () => {
+        if (!selected) return false;
+        setExpanded(undefined);
+        return true;
+      },
     };
     handleRef.current = handle;
     return () => {
       if (handleRef.current === handle) handleRef.current = null;
     };
-  }, [current, activePost, go, handleRef]);
+  }, [current, activePost, go, handleRef, selected]);
 
   const onScroll = () => {
     const node = scroller.current;
-    if (!current || !node || !size.height || node.clientHeight !== size.height) return;
+    if (!current || !node || !size.height || node.clientHeight !== size.height || waitingForStart) return;
     const next = Math.min(batches.length - 1, Math.max(0, Math.round(node.scrollTop / size.height)));
     if (next < 0 || next === active) return;
     anchor.current = posts[batches[next].start].post.key;
@@ -368,17 +394,18 @@ export function UltraPager({
   const status = list.error ? (
     <div className="fa-state">
       <p>{list.error}</p>
-      <button type="button" className="fa-btn" onClick={() => void list.load()}>重试</button>
+      <button type="button" className="fa-btn" onClick={loadMore}>重试</button>
     </div>
   ) : list.loading || list.hasMore ? (
-    <span className="fa-spinner" aria-label="正在加载" />
+    <span className="fa-spinner" role="status" aria-label="正在加载作品" />
   ) : empty;
 
   return (
     <div className="fa-pager-wrap">
       <div ref={scroller} className="fa-pager fa-ultra" role="feed" aria-label={ariaLabel}
-        aria-busy={list.loading} onScroll={onScroll}>
-        {batches.map((batch, batchIndex) => {
+        aria-busy={list.loading} onScroll={onScroll}
+        style={size.height ? { "--fa-ultra-page-height": `${size.height}px` } as CSSProperties : undefined}>
+        {!waitingForStart && batches.map((batch, batchIndex) => {
           const visible = current && batchIndex === active;
           if (Math.abs(batchIndex - active) > 1 || !size.width || !size.height) {
             return <div key={batchIndex} className="fa-ultra-batch" inert />;
@@ -426,8 +453,11 @@ export function UltraPager({
             </div>
           );
         })}
-        {(!batches.length || list.error) && <div className="fa-ultra-state">{status}</div>}
+        {(waitingForStart || !batches.length || list.error) && <div className="fa-ultra-state">{status}</div>}
       </div>
+      {current && !waitingForStart && batches.length > 0 && active === batches.length - 1 && list.loading && (
+        <span className="fa-spinner fa-ultra-loading-more" role="status" aria-label="正在加载更多作品" />
+      )}
     </div>
   );
 }

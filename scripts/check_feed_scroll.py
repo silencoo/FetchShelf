@@ -9,6 +9,45 @@ import argparse
 from playwright.sync_api import sync_playwright
 
 
+def check_snap_recovery(page, url, ultra):
+    suffix = "?ultra" if ultra else ""
+    page.goto(url + "/tests/pager-scroll.html" + suffix)
+    page.wait_for_function("window.activePost === 'fixture-0'")
+    page.wait_for_function("""() => {
+        const node = document.querySelector('.fa-pager');
+        return node?.clientHeight > 0 && node.scrollHeight >= 40 * node.clientHeight
+            && getComputedStyle(node).scrollSnapType !== 'none';
+    }
+    """)
+    # Simulate the native snap being abandoned, such as when touch momentum
+    # stops during a layout or compositing change. Leave the fallback in charge.
+    page.eval_on_selector(".fa-pager", """node => {
+        node.style.scrollSnapType = 'none';
+        node.addEventListener('scrollend', event => event.stopImmediatePropagation(), true);
+        node.dispatchEvent(new Event('touchstart', { bubbles: true }));
+        node.scrollTop = 3.6 * node.clientHeight;
+    }""")
+    page.wait_for_timeout(350)
+    actual = page.eval_on_selector(".fa-pager", "node => node.scrollTop / node.clientHeight")
+    assert abs(actual - 3.6) < 0.01, ("snapped before touch release", ultra, actual)
+    page.eval_on_selector(".fa-pager", """node => {
+        const end = new Event('touchend', { bubbles: true });
+        Object.defineProperty(end, 'touches', { value: [] });
+        node.dispatchEvent(end);
+    }""")
+    page.wait_for_function("""() => {
+        const node = document.querySelector('.fa-pager');
+        return Math.abs(node.scrollTop - 4 * node.clientHeight) <= 1;
+    }""")
+    page.wait_for_function("window.activePost === 'fixture-4'")
+    page.eval_on_selector(".fa-pager", "node => { node.scrollTop = 3.3 * node.clientHeight; }")
+    page.wait_for_function("""() => {
+        const node = document.querySelector('.fa-pager');
+        return Math.abs(node.scrollTop - 3 * node.clientHeight) <= 1;
+    }""")
+    page.wait_for_function("window.activePost === 'fixture-3'")
+
+
 def check(engine, args):
     executable = getattr(args, engine.name)
     browser = engine.launch(**({"executable_path": executable} if executable else {}))
@@ -63,8 +102,11 @@ def check(engine, args):
         assert abs(actual - 60) < 0.01
         assert page.evaluate("window.activePost") == "fixture-60"
         page.screenshot(path=f"/tmp/fetchshelf-scroll-{engine.name}.png")
+        page.set_viewport_size({"width": 820, "height": 1180})
+        for ultra in (False, True):
+            check_snap_recovery(page, args.url, ultra)
         assert not errors, errors
-        print(engine.name, "PASS: distant offsets, bounded media, append, resize, next/previous")
+        print(engine.name, "PASS: distant offsets, append, resize, next/previous, stalled snap in both modes")
     finally:
         browser.close()
 

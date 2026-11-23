@@ -5,7 +5,8 @@
 import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {Pager} from '../src/feed/Pager';
-import {PostList} from '../src/feed/store';
+import {UltraPager} from '../src/feed/UltraPager';
+import {PostList, preferences} from '../src/feed/store';
 import '../src/feed/feed.css';
 const list = new PostList({type:'latest'});
 const post = (i) => ({key:`fixture-${i}`, kind:'images', published_ts:1700000000+i,
@@ -17,11 +18,15 @@ list.items = Array.from({length:40}, (_,i)=>post(i));
 list.hasMore = false;
 const handleRef = {current:null};
 const noop = ()=>{};
+const ultra = new URLSearchParams(location.search).has('ultra');
+if (ultra) {
+  preferences.ultraColumns = preferences.ultraRows = 1;
+}
 window.pagerFixture = {list, handleRef, append() {
   list.items = [...list.items, ...Array.from({length:20},(_,i)=>post(list.items.length+i))];
   list.emit();
 }};
-createRoot(document.getElementById('root')).render(React.createElement(Pager, {
+createRoot(document.getElementById('root')).render(React.createElement(ultra ? UltraPager : Pager, {
   list, current:true, handleRef, ariaLabel:'Scroll fixture',
   actions:{openProfile:noop,openPanel:noop,openShare:noop,openTag:noop,openMusic:noop},
   onActivePost:post=>{window.activePost=post.key;},
