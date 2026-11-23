@@ -487,13 +487,8 @@
 
 .fa-paused-frame {
   z-index: 1;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.fa-paused-frame[data-ready] {
-  opacity: 1;
   background: #000;
+  pointer-events: none;
 }
 
 .fa-surface {

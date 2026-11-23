@@ -472,7 +472,7 @@ const Rail = memo(function Rail({
           const anchor = { element, rect: element.getBoundingClientRect() };
           const slide = element.closest(".fa-slide");
           const video = slide?.querySelector<HTMLVideoElement>(SHARE_VIDEO_SELECTOR) ?? null;
-          const pausedFrame = slide?.querySelector<HTMLImageElement>(".fa-paused-frame[data-ready]");
+          const pausedFrame = slide?.querySelector<HTMLImageElement>(".fa-paused-frame");
           actions.openShare({
             post,
             anchor,
@@ -545,8 +545,8 @@ function VideoSlide({
   );
   const [scrubbing, setScrubbing] = useState(false);
   const [scrubLabel, setScrubLabel] = useState("");
-  const scrubbingRef = useRef(false);
-  const { frame: pausedFrame, seek, clear: clearPausedFrame } = usePausedSeekFrame(post.media[0].path, isActive);
+  const scrubbingRef = useRef<number | null>(null);
+  const { previewRef, seek, clear: clearPausedFrame } = usePausedSeekFrame(post.media[0].path, isActive);
   const { bursts, add } = useHeartBursts();
   const activeRef = useRef(isActive);
   activeRef.current = isActive;
@@ -606,7 +606,7 @@ function VideoSlide({
     const tick = () => {
       const video = mediaPool.active();
       const bar = barRef.current;
-      if (video && bar && !scrubbingRef.current && video.duration) {
+      if (video && bar && scrubbingRef.current === null && video.duration) {
         bar.style.transform = `scaleX(${Math.min(1, video.currentTime / video.duration)})`;
       }
       frame = requestAnimationFrame(tick);
@@ -660,11 +660,25 @@ function VideoSlide({
       return;
     }
     const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    seek(video, ratio * video.duration, commit);
+    const target = ratio * video.duration;
+    scrubbingRef.current = target;
+    seek(video, target, commit);
     if (barRef.current) {
       barRef.current.style.transform = `scaleX(${ratio})`;
     }
-    setScrubLabel(`${formatDuration(ratio * video.duration)} / ${formatDuration(video.duration)}`);
+    setScrubLabel(`${formatDuration(target)} / ${formatDuration(video.duration)}`);
+  };
+
+  const finishScrub = () => {
+    scrubbingRef.current = null;
+    setScrubbing(false);
+  };
+
+  const cancelScrub = () => {
+    const target = scrubbingRef.current;
+    const video = mediaPool.active();
+    if (target !== null && video && video.parentElement === hostRef.current) seek(video, target, true);
+    finishScrub();
   };
 
   const enterFullscreen = () => {
@@ -685,11 +699,7 @@ function VideoSlide({
     <div className={`fa-stage${scrubbing ? " is-scrubbing" : ""}`} ref={boxRef}>
       <img className="fa-poster" src={thumbUrl(post.cover)} alt="" decoding="async" />
       <div className="fa-video-host" ref={hostRef} />
-      {isActive && pausedFrame ? (
-        <img key={pausedFrame} className="fa-paused-frame" src={pausedFrame} alt=""
-          onLoad={(event) => { event.currentTarget.dataset.ready = ""; }}
-          onError={clearPausedFrame} />
-      ) : null}
+      <div ref={previewRef} aria-hidden="true" />
       <div className="fa-surface fa-surface-video" {...gestures} />
       {paused && preferences.showPauseIcon ? (
         <span className="fa-center-icon">
@@ -710,24 +720,20 @@ function VideoSlide({
         aria-hidden="true"
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId);
-          scrubbingRef.current = true;
-          setScrubbing(true);
           scrubTo(event);
+          setScrubbing(scrubbingRef.current !== null);
         }}
         onPointerMove={(event) => {
-          if (scrubbingRef.current) {
+          if (scrubbingRef.current !== null) {
             scrubTo(event);
           }
         }}
         onPointerUp={(event) => {
-          if (scrubbingRef.current) scrubTo(event, true);
-          scrubbingRef.current = false;
-          setScrubbing(false);
+          if (scrubbingRef.current !== null) scrubTo(event, true);
+          finishScrub();
         }}
-        onPointerCancel={() => {
-          scrubbingRef.current = false;
-          setScrubbing(false);
-        }}
+        onPointerCancel={cancelScrub}
+        onLostPointerCapture={cancelScrub}
       >
         <div className="fa-seek-track">
           <div className="fa-seek-bar" ref={barRef} />
