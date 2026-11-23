@@ -104,7 +104,8 @@ from ..webui_security import (
 )
 from ..downloader.arrivals import observe_media_saves
 from ..webui.feed_index import (
-    media_post_key, media_time_key, parse_media_name, published_timestamp, uid_from_folder,
+    AccountSource, media_post_key, media_time_key, name_from_folder, parse_media_name,
+    published_timestamp, uid_from_folder,
 )
 from ..webui.feed_state import FeedState
 from ..webui.files import (
@@ -228,6 +229,7 @@ class APIServer(TikTok, ServerRoutesMixin):
         self.collector_leases = IdentityLeaseManager()
         self._overview_media_lock = Lock()
         self._overview_media_cache: dict[str, Any] = {}
+        self._overview_media_accounts: list[dict[str, Any]] = []
         self._overview_media_cache_updated_monotonic = 0.0
         self._overview_media_scan_attempt_monotonic = 0.0
         self._overview_media_scan_started_at = ""
@@ -1212,6 +1214,7 @@ class APIServer(TikTok, ServerRoutesMixin):
         scope: ScopeType = "download",
         scope_root: Path | None = None,
         platform_folders: dict[Path, str] | None = None,
+        account_media: dict[Path, dict[str, int]] | None = None,
     ) -> dict[str, Any]:
         folders = 0
         files = 0
@@ -1225,12 +1228,13 @@ class APIServer(TikTok, ServerRoutesMixin):
         root = scope_root or current
         platforms = {key: {"files": 0, "images": 0, "videos": 0, "size": 0}
                      for key in ("douyin", "tiktok", "unclassified")}
-        folder_cache: dict[Path, str] = {}
-        def platform_for(folder: Path) -> str:
+        folder_cache: dict[Path, Path | None] = {}
+
+        def library_folder(folder: Path) -> Path | None:
             if folder not in folder_cache:
                 folder_cache[folder] = next(
-                    (platform_folders[parent] for parent in (folder, *folder.parents)
-                     if parent in (platform_folders or {})), "unclassified")
+                    (parent for parent in (folder, *folder.parents)
+                     if parent in (platform_folders or {})), None)
             return folder_cache[folder]
         for path in current.rglob("*"):
             try:
@@ -1243,18 +1247,24 @@ class APIServer(TikTok, ServerRoutesMixin):
                     continue
                 files += 1
                 suffix = path.suffix.lower()
-                if suffix in IMAGE_SUFFIXES:
-                    images += 1
-                elif suffix in VIDEO_SUFFIXES:
-                    videos += 1
+                image = int(suffix in IMAGE_SUFFIXES)
+                video = int(suffix in VIDEO_SUFFIXES)
+                images += image
+                videos += video
                 file_stat = path.stat()
                 total_size += file_stat.st_size
                 if platform_folders is not None:
-                    bucket = platforms[platform_for(path.parent)]
+                    folder = library_folder(path.parent)
+                    bucket = platforms[platform_folders.get(folder, "unclassified")]
                     bucket["files"] += 1
                     bucket["size"] += file_stat.st_size
-                    bucket["images"] += int(suffix in IMAGE_SUFFIXES)
-                    bucket["videos"] += int(suffix in VIDEO_SUFFIXES)
+                    bucket["images"] += image
+                    bucket["videos"] += video
+                    if account_media is not None and (image or video) and folder in account_media:
+                        account = account_media[folder]
+                        account["size"] += file_stat.st_size
+                        account["images"] += image
+                        account["videos"] += video
                 if file_stat.st_size == 0:
                     zero_byte_files += 1
                 if suffix in {".part", ".tmp", ".download", ".crdownload"}:
@@ -1333,11 +1343,14 @@ class APIServer(TikTok, ServerRoutesMixin):
             default=0,
         )
 
-    def _overview_platform_folders(self, root: Path) -> dict[Path, str]:
-        """Use account mappings, never display-name guesses between platforms."""
+    def _overview_library_folders(
+        self, root: Path,
+    ) -> tuple[dict[Path, str], dict[Path, AccountSource]]:
+        """Resolve platform totals and account ownership with one folder index."""
         from src.webui.media_imports import load_import_sources
 
         folders: dict[Path, str] = {}
+        accounts: dict[Path, AccountSource] = {}
         folder_index = self._board_folder_index(root)
         for platform in ("douyin", "tiktok"):
             rows = self._active_account_rows(platform) + self._account_rows(
@@ -1347,20 +1360,46 @@ class APIServer(TikTok, ServerRoutesMixin):
                 if folder is not None:
                     previous = folders.get(folder, platform)
                     folders[folder] = platform if previous == platform else "unclassified"
+                    if folder not in accounts:
+                        url = self._normalize_string(row.get("url"))
+                        accounts[folder] = AccountSource(
+                            self._account_pin_key(platform, url), platform, url,
+                            self._normalize_string(row.get("mark")), folder,
+                        )
         manifest = Path(self.parameter.settings.path).parent / "media_imports.json"
         if manifest.is_file():
             for source in load_import_sources(manifest, root):
                 folders[source.folder] = source.platform if source.platform in {"douyin", "tiktok"} else "douyin"
-        return folders
+                accounts[source.folder] = source
+        return folders, accounts
 
     def _refresh_overview_media_cache(self, root: Path) -> None:
         try:
+            platform_folders, account_folders = self._overview_library_folders(root)
+            account_media = {folder: {"size": 0, "images": 0, "videos": 0}
+                             for folder in account_folders if platform_folders[folder] != "unclassified"}
             stats = self._collect_scope_stats(
                 root,
                 scope="download",
                 scope_root=root,
-                platform_folders=self._overview_platform_folders(root),
+                platform_folders=platform_folders,
+                account_media=account_media,
             )
+            accounts = {}
+            for folder, counts in account_media.items():
+                if not (counts["images"] or counts["videos"]):
+                    continue
+                source = account_folders[folder]
+                row = accounts.setdefault(source.key, {
+                    "name": source.mark or name_from_folder(folder.name) or folder.name,
+                    "url": source.url,
+                    "platform": platform_folders[folder],
+                    "size": 0,
+                    "images": 0,
+                    "videos": 0,
+                })
+                for key, value in counts.items():
+                    row[key] += value
             refreshed_at = datetime.now().astimezone().isoformat(timespec="seconds")
         except Exception as error:
             logger = getattr(self, "logger", None)
@@ -1370,6 +1409,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                 self._overview_media_scan_error = "媒体目录统计失败"
             return
         with self._overview_media_lock:
+            self._overview_media_accounts = list(accounts.values())
             self._overview_media_cache = {
                 **stats,
                 "refreshed_at": refreshed_at,
@@ -1384,7 +1424,9 @@ class APIServer(TikTok, ServerRoutesMixin):
             self._storage_alert_last_level = 0
             self._save_storage_alert_state(0)
 
-    def _overview_media_snapshot(self, *, force_refresh: bool = False) -> dict:
+    def _overview_media_snapshot(
+        self, *, force_refresh: bool = False, include_accounts: bool = False,
+    ) -> dict:
         self._ensure_overview_media_state()
         root = self._scope_root("download").expanduser().resolve()
         with self._overview_media_lock:
@@ -1419,6 +1461,7 @@ class APIServer(TikTok, ServerRoutesMixin):
                 thread.start()
                 running = True
             cache = dict(self._overview_media_cache)
+            accounts = getattr(self, "_overview_media_accounts", [])
             error = self._overview_media_scan_error
             scan_started_at = self._overview_media_scan_started_at
 
@@ -1432,10 +1475,38 @@ class APIServer(TikTok, ServerRoutesMixin):
             status = "empty"
         return {
             **cache,
+            **({"accounts": accounts} if include_accounts else {}),
             "status": status,
             "stale": stale,
             "scan_started_at": scan_started_at,
             "error": error,
+        }
+
+    def _account_media_stats_page(
+        self, *, platform: str, search: str, sort: str, order: str,
+        page: int, page_size: int, refresh: bool,
+    ) -> dict:
+        snapshot = self._overview_media_snapshot(force_refresh=refresh, include_accounts=True)
+        term = search.strip().casefold()
+        rows = [row for row in snapshot["accounts"]
+                if (platform == "all" or row["platform"] == platform)
+                and (term in row["name"].casefold() or term in row["url"].casefold())]
+        direction = -1 if order == "desc" else 1
+        rows.sort(key=lambda row: (direction * row[sort], row["name"].casefold(), row["platform"], row["url"]))
+        total = len(rows)
+        pages = max(1, (total + page_size - 1) // page_size)
+        current = min(page, pages)
+        start = (current - 1) * page_size
+        return {
+            "items": [{key: row[key] for key in ("name", "platform", "size", "images", "videos")}
+                      for row in rows[start:start + page_size]],
+            "total": total,
+            "page": current,
+            "pages": pages,
+            "status": snapshot["status"],
+            "refreshed_at": snapshot.get("refreshed_at", ""),
+            "partial": bool(snapshot.get("integrity", {}).get("scan_errors")),
+            "error": snapshot["error"],
         }
 
     @classmethod

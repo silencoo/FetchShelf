@@ -1,4 +1,5 @@
 import { boardPreferenceKeys, createBoardPreferences } from "./board-preferences.js";
+import { bindAccountMediaStats } from "./account-media-stats.js";
 import { handlePageShortcut, renderPageNumbers } from "./pagination.js";
 import { refs } from "./dom-refs.js";
 import { createCollectorController } from "./collectors.js";
@@ -6375,6 +6376,12 @@ async function copyTaskResult() {
 }
 
 function bindEvents() {
+  bindAccountMediaStats({
+    formatSize: formatFileSize,
+    formatCount: formatOverviewCount,
+    formatDate: formatFileDate,
+    jumpToValidatedPage,
+  });
   document.querySelectorAll(".workbench-collapsible > summary").forEach((summary) => {
     summary.addEventListener("click", (event) => {
       // Busy actions disable their button immediately; keep that click from

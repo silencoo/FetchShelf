@@ -1,3 +1,4 @@
+from json import dumps
 from threading import Lock
 from time import monotonic
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from src.collector import (
     CollectorStore,
     IdentityStatus,
 )
+from src.tools import Cleaner
 
 
 def _overview_test_client(tmp_path, monkeypatch):
@@ -226,3 +228,58 @@ def test_media_platform_totals_share_one_scan_and_reconcile(tmp_path):
     assert rows['unclassified'] == dict(files=2, videos=1, images=0, size=5)
     for field in ('files', 'videos', 'images', 'size'):
         assert sum(row[field] for row in rows.values()) == stats[field]
+
+
+def test_account_media_stats_rank_mapped_folders_and_imports(tmp_path, monkeypatch):
+    server, client = _overview_test_client(tmp_path, monkeypatch)
+    headers = {"token": "overview-test-token"}
+    root = server.parameter.root
+    ann = root / "UID1_Ann_发布作品"
+    bob = root / "UID2_Bob_Post"
+    local = root / "imports/douyin/local"
+    for folder in (ann / "album", bob, local):
+        folder.mkdir(parents=True)
+    (ann / "album/a.jpg").write_bytes(b"aaaaa")
+    (ann / "album/b.png").write_bytes(b"bbbbb")
+    (ann / "notes.txt").write_bytes(b"x" * 200)
+    (bob / "a.mp4").write_bytes(b"x" * 20)
+    (bob / "b.mov").write_bytes(b"x" * 30)
+    (local / "a.webp").write_bytes(b"x" * 8)
+    (root / "unknown.mp4").write_bytes(b"x" * 100)
+    server.parameter.CLEANER = Cleaner()
+    server.parameter.accounts_urls = [
+        SimpleNamespace(mark="Ann", url="https://www.douyin.com/user/ann"),
+        SimpleNamespace(mark="Ann", url="https://www.douyin.com/user/duplicate"),
+    ]
+    server.parameter.accounts_urls_tiktok = []
+    server.parameter.deleted_accounts = []
+    server.parameter.deleted_accounts_tiktok = [{"mark": "Bob", "url": "https://www.tiktok.com/@bob"}]
+    (tmp_path / "media_imports.json").write_text(dumps([
+        {"platform": "douyin", "id": "imported", "name": "Local album", "folder": "imports/douyin/local"},
+    ]))
+
+    server._ensure_overview_media_state()
+    server._refresh_overview_media_cache(root)
+    endpoint = "/ui/api/accounts/media-stats"
+    assert client.get(endpoint).status_code == 403
+    response = client.get(endpoint, headers=headers).json()
+    assert response["status"] == "ready"
+    assert response["total"] == 3
+    assert response["items"] == [
+        dict(name="Bob", platform="tiktok", size=50, images=0, videos=2),
+        dict(name="Ann", platform="douyin", size=10, images=2, videos=0),
+        dict(name="Local album", platform="douyin", size=8, images=1, videos=0),
+    ]
+    photos = client.get(endpoint, headers=headers, params={
+        "platform": "douyin", "sort": "images", "page": 2, "page_size": 1,
+    }).json()
+    assert (photos["total"], photos["page"], photos["pages"]) == (2, 2, 2)
+    assert photos["items"][0]["name"] == "Local album"
+    ascending = client.get(endpoint, headers=headers, params={
+        "sort": "videos", "order": "asc", "search": "ann",
+    }).json()
+    assert [row["name"] for row in ascending["items"]] == ["Ann"]
+    overview = client.get("/ui/api/overview", headers=headers).json()["media"]
+    assert "accounts" not in overview
+    assert overview["size"] == 368
+    server.collector_store.close()

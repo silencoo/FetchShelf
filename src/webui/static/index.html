@@ -54,10 +54,10 @@
       })();
     </script>
     <title>下载工作台 · FetchShelf</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-Beod2U8N.js"></script>
+    <script type="module" crossorigin src="/ui/static/assets/index-DCOgui7G.js"></script>
     <link rel="modulepreload" crossorigin href="/ui/static/assets/jsx-runtime-CNVhjzSW.js">
     <link rel="modulepreload" crossorigin href="/ui/static/assets/preload-helper-D9BqOEs6.js">
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-CtCEheH6.css">
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-pW4QtQmP.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -961,6 +961,7 @@
           <div class="card-head page-actions-only">
             <div class="card-actions">
               <button id="board-reload-btn" type="button" class="btn ghost">刷新看板</button>
+              <button type="button" class="btn ghost" data-open-account-media-stats>媒体统计</button>
               <button id="board-avatar-page-btn" type="button" class="btn ghost">处理当前页头像</button>
               <button id="board-avatar-all-btn" type="button" class="btn primary">一键处理头像</button>
               <button id="board-pin-all-btn" type="button" class="btn ghost">固定当前页媒体</button>
@@ -1701,6 +1702,7 @@
                 <div class="overview-domain-heading">
                   <i data-lucide="folder-open" aria-hidden="true"></i>
                   <h3 id="overview-media-title">媒体库</h3>
+                  <button type="button" class="btn ghost overview-account-media-btn" data-open-account-media-stats>账户统计</button>
                 </div>
                 <dl class="overview-metrics overview-media-metrics">
                   <div class="overview-stat overview-stat-primary">
@@ -2257,6 +2259,55 @@
     >
       <div id="feed-root" class="feed-root"></div>
     </section>
+
+    <dialog id="account-media-stats" class="collector-dialog account-media-stats-dialog" aria-labelledby="account-media-stats-title">
+      <div class="collector-dialog-form">
+        <header class="collector-dialog-head">
+          <h2 id="account-media-stats-title">账户媒体统计</h2>
+          <button type="button" class="btn ghost" data-media-stats-close>关闭</button>
+        </header>
+        <div class="collector-dialog-body">
+          <div class="account-media-stats-toolbar">
+            <label class="field compact">
+              <span>搜索账户</span>
+              <input type="search" maxlength="240" autocomplete="off" data-media-stats-search />
+            </label>
+            <label class="field compact">
+              <span>平台</span>
+              <select data-media-stats-platform>
+                <option value="all">全部平台</option>
+                <option value="douyin">抖音</option>
+                <option value="tiktok">TikTok</option>
+              </select>
+            </label>
+            <button type="button" class="btn ghost" data-media-stats-refresh>刷新统计</button>
+          </div>
+          <p class="status-line" role="status" data-media-stats-status></p>
+          <div class="account-media-stats-table" role="region" aria-label="本地账户媒体统计" tabindex="0" data-media-stats-table hidden>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">账户</th>
+                  <th scope="col">平台</th>
+                  <th scope="col" aria-sort="descending"><button type="button" data-media-stats-sort="size">媒体大小 <span aria-hidden="true">↓</span></button></th>
+                  <th scope="col"><button type="button" data-media-stats-sort="images">图片 <span aria-hidden="true"></span></button></th>
+                  <th scope="col"><button type="button" data-media-stats-sort="videos">视频 <span aria-hidden="true"></span></button></th>
+                </tr>
+              </thead>
+              <tbody data-media-stats-rows></tbody>
+            </table>
+          </div>
+        </div>
+        <footer class="account-media-stats-pages" data-media-stats-pages hidden>
+          <nav class="page-numbers" aria-label="账户媒体统计页码"></nav>
+          <form class="page-jump" data-media-stats-jump>
+            <label for="account-media-stats-page">跳至</label>
+            <input id="account-media-stats-page" type="number" min="1" value="1" inputmode="numeric" />
+            <button type="submit" class="btn ghost">前往</button>
+          </form>
+        </footer>
+      </div>
+    </dialog>
 
     <dialog
       id="account-gallery-dialog"

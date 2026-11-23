@@ -15,6 +15,7 @@ from mimetypes import guess_type
 from shutil import copy2
 from subprocess import SubprocessError
 from textwrap import dedent
+from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import (
@@ -1460,6 +1461,26 @@ class ServerRoutesMixin:
                     detail=f"Payload validation failed: {error}",
                 )
             return result
+
+        @self.server.get(
+            "/ui/api/accounts/media-stats",
+            summary="Web UI 账户本地媒体统计",
+            tags=[_("配置")],
+        )
+        async def webui_account_media_stats(
+            platform: Literal["all", "douyin", "tiktok"] = Query("all"),
+            search: str = Query("", max_length=240),
+            sort: Literal["size", "images", "videos"] = Query("size"),
+            order: Literal["desc", "asc"] = Query("desc"),
+            page: int = Query(1, ge=1),
+            page_size: int = Query(24, ge=1, le=80),
+            refresh: bool = Query(False),
+            token: str = Depends(token_dependency),
+        ):
+            return self._account_media_stats_page(
+                platform=platform, search=search, sort=sort, order=order,
+                page=page, page_size=page_size, refresh=refresh,
+            )
 
         @self.server.get(
             "/ui/api/accounts/board",

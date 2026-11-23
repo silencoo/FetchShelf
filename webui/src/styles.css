@@ -7194,6 +7194,91 @@ select.batch-field-select + .app-select-mount {
 .overview-media-platforms th:first-child { text-align: left; }
 .overview-media-platforms thead th { font-weight: 500; color: var(--muted); }
 
+.overview-account-media-btn {
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+.account-media-stats-dialog {
+  width: min(860px, calc(100vw - 24px));
+}
+
+.account-media-stats-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(108px, auto) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.account-media-stats-dialog .status-line {
+  min-height: 1.4em;
+  margin: 0;
+}
+
+.account-media-stats-table {
+  overflow-x: auto;
+}
+
+.account-media-stats-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-media-stats-table :is(th, td) {
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: start;
+}
+
+.account-media-stats-table tbody th {
+  overflow-wrap: anywhere;
+  min-width: 7em;
+  font-weight: 560;
+}
+
+.account-media-stats-table :is(th, td):nth-child(n + 2) {
+  white-space: nowrap;
+}
+
+.account-media-stats-table :is(th, td):nth-child(n + 3) {
+  text-align: end;
+}
+
+.account-media-stats-table thead button {
+  min-height: 32px;
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.account-media-stats-pages {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 520px) {
+  .account-media-stats-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .account-media-stats-toolbar label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .account-media-stats-dialog :is(.collector-dialog-body, .account-media-stats-pages) {
+    padding-inline: 12px;
+  }
+}
+
 .task-arrivals {
   padding: 12px;
   border: 1px solid var(--line);
