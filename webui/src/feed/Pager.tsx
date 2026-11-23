@@ -17,7 +17,7 @@ import { api, avatarUrl, fileUrl, thumbUrl } from "./api";
 import { usePagedWheel, usePagerSnapRecovery } from "./hooks";
 import { useMediaZoom } from "./useMediaZoom";
 import { resumeVideo } from "./resumeVideo";
-import { seekVideo } from "./seekVideo";
+import { usePausedSeekFrame } from "./usePausedSeekFrame";
 import { captureVideoSnapshot, type VideoSnapshot } from "./videoSnapshot";
 import { formatCount, formatDuration, formatRelativeTime, initialOf, splitCaption } from "./format";
 import {
@@ -472,10 +472,11 @@ const Rail = memo(function Rail({
           const anchor = { element, rect: element.getBoundingClientRect() };
           const slide = element.closest(".fa-slide");
           const video = slide?.querySelector<HTMLVideoElement>(SHARE_VIDEO_SELECTOR) ?? null;
+          const pausedFrame = slide?.querySelector<HTMLImageElement>(".fa-paused-frame[data-ready]");
           actions.openShare({
             post,
             anchor,
-            snapshot: item?.kind === "video" ? captureVideoSnapshot(video) : undefined,
+            snapshot: item?.kind === "video" ? captureVideoSnapshot(video, pausedFrame) : undefined,
             playback: isActive && slide && video ? {
               rate: video.defaultPlaybackRate,
               setRate(rate) {
@@ -545,6 +546,7 @@ function VideoSlide({
   const [scrubbing, setScrubbing] = useState(false);
   const [scrubLabel, setScrubLabel] = useState("");
   const scrubbingRef = useRef(false);
+  const { frame: pausedFrame, seek, clear: clearPausedFrame } = usePausedSeekFrame(post.media[0].path, isActive);
   const { bursts, add } = useHeartBursts();
   const activeRef = useRef(isActive);
   activeRef.current = isActive;
@@ -573,6 +575,7 @@ function VideoSlide({
     if (event === "loading") {
       setStatus((current) => (current === "error" ? current : "loading"));
     } else if (event === "playing") {
+      clearPausedFrame();
       setStatus("ready");
       setPaused(false);
     } else if (event === "seeked") {
@@ -582,7 +585,7 @@ function VideoSlide({
     } else if (event === "ended") {
       if (!zoomRef.current.isBlocked()) onEndedRef.current();
     }
-  }, []);
+  }, [clearPausedFrame]);
 
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -624,16 +627,14 @@ function VideoSlide({
         togglePause,
         seek(delta) {
           const video = mediaPool.active();
-          if (video) {
-            video.currentTime = Math.max(0, video.currentTime + delta);
-          }
+          if (video) seek(video, video.currentTime + delta, true);
         },
         slide() {
           return false;
         },
       };
     }
-  }, [isActive, surfaceRef, togglePause]);
+  }, [isActive, seek, surfaceRef, togglePause]);
 
   const gestures = useSurfaceGestures({
     blocked: zoom.isBlocked,
@@ -652,14 +653,14 @@ function VideoSlide({
     },
   });
 
-  const scrubTo = (event: ReactPointerEvent<HTMLElement>) => {
+  const scrubTo = (event: ReactPointerEvent<HTMLElement>, commit = false) => {
     const video = mediaPool.active();
     const rect = event.currentTarget.getBoundingClientRect();
-    if (!video || !video.duration || !rect.width) {
+    if (!video || video.parentElement !== hostRef.current || !video.duration || !rect.width) {
       return;
     }
     const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    seekVideo(video, ratio * video.duration);
+    seek(video, ratio * video.duration, commit);
     if (barRef.current) {
       barRef.current.style.transform = `scaleX(${ratio})`;
     }
@@ -684,6 +685,11 @@ function VideoSlide({
     <div className={`fa-stage${scrubbing ? " is-scrubbing" : ""}`} ref={boxRef}>
       <img className="fa-poster" src={thumbUrl(post.cover)} alt="" decoding="async" />
       <div className="fa-video-host" ref={hostRef} />
+      {isActive && pausedFrame ? (
+        <img key={pausedFrame} className="fa-paused-frame" src={pausedFrame} alt=""
+          onLoad={(event) => { event.currentTarget.dataset.ready = ""; }}
+          onError={clearPausedFrame} />
+      ) : null}
       <div className="fa-surface fa-surface-video" {...gestures} />
       {paused && preferences.showPauseIcon ? (
         <span className="fa-center-icon">
@@ -714,7 +720,7 @@ function VideoSlide({
           }
         }}
         onPointerUp={(event) => {
-          if (scrubbingRef.current) scrubTo(event);
+          if (scrubbingRef.current) scrubTo(event, true);
           scrubbingRef.current = false;
           setScrubbing(false);
         }}

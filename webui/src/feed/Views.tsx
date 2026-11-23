@@ -37,7 +37,8 @@ import type {
   AvatarSource,
   IndexStatus,
   KindFilter,
-  LikedAccount,
+  LibraryAccount,
+  LibraryKind,
   MeSummary,
   Post,
   PostSource,
@@ -45,7 +46,7 @@ import type {
 
 export interface ViewActions {
   openPlayer(list: PostList, index: number): void;
-  openLikedAccount(group: LikedAccount): void;
+  openLibraryAccount(kind: LibraryKind, group: LibraryAccount): void;
   openProfile(account: { key: string; name?: string }): void;
   openSearch(query: { q: string; mode?: "search" | "tag" | "music" }): void;
   exit(): void;
@@ -688,100 +689,93 @@ export function ProfileView({
   );
 }
 
-export function LibraryView({ kind, actions }: { kind: "likes" | "saves"; actions: ViewActions }) {
+export function LibraryView({ kind, actions }: { kind: LibraryKind; actions: ViewActions }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const list = useMemo(() => new PostList({ type: kind }, 30), [kind]);
+  const revision = useObservable(marks).libraryRevision(kind);
+  const list = useMemo(() => new PostList({ type: kind }, 30), [kind, revision]);
   const isLikes = kind === "likes";
   const [view, setView] = useState<"posts" | "accounts">("posts");
-  if (isLikes && view === "accounts") {
-    return <LikedAccounts actions={actions} onPosts={() => setView("posts")} />;
-  }
   return (
-    <div className="fa-view" ref={scrollerRef}>
+    <div className={view === "accounts" ? "fa-view fa-library-accounts" : "fa-view"} ref={scrollerRef}>
       <ViewHeader title={isLikes ? "我的喜欢" : "我的收藏"} />
-      {isLikes ? <LikeViewSwitch view="posts" onAccounts={() => setView("accounts")} /> : null}
-      <div className="fa-grid-wrap">
-        <PostGrid
-          list={list}
-          scrollerRef={scrollerRef}
-          actions={actions}
-          showName
-          empty={
-            <>
-              <span className="fa-empty-icon">
-                {isLikes ? <HeartIcon size={34} /> : <BookmarkIcon size={34} />}
-              </span>
-              <p>{isLikes ? "双击作品或点爱心，喜欢的内容会出现在这里" : "点收藏按钮，把想再看的作品存在这里"}</p>
-            </>
-          }
+      <div className="fa-library-switch">
+        <Chips<"posts" | "accounts">
+          label={isLikes ? "喜欢的展示方式" : "收藏的展示方式"}
+          value={view}
+          onChange={setView}
+          options={[{ value: "posts", label: "按作品" }, { value: "accounts", label: "按账号" }]}
         />
       </div>
+      {view === "accounts" ? <LibraryAccounts kind={kind} actions={actions} /> : (
+        <div className="fa-grid-wrap">
+          <PostGrid
+            list={list}
+            scrollerRef={scrollerRef}
+            actions={actions}
+            showName
+            empty={
+              <>
+                <span className="fa-empty-icon">
+                  {isLikes ? <HeartIcon size={34} /> : <BookmarkIcon size={34} />}
+                </span>
+                <p>{isLikes ? "双击作品或点爱心，喜欢的内容会出现在这里" : "点收藏按钮，把想再看的作品存在这里"}</p>
+              </>
+            }
+          />
+        </div>
+      )}
     </div>
   );
 }
 
-function LikeViewSwitch({ view, onAccounts, onPosts }: {
-  view: "posts" | "accounts";
-  onAccounts?(): void;
-  onPosts?(): void;
-}) {
-  return (
-    <div className="fa-likes-switch">
-      <Chips
-        label="喜欢的展示方式"
-        value={view}
-        onChange={(value) => value === "posts" ? onPosts?.() : onAccounts?.()}
-        options={[{ value: "posts", label: "按作品" }, { value: "accounts", label: "按账号" }]}
-      />
-    </div>
-  );
-}
-
-function LikedAccountHeader({ group }: { group: LikedAccount }) {
+function LibraryAccountHeader({ group, label }: { group: LibraryAccount; label: string }) {
   return (
     <>
       <AccountAvatar avatar={group.author.avatar} name={group.author.name} size={44} />
-      <span className="fa-liked-account-text">
+      <span className="fa-library-account-text">
         <strong>{group.author.name}</strong>
-        <small>{group.count} 件喜欢的作品</small>
+        <small>{group.count} 件{label}的作品</small>
       </span>
     </>
   );
 }
 
-export function LikedAccountView({ group, actions, inline = false }: {
-  group: LikedAccount;
+export function LibraryAccountView({ kind, group, actions, inline = false }: {
+  kind: LibraryKind;
+  group: LibraryAccount;
   actions: ViewActions;
   inline?: boolean;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const revision = useObservable(marks).likesRevision;
+  const revision = useObservable(marks).libraryRevision(kind);
+  const label = kind === "likes" ? "喜欢" : "收藏";
   const account = group.author.key;
-  const list = useMemo(() => new PostList({ type: "likes", account }, 30), [account, revision]);
+  const list = useMemo(() => new PostList({ type: kind, account }, 30), [kind, account, revision]);
   useObservable(list);
   return (
-    <div className={inline ? "fa-liked-gallery" : "fa-view"} ref={scrollerRef}>
-      {!inline ? <ViewHeader title="喜欢的作品" onBack={actions.back} /> : null}
-      <div className="fa-liked-gallery-title">
-        <LikedAccountHeader group={{ ...group, count: list.availableTotal ?? group.count }} />
+    <div className={inline ? "fa-library-gallery" : "fa-view"} ref={scrollerRef}>
+      {!inline ? <ViewHeader title={`${label}的作品`} onBack={actions.back} /> : null}
+      <div className="fa-library-gallery-title">
+        <LibraryAccountHeader group={{ ...group, count: list.availableTotal ?? group.count }} label={label} />
       </div>
       <div className="fa-grid-wrap fa-grid-pad">
         <PostGrid
           list={list}
           scrollerRef={scrollerRef}
           actions={actions}
-          empty={<p>没有可播放的喜欢作品</p>}
+          empty={<p>没有可播放的{label}作品</p>}
         />
       </div>
     </div>
   );
 }
 
-function LikedAccounts({ actions, onPosts }: { actions: ViewActions; onPosts(): void }) {
+function LibraryAccounts({ kind, actions }: { kind: LibraryKind; actions: ViewActions }) {
   const desktop = useMediaQuery("(min-width: 1000px)");
-  const revision = useObservable(marks).likesRevision;
-  const [groups, setGroups] = useState<LikedAccount[]>([]);
-  const [selectedKey, setSelectedKey] = useState("");
+  const revision = useObservable(marks).libraryRevision(kind);
+  const label = kind === "likes" ? "喜欢" : "收藏";
+  const [groups, setGroups] = useState<LibraryAccount[]>([]);
+  const [selection, setSelection] = useState<LibraryAccount | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [page, setPage] = useState({ offset: 0, revision });
   const offset = page.revision === revision ? page.offset : 0;
@@ -792,7 +786,7 @@ function LikedAccounts({ actions, onPosts }: { actions: ViewActions; onPosts(): 
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    api.likedAccounts(offset, controller.signal).then((result) => {
+    api.libraryAccounts(kind, offset, controller.signal).then((result) => {
       if (controller.signal.aborted) return;
       setGroups((previous) => offset === 0 ? result.items :
         [...previous, ...result.items.filter((group) => !previous.some((item) => item.author.key === group.author.key))]);
@@ -804,55 +798,52 @@ function LikedAccounts({ actions, onPosts }: { actions: ViewActions; onPosts(): 
       setLoading(false);
     });
     return () => controller.abort();
-  }, [offset, retry, revision]);
+  }, [kind, offset, retry, revision]);
 
-  const selected = groups.find((group) => group.author.key === selectedKey) || groups[0];
+  // Refreshing marks may reset the account list to its first page.
+  const selected = groups.find((group) => group.author.key === selection?.author.key) ?? selection ?? groups[0];
   return (
-    <div className="fa-view fa-liked-accounts">
-      <ViewHeader title="我的喜欢" />
-      <LikeViewSwitch view="accounts" onPosts={onPosts} />
-      <div className="fa-liked-split">
-        <div className="fa-liked-list" aria-label="喜欢的账号">
-          {groups.map((group) => (
-            <button
-              key={group.author.key}
-              type="button"
-              className="fa-liked-account"
-              aria-current={desktop && group === selected ? "true" : undefined}
-              onClick={() => desktop ? setSelectedKey(group.author.key) : actions.openLikedAccount(group)}
-            >
-              <span className="fa-liked-account-head">
-                <LikedAccountHeader group={group} />
-                <BackIcon size={16} />
+    <div className="fa-library-split">
+      <div className="fa-library-list" aria-label={`按账号查看${label}的作品`}>
+        {groups.map((group) => (
+          <button
+            key={group.author.key}
+            type="button"
+            className="fa-library-account"
+            aria-current={desktop && group === selected ? "true" : undefined}
+            onClick={() => desktop ? setSelection(group) : actions.openLibraryAccount(kind, group)}
+          >
+            <span className="fa-library-account-head">
+              <LibraryAccountHeader group={group} label={label} />
+              <BackIcon size={16} />
+            </span>
+            {!desktop && group.previews.length ? (
+              <span className="fa-library-previews">
+                {group.previews.map((post) => (
+                  <span key={post.key}>
+                    <img src={thumbUrl(post.cover, { w: 240 })} alt="" loading="lazy" decoding="async"
+                      onError={(event) => { event.currentTarget.hidden = true; }} />
+                  </span>
+                ))}
               </span>
-              {!desktop && group.previews.length ? (
-                <span className="fa-liked-previews">
-                  {group.previews.map((post) => (
-                    <span key={post.key}>
-                      <img src={thumbUrl(post.cover, { w: 240 })} alt="" loading="lazy" decoding="async"
-                        onError={(event) => { event.currentTarget.hidden = true; }} />
-                    </span>
-                  ))}
-                </span>
-              ) : null}
-            </button>
-          ))}
-          {loading ? <span className="fa-spinner fa-spinner-inline" aria-label="正在加载" /> : null}
-          {error ? (
-            <div className="fa-state fa-state-small">
-              <p>{error}</p>
-              <button type="button" className="fa-btn" onClick={() => setRetry((value) => value + 1)}>重试</button>
-            </div>
-          ) : null}
-          {!loading && !error && nextOffset !== null ? (
-            <button type="button" className="fa-btn fa-btn-wide" onClick={() => setPage({ offset: nextOffset, revision })}>加载更多账号</button>
-          ) : null}
-          {!groups.length && !loading && !error ? <div className="fa-state fa-state-small"><p>你还没有喜欢的作品</p></div> : null}
-        </div>
-        {desktop && selected ? (
-          <LikedAccountView key={selected.author.key} group={selected} actions={actions} inline />
+            ) : null}
+          </button>
+        ))}
+        {loading ? <span className="fa-spinner fa-spinner-inline" aria-label="正在加载" /> : null}
+        {error ? (
+          <div className="fa-state fa-state-small">
+            <p>{error}</p>
+            <button type="button" className="fa-btn" onClick={() => setRetry((value) => value + 1)}>重试</button>
+          </div>
         ) : null}
+        {!loading && !error && nextOffset !== null ? (
+          <button type="button" className="fa-btn fa-btn-wide" onClick={() => setPage({ offset: nextOffset, revision })}>加载更多账号</button>
+        ) : null}
+        {!groups.length && !loading && !error ? <div className="fa-state fa-state-small"><p>你还没有{label}的作品</p></div> : null}
       </div>
+      {desktop && selected ? (
+        <LibraryAccountView key={selected.author.key} kind={kind} group={selected} actions={actions} inline />
+      ) : null}
     </div>
   );
 }

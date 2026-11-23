@@ -8,6 +8,53 @@ import {
 } from "./runtime.js";
 import { state } from "./state.js";
 
+function bindCollectorLoginHelp() {
+  const help = document.getElementById("collector-login-help");
+  const summary = help?.querySelector("summary");
+  if (!help || !summary) return;
+  let hovered = false;
+  let previewing = false;
+  const preview = () => {
+    if (help.open) return;
+    previewing = true;
+    help.open = true;
+  };
+  const dismiss = () => {
+    previewing = false;
+    help.open = false;
+  };
+  help.addEventListener("pointerenter", (event) => {
+    if (event.pointerType === "touch") return;
+    hovered = true;
+    preview();
+  });
+  help.addEventListener("pointerleave", () => {
+    hovered = false;
+    if (previewing && !summary.matches(":focus-visible")) dismiss();
+  });
+  summary.addEventListener("focus", () => {
+    if (summary.matches(":focus-visible")) preview();
+  });
+  summary.addEventListener("blur", () => {
+    if (!hovered) dismiss();
+  });
+  summary.addEventListener("click", (event) => {
+    // Keep a preview open when the user deliberately activates its summary.
+    if (!previewing) return;
+    event.preventDefault();
+    previewing = false;
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !help.open || help.closest("[hidden]")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dismiss();
+  }, { capture: true });
+  document.addEventListener("pointerdown", (event) => {
+    if (help.open && !help.contains(event.target)) dismiss();
+  });
+}
+
 export function createCollectorController({
   escapeHtml,
   parseBooleanValue,
@@ -20,6 +67,8 @@ export function createCollectorController({
   syncWorkflowAccountIdentityOverrides,
   syncWorkflowDetailIdentitySelector,
 }) {
+  bindCollectorLoginHelp();
+
   function collectorIdentityId(item) {
     return String(item?.identity_id ?? item?.id ?? "").trim();
   }

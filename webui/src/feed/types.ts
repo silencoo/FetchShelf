@@ -120,12 +120,13 @@ export interface MeSummary {
 
 export type AccountSort = "latest" | "oldest" | "popular";
 export type KindFilter = "all" | "video" | "images";
+export type LibraryKind = "likes" | "saves";
 
 export type PostSource = { platform?: string } & (
   | { type: "foryou" | "latest" | "following" | "popular" }
   | { type: "arrivals"; taskId?: string }
   | { type: "account"; account: string; sort?: AccountSort; kind?: KindFilter }
-  | { type: "likes" | "saves"; account?: string }
+  | { type: LibraryKind; account?: string }
   | { type: "search" | "tag" | "music"; q: string });
 
 export interface PostPage {
@@ -134,14 +135,14 @@ export interface PostPage {
   next_cursor: string | null;
 }
 
-export interface LikedAccount {
+export interface LibraryAccount {
   author: Pick<Author, "key" | "name" | "avatar" | "platform">;
   count: number;
   previews: Array<Pick<Post, "key" | "cover">>;
 }
 
-export interface LikedAccountPage {
-  items: LikedAccount[];
+export interface LibraryAccountPage {
+  items: LibraryAccount[];
   next_offset: number | null;
 }
 

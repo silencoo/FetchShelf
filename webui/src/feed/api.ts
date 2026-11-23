@@ -8,7 +8,8 @@ import type {
   AvatarSource,
   CommentPage,
   IndexStatus,
-  LikedAccountPage,
+  LibraryAccountPage,
+  LibraryKind,
   MeSummary,
   Post,
   PostPage,
@@ -144,8 +145,10 @@ export const api = {
     limit?: number;
     offset?: number;
   }) => request<AccountPage>(`/ui/api/feed/accounts?${query({ ...options, platform: platformFilter() })}`),
-  likedAccounts: (offset: number, signal: AbortSignal) =>
-    request<LikedAccountPage>(`/ui/api/feed/liked-accounts?${query({ offset, platform: platformFilter() })}`, { signal }),
+  libraryAccounts: (kind: LibraryKind, offset: number, signal: AbortSignal) => {
+    const route = kind === "likes" ? "liked-accounts" : "saved-accounts";
+    return request<LibraryAccountPage>(`/ui/api/feed/${route}?${query({ offset, platform: platformFilter() })}`, { signal });
+  },
   tags: () =>
     request<{ items: Array<{ tag: string; count: number }> }>(`/ui/api/feed/tags?platform=${platformFilter()}`),
   me: () => request<MeSummary>(`/ui/api/feed/me?platform=${platformFilter()}`),
@@ -184,6 +187,10 @@ export async function signIn(token: string) {
 
 export function fileUrl(path: string, scope: "download" | "project" = "download") {
   return `/ui/api/file?scope=${scope}&path=${encodeURIComponent(path)}`;
+}
+
+export function seekFrameUrl(path: string, time: number) {
+  return `/ui/api/feed/thumb?${query({ path, at_ms: Math.round(time * 1000) })}`;
 }
 
 const VIDEO_PATH = /\.(mp4|m4v|mov|mkv|avi|flv|webm)$/i;

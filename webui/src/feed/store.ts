@@ -2,7 +2,7 @@ import { getPlatform } from "./platform";
 import { useSyncExternalStore } from "react";
 
 import { api, isUltraLayout, ultraDefaults, type FeedPreferences, type UltraLayout } from "./api";
-import type { Author, Post, PostSource } from "./types";
+import type { Author, LibraryKind, Post, PostSource } from "./types";
 
 type Listener = () => void;
 
@@ -119,7 +119,8 @@ export class PostList extends Observable {
 }
 
 class Marks extends Observable {
-  likesRevision = 0;
+  private libraryRevisions = { like: 0, save: 0 };
+  libraryRevision = (kind: LibraryKind) => this.libraryRevisions[kind === "likes" ? "like" : "save"];
   private liked = new Map<string, boolean>();
   private saved = new Map<string, boolean>();
   private followed = new Map<string, boolean>();
@@ -148,8 +149,8 @@ class Marks extends Observable {
     this.emit();
     try {
       await api.setMark(kind, key, next);
-      if (kind === "like") {
-        this.likesRevision += 1;
+      if (kind !== "follow") {
+        this.libraryRevisions[kind] += 1;
         this.emit();
       }
     } catch {

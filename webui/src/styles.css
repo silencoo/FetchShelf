@@ -2799,42 +2799,55 @@ select.batch-field-select + .app-select-mount {
   margin-bottom: 0;
 }
 
-.collector-notice {
+.collector-identity-heading {
   display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  gap: 10px;
-  border: 1px solid var(--primary-line);
-  border-radius: var(--radius-md);
-  background: var(--primary-soft);
-  padding: 10px 12px;
-  color: var(--text);
+  align-items: center;
+  gap: 5px;
 }
 
-.collector-notice-icon {
-  display: inline-grid;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
+.collector-login-help {
+  position: relative;
+}
+
+.collector-login-help > summary {
+  display: grid;
+  width: 24px;
+  height: 24px;
   place-items: center;
-  border: 1px solid var(--primary-line);
   border-radius: 50%;
-  color: var(--text-accent);
-  font-size: 11px;
-  font-weight: 800;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
 }
 
-.collector-notice strong {
-  display: block;
+.collector-login-help > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collector-login-help > summary svg {
+  width: 15px;
+  height: 15px;
+}
+
+.collector-login-help[open] > summary,
+.collector-login-help > summary:hover {
+  background: var(--bg-control-hover);
+  color: var(--text-strong);
+}
+
+.collector-login-hint {
+  position: absolute;
+  z-index: 10;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  width: min(18rem, calc(100vw - 7rem));
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel-raised);
+  box-shadow: var(--shadow-float);
+  padding: 9px 11px;
   color: var(--text-strong);
   font-size: 11px;
-}
-
-.collector-notice p {
-  margin: 2px 0 0;
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.5;
 }
 
 .collector-overview {
@@ -2904,6 +2917,12 @@ select.batch-field-select + .app-select-mount {
   color: var(--text-muted);
   font-size: 10px;
   line-height: 1.45;
+}
+
+.collector-login-hint p {
+  margin-block-start: 4px;
+  font-size: inherit;
+  line-height: 1.5;
 }
 
 .collector-filters {
@@ -7125,6 +7144,11 @@ select.batch-field-select + .app-select-mount {
 }
 
 @media (hover: none), (pointer: coarse) {
+  .collector-login-help > summary {
+    width: 44px;
+    height: 44px;
+  }
+
   .btn,
   .tab-btn,
   .file-row,

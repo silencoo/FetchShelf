@@ -287,9 +287,9 @@ class FeedState:
             ).fetchall()
         return [row[0] for row in rows], total
 
-    def liked_accounts(self, *, platform: str, limit: int, offset: int) -> tuple[list[dict], int | None]:
-        condition = "kind='like' AND account_key<>''"
-        params = []
+    def marked_accounts(self, kind: str, *, platform: str, limit: int, offset: int) -> tuple[list[dict], int | None]:
+        condition = "kind=? AND account_key<>''"
+        params = [kind]
         if platform:
             condition += " AND account_key LIKE ?"
             params.append(platform + "::%")
@@ -298,21 +298,21 @@ class FeedState:
             rows = connection.execute(
                 f"""
                 WITH accounts AS (
-                    SELECT account_key, COUNT(*) AS count, MAX(created_at) AS latest_like
+                    SELECT account_key, COUNT(*) AS count, MAX(created_at) AS latest_mark
                     FROM marks WHERE {condition}
                     GROUP BY account_key
-                    ORDER BY latest_like DESC, account_key LIMIT ? OFFSET ?
+                    ORDER BY latest_mark DESC, account_key LIMIT ? OFFSET ?
                 )
                 SELECT account_key, count, (
                     SELECT json_group_array(target) FROM (
                         SELECT target FROM marks
-                        WHERE kind='like' AND account_key=accounts.account_key
+                        WHERE kind=? AND account_key=accounts.account_key
                         ORDER BY created_at DESC, target LIMIT 3
                     )
                 ) AS previews
-                FROM accounts ORDER BY latest_like DESC, account_key
+                FROM accounts ORDER BY latest_mark DESC, account_key
                 """,
-                [*params, limit + 1, offset],
+                [*params, limit + 1, offset, kind],
             ).fetchall()
         return [dict(row) for row in rows[:limit]], offset + limit if len(rows) > limit else None
 

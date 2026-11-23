@@ -92,11 +92,15 @@ class MediaPool {
       video.dataset.ready = "1";
       forward("playing");
     });
-    video.addEventListener("seeked", () => {
-      if (video.readyState >= 2) {
+    const showDecodedFrame = () => {
+      if (!video.seeking && video.readyState >= 2) {
         video.dataset.ready = "1";
         forward("seeked");
       }
+    };
+    video.addEventListener("seeked", showDecodedFrame);
+    video.addEventListener("canplay", () => {
+      if (video.paused) showDecodedFrame();
     });
     video.addEventListener("pause", () => forward("paused"));
     video.addEventListener("ended", () => forward("ended"));

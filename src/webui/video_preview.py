@@ -58,7 +58,7 @@ def _preview_dimensions(path: Path, mtime_ns: int, size: int) -> tuple[int, int]
 
 
 @lru_cache(maxsize=192)
-def video_preview(path: Path, mtime_ns: int, size: int, second: int = 0) -> bytes:
+def video_preview(path: Path, mtime_ns: int, size: int, second: float = 0) -> bytes:
     """Cache a small JPEG per source revision, without writing into the library."""
     result = run(
         [

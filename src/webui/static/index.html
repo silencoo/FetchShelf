@@ -54,10 +54,10 @@
       })();
     </script>
     <title>下载工作台 · FetchShelf</title>
-    <script type="module" crossorigin src="/ui/static/assets/index-C_add3Bq.js"></script>
+    <script type="module" crossorigin src="/ui/static/assets/index-CLWRPYnq.js"></script>
     <link rel="modulepreload" crossorigin href="/ui/static/assets/jsx-runtime-CNVhjzSW.js">
     <link rel="modulepreload" crossorigin href="/ui/static/assets/preload-helper-D9BqOEs6.js">
-    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-Bcr91_Mf.css">
+    <link rel="stylesheet" crossorigin href="/ui/static/assets/index-g0PEqHq0.css">
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -1253,14 +1253,6 @@
             </div>
           </div>
 
-          <div class="collector-notice" role="note">
-            <span class="collector-notice-icon" aria-hidden="true">i</span>
-            <div>
-              <strong>登录身份可直接使用内置浏览器</strong>
-              <p>保存身份后，可在身份卡片中选择“管理账号登录”，登录平台账号并保存 Cookie。</p>
-            </div>
-          </div>
-
           <div class="collector-overview" aria-label="采集身份概览">
             <article class="collector-metric">
               <span class="collector-metric-label">全部身份</span>
@@ -1287,7 +1279,18 @@
           <section class="collector-section" aria-labelledby="collector-identities-title">
             <div class="collector-section-head">
               <div>
-                <h3 id="collector-identities-title">身份列表</h3>
+                <div class="collector-identity-heading">
+                  <h3 id="collector-identities-title">身份列表</h3>
+                  <details id="collector-login-help" class="collector-login-help">
+                    <summary aria-label="内置浏览器登录帮助">
+                      <i data-lucide="info" aria-hidden="true"></i>
+                    </summary>
+                    <div class="collector-login-hint">
+                      <strong>登录身份可直接使用内置浏览器</strong>
+                      <p>保存身份后，在身份卡片中选择“管理账号登录”，登录平台账号并保存 Cookie。</p>
+                    </div>
+                  </details>
+                </div>
                 <p>一个身份对应一套平台、登录态和网络环境。</p>
               </div>
               <div class="collector-filters" aria-label="身份筛选">

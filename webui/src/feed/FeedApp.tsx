@@ -23,12 +23,12 @@ import { UltraPager } from "./UltraPager";
 import { mediaPool } from "./player";
 import { PostPanel, ShareSheet } from "./Sheets";
 import { marks, PostList, preferences, toast, toaster, useObservable } from "./store";
-import type { IndexStatus, LikedAccount, Post } from "./types";
+import type { IndexStatus, LibraryAccount, LibraryKind, Post } from "./types";
 import {
   DiscoverView,
   IndexingNotice,
   LibraryView,
-  LikedAccountView,
+  LibraryAccountView,
   MeView,
   ProfileView,
   SearchView,
@@ -39,13 +39,13 @@ type Tab = "home" | "discover" | "likes" | "saves" | "me";
 type HomeTab = "foryou" | "following" | "latest" | "arrivals";
 
 type Layer =
-  | { id: number; type: "liked-account"; group: LikedAccount }
+  | { id: number; type: "library-account"; kind: LibraryKind; group: LibraryAccount }
   | { id: number; type: "profile"; accountKey: string; name?: string }
   | { id: number; type: "player"; list: PostList; index: number; single?: boolean }
   | { id: number; type: "search"; q: string; mode: "search" | "tag" | "music" };
 
 type NewLayer =
-  | { type: "liked-account"; group: LikedAccount }
+  | { type: "library-account"; kind: LibraryKind; group: LibraryAccount }
   | { type: "profile"; accountKey: string; name?: string }
   | { type: "player"; list: PostList; index: number; single?: boolean }
   | { type: "search"; q: string; mode: "search" | "tag" | "music" };
@@ -429,7 +429,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
 
   const viewActions = useMemo<ViewActions>(
     () => ({
-      openLikedAccount: (group) => pushLayer({ type: "liked-account", group }),
+      openLibraryAccount: (kind, group) => pushLayer({ type: "library-account", kind, group }),
       openPlayer: (list, index) => pushLayer({ type: "player", list, index }),
       openProfile,
       openSearch,
@@ -761,8 +761,8 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
                   initialName={layer.name}
                   actions={viewActions}
                 />
-              ) : layer.type === "liked-account" ? (
-                <LikedAccountView group={layer.group} actions={viewActions} />
+              ) : layer.type === "library-account" ? (
+                <LibraryAccountView kind={layer.kind} group={layer.group} actions={viewActions} />
               ) : layer.type === "search" ? (
                 <SearchView key={blockRevision} query={layer.q} mode={layer.mode} actions={viewActions} />
               ) : (

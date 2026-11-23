@@ -553,7 +553,7 @@ class FeedService:
             offset = max(0, int(cursor.get("o", 0)))
             keys, total = state.page(mark, limit=limit, offset=offset, account_key=account, platform=platform)
             rows = self.stored_posts(keys)
-            if source == "likes" and account and not cursor:
+            if account and not cursor:
                 available_total = total
             if offset + limit < total:
                 following = {"o": offset + limit}
@@ -587,8 +587,8 @@ class FeedService:
             "next_offset": offset + limit if offset + limit < total else None,
         }
 
-    def liked_accounts(self, *, platform: str, limit: int, offset: int) -> dict:
-        groups, next_offset = self.state.liked_accounts(platform=platform, limit=limit, offset=offset)
+    def marked_accounts(self, kind: Literal["like", "save"], *, platform: str, limit: int, offset: int) -> dict:
+        groups, next_offset = self.state.marked_accounts(kind, platform=platform, limit=limit, offset=offset)
         keys = [key for group in groups for key in loads(group["previews"])]
         previews = {post["key"]: post for post in self.posts_payload(self.stored_posts(keys))}
         items = []
@@ -886,7 +886,16 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         offset: int = Query(0, ge=0),
         token: str = Depends(token_dependency),
     ):
-        return service().liked_accounts(platform=platform, limit=limit, offset=offset)
+        return service().marked_accounts("like", platform=platform, limit=limit, offset=offset)
+
+    @app.get("/ui/api/feed/saved-accounts", tags=["沉浸浏览"], summary="按账号查看我的收藏")
+    def feed_saved_accounts(
+        platform: Literal["", "douyin", "tiktok", "kuaishou", "rednote", "weibo"] = Query(""),
+        limit: int = Query(24, ge=1, le=60),
+        offset: int = Query(0, ge=0),
+        token: str = Depends(token_dependency),
+    ):
+        return service().marked_accounts("save", platform=platform, limit=limit, offset=offset)
 
     @app.get("/ui/api/feed/tags", tags=["沉浸浏览"], summary="常见话题")
     def feed_tags(platform: Literal["", "douyin", "tiktok", "kuaishou", "rednote", "weibo"] = Query(""), token: str = Depends(token_dependency)):
@@ -923,6 +932,7 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         path: str = Query(..., min_length=1, max_length=2048),
         scope: Literal["download", "project"] = Query("download"),
         second: int = Query(0, ge=0, le=3),
+        at_ms: int | None = Query(None, ge=0, le=2**53 - 1),
         w: int = Query(480, ge=64, le=1080),
         v: str | None = Query(None, max_length=80),
         token: str = Depends(token_dependency),
@@ -941,8 +951,11 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
         is_image = suffix in IMAGE_SUFFIXES
         if not target.is_file() or not (is_image or (suffix in VIDEO_SUFFIXES and scope == "download")):
             raise HTTPException(status_code=404, detail="File does not exist.")
+        if is_image and at_ms is not None:
+            raise HTTPException(status_code=422, detail="A frame time requires a video.")
+        frame_time = second if at_ms is None else at_ms / 1000
         revision = preview_revision(stat)
-        etag = f'"{revision}-{w}-{second}"'
+        etag = f'"{revision}-{w}-{second}"' if at_ms is None else f'"{revision}-{w}-ms{at_ms}"'
         cache = _THUMB_CACHE if scope == "download" and (v is None or v == revision) else "private, no-cache"
         headers = {"Cache-Control": cache, "ETag": etag}
         if request.headers.get("if-none-match") == etag:
@@ -952,7 +965,7 @@ def register_feed_routes(server: "APIServer", token_dependency) -> None:
                 if is_image:
                     frame = await to_thread(image_preview, target, stat.st_mtime_ns, stat.st_size, w)
                 else:
-                    frame = await to_thread(video_preview, target, stat.st_mtime_ns, stat.st_size, second)
+                    frame = await to_thread(video_preview, target, stat.st_mtime_ns, stat.st_size, frame_time)
         except (OSError, SubprocessError, ValueError):
             if is_image:
                 # Formats Pillow cannot decode may still display in the browser.
