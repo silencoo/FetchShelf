@@ -45,6 +45,7 @@ const LOAD_AHEAD = 4;
 export const IMAGE_SECONDS = 4;
 const SETTLE_FRAMES = 6;
 const SETTLE_FRAMES_MAX = 90;
+const SHARE_VIDEO_SELECTOR = ".fa-video-host video, .fa-carousel-item[data-current='true'] video";
 
 const prefersTouch = () => window.matchMedia("(hover: none), (pointer: coarse)").matches;
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -52,9 +53,16 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
 export interface PagerActions {
   openProfile(post: Post): void;
   openPanel(post: Post, tab: "comments" | "details"): void;
-  openShare(post: Post, snapshot?: VideoSnapshot, anchor?: HTMLElement): void;
+  openShare(target: ShareTarget): void;
   openTag(tag: string): void;
   openMusic(title: string): void;
+}
+
+export interface ShareTarget {
+  post: Post;
+  snapshot?: VideoSnapshot;
+  anchor?: HTMLElement;
+  playback?: { rate: number; setRate(rate: number): boolean };
 }
 
 export interface PagerHandle {
@@ -460,10 +468,28 @@ const Rail = memo(function Rail({
         aria-label="分享与更多操作"
         onClick={(event) => {
           const item = post.media[carouselPositions.get(post.key) ?? 0] ?? post.media[0];
-          const video = event.currentTarget.closest(".fa-slide")?.querySelector<HTMLVideoElement>(
-            ".fa-video-host video, .fa-carousel-item[data-current='true'] video",
-          ) ?? null;
-          actions.openShare(post, item?.kind === "video" ? captureVideoSnapshot(video) : undefined, event.currentTarget);
+          const anchor = event.currentTarget;
+          const slide = anchor.closest(".fa-slide");
+          const video = slide?.querySelector<HTMLVideoElement>(SHARE_VIDEO_SELECTOR) ?? null;
+          actions.openShare({
+            post,
+            anchor,
+            snapshot: item?.kind === "video" ? captureVideoSnapshot(video) : undefined,
+            playback: isActive && slide && video ? {
+              rate: video.defaultPlaybackRate,
+              setRate(rate) {
+                if (!slide.isConnected || !slide.classList.contains("is-active") ||
+                    slide.querySelector(SHARE_VIDEO_SELECTOR) !== video) return false;
+                try {
+                  video.playbackRate = rate;
+                  video.defaultPlaybackRate = rate;
+                  return true;
+                } catch {
+                  return false;
+                }
+              },
+            } : undefined,
+          });
         }}
       >
         <span className="fa-rail-icon">
@@ -617,9 +643,10 @@ function VideoSlide({
     },
     onLongPress(active) {
       const video = mediaPool.active();
-      if (video) {
-        video.playbackRate = active ? 2 : 1;
+      if (!activeRef.current || !video || video.parentElement !== hostRef.current) {
+        return;
       }
+      video.playbackRate = active ? 2 : video.defaultPlaybackRate;
       setFast(active);
     },
   });

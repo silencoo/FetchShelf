@@ -4,7 +4,6 @@ import { api, fileUrl } from "./api";
 import { MediaShareAction } from "./MediaShareAction";
 import { ImageCopyAction } from "./ImageCopyAction";
 import { ScreenshotShareAction } from "./ScreenshotShareAction";
-import type { VideoSnapshot } from "./videoSnapshot";
 import { formatCount, formatRelativeTime, initialOf, splitCaption } from "./format";
 import {
   CloseIcon,
@@ -15,7 +14,7 @@ import {
   LinkIcon,
   PinIcon,
 } from "./icons";
-import { carouselPositions } from "./Pager";
+import { carouselPositions, type ShareTarget } from "./Pager";
 import { preferences, toast, useObservable } from "./store";
 import type { FeedComment, Post } from "./types";
 
@@ -433,20 +432,22 @@ async function copyText(text: string) {
   return copied;
 }
 
+const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
+
 export function ShareSheet({
   post,
   snapshot,
   anchor,
+  playback,
   onClose,
   onHideAuthor,
-}: {
-  post: Post;
-  snapshot?: VideoSnapshot;
-  anchor?: HTMLElement;
+}: ShareTarget & {
   onClose(): void;
   onHideAuthor(post: Post): void;
 }) {
   useObservable(preferences);
+  const rateName = useId();
+  const [rate, setRate] = useState(playback?.rate ?? 1);
   const [position] = useState(() => Math.min(carouselPositions.get(post.key) ?? 0, post.media.length - 1));
   const item = post.media[position] ?? post.media[0];
   const shareUrl = post.share_url;
@@ -539,6 +540,23 @@ export function ShareSheet({
           不看此账号
         </button>
       </div>
+      {playback && (
+        <div className="fa-share-playback">
+          <p id={rateName}>播放倍速</p>
+          <div className="fa-share-playback-rates" role="radiogroup" aria-labelledby={rateName}>
+            {PLAYBACK_RATES.map((option) => (
+              <label key={option}>
+                <input type="radio" name={rateName} value={option} checked={rate === option}
+                  onChange={() => {
+                    if (playback.setRate(option)) setRate(option);
+                    else toast("无法为当前视频设置此倍速");
+                  }} />
+                <span>{option}×</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       <label className="fa-switch-row">
         <span>
           自动连播

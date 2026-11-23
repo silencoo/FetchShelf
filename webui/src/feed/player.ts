@@ -116,6 +116,7 @@ class MediaPool {
     this.owners.set(video, binding);
     binding.host.appendChild(video);
     video.muted = true;
+    video.defaultPlaybackRate = 1;
     video.playbackRate = 1;
     video.src = binding.src;
     video.load();
@@ -156,6 +157,7 @@ class MediaPool {
           if (video.dataset.ready && video.currentTime > 0.05) {
             video.currentTime = 0;
           }
+          video.defaultPlaybackRate = 1;
           video.playbackRate = 1;
         }
         video.loop = this.loopVideo;

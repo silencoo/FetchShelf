@@ -18,11 +18,10 @@ import {
   UserIcon,
   VolumeIcon,
 } from "./icons";
-import { Pager, type PagerActions, type PagerHandle } from "./Pager";
+import { Pager, type PagerActions, type PagerHandle, type ShareTarget } from "./Pager";
 import { UltraPager } from "./UltraPager";
 import { mediaPool } from "./player";
 import { PostPanel, ShareSheet } from "./Sheets";
-import type { VideoSnapshot } from "./videoSnapshot";
 import { marks, PostList, preferences, toast, toaster, useObservable } from "./store";
 import type { IndexStatus, LikedAccount, Post } from "./types";
 import {
@@ -227,7 +226,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
   const [blockRevision, setBlockRevision] = useState(0);
   const [layers, setLayers] = useState<Layer[]>([]);
   const [panel, setPanel] = useState<{ post: Post; tab: "comments" | "details" } | null>(null);
-  const [share, setShare] = useState<{ post: Post; snapshot?: VideoSnapshot; anchor?: HTMLElement } | null>(null);
+  const [share, setShare] = useState<ShareTarget | null>(null);
   const [needsToken, setNeedsToken] = useState(false);
   const [soundUnlocked, setSoundUnlocked] = useState(mediaPool.unlocked);
   const [status, setStatus] = useState<IndexStatus | null>(null);
@@ -421,7 +420,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
     () => ({
       openProfile: (post) => openProfile({ key: post.author.key, name: post.author.name }),
       openPanel: (post, panelTab) => setPanel({ post, tab: panelTab }),
-      openShare: (post, snapshot, anchor) => setShare({ post, snapshot, anchor }),
+      openShare: setShare,
       openTag: (tag) => openSearch({ q: tag, mode: "tag" }),
       openMusic: (title) => openSearch({ q: title, mode: "music" }),
     }),
@@ -797,7 +796,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
           />
         ) : null}
         {share ? (
-          <ShareSheet post={share.post} snapshot={share.snapshot} anchor={share.anchor} onClose={() => setShare(null)} onHideAuthor={hideAuthor} />
+          <ShareSheet key={share.post.key} {...share} onClose={() => setShare(null)} onHideAuthor={hideAuthor} />
         ) : null}
         {toaster.message && !fullscreen ? (
           <div className="fa-toast" role="status">
