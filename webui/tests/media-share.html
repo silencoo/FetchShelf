@@ -11,24 +11,24 @@ import '../src/feed/feed.css';
 state.token = 'share-test-token';
 const root = createRoot(document.getElementById('root'));
 let sequence = 0;
-function AnchoredShare({post}) {
-  const anchor = React.useRef(null);
-  const [open, setOpen] = React.useState(false);
+function AnchoredShare({post, detachOnOpen}) {
+  const [anchor, setAnchor] = React.useState(null);
   return React.createElement(React.Fragment, null,
-    React.createElement('button', {ref:anchor, id:'share-trigger',
+    (!anchor || !detachOnOpen) ? React.createElement('button', {id:'share-trigger',
+      'data-detach-on-open':String(detachOnOpen),
       style:{position:'absolute',right:24,bottom:160,width:48,height:48,color:'white'},
-      onClick:()=>setOpen(true)}, '分享'),
-    open ? React.createElement(ShareSheet, {post,anchor:anchor.current,
-      onClose:()=>setOpen(false),onHideAuthor:()=>{}}) : null);
+      onClick:({currentTarget:element})=>setAnchor({element,rect:element.getBoundingClientRect()})}, '分享') : null,
+    anchor ? React.createElement(ShareSheet, {post,anchor,
+      onClose:()=>setAnchor(null),onHideAuthor:()=>{}}) : null);
 }
-window.showShareFixture = (kind = 'images', anchored = false) => {
+window.showShareFixture = (kind = 'images', anchored = false, detachOnOpen = false) => {
   const post = {key:'share-test',kind,caption:'分享测试',share_url:'https://example.test/post',
     author:{name:'Test account',platform:'douyin',url:'https://example.test/author'},
     cover:'first.jpeg',media:kind==='video' ? [{kind:'video',path:'movie.mp4'}]
       : [{kind:'image',path:'first.jpeg'},{kind:'image',path:'selected_2.jpeg'}]};
   carouselPositions.set(post.key, kind==='video' ? 0 : 1);
   if (anchored) {
-    root.render(React.createElement(AnchoredShare, {key:++sequence,post}));
+    root.render(React.createElement(AnchoredShare, {key:++sequence,post,detachOnOpen}));
     return;
   }
   root.render(React.createElement(ShareSheet, {key:++sequence,post,

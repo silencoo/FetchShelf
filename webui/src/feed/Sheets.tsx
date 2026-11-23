@@ -29,7 +29,7 @@ function Sheet({
   onClose(): void;
   children: ReactNode;
   docked?: boolean;
-  anchor?: HTMLElement;
+  anchor?: ShareTarget["anchor"];
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -39,7 +39,7 @@ function Sheet({
   useEffect(() => {
     panelRef.current?.focus({ preventScroll: true });
     return () => {
-      if (anchor?.isConnected) anchor.focus({ preventScroll: true });
+      if (anchor?.element.isConnected) anchor.element.focus({ preventScroll: true });
     };
   }, [anchor]);
 
@@ -49,31 +49,50 @@ function Sheet({
     if (!anchor || !root || !panel) return;
     const wide = window.matchMedia("(min-width: 700px)");
     const viewport = window.visualViewport;
+    // A feed slide can unmount during a scroll snap, after the tap has opened the sheet.
+    let target = anchor.rect;
     const position = () => {
-      if (!wide.matches || !anchor.isConnected) return;
+      if (!wide.matches) return;
       const bounds = root.getBoundingClientRect();
-      const target = anchor.getBoundingClientRect();
       const gap = 12;
-      const leftEdge = Math.max(bounds.left, viewport?.offsetLeft ?? 0) + gap;
-      const topEdge = Math.max(bounds.top, viewport?.offsetTop ?? 0) + gap;
-      const rightEdge = Math.min(bounds.right, (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth)) - gap;
-      const bottomEdge = Math.min(bounds.bottom, (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)) - gap;
-      panel.style.setProperty("--fa-share-max-width", `${Math.max(0, rightEdge - leftEdge)}px`);
-      panel.style.setProperty("--fa-share-max-height", `${Math.max(0, bottomEdge - topEdge)}px`);
+      const viewportLeft = viewport?.offsetLeft ?? 0;
+      const viewportTop = viewport?.offsetTop ?? 0;
+      const leftEdge = Math.max(bounds.left, viewportLeft) + gap;
+      const topEdge = Math.max(bounds.top, viewportTop) + gap;
+      const rightEdge = Math.min(bounds.right, viewportLeft + (viewport?.width ?? window.innerWidth)) - gap;
+      const bottomEdge = Math.min(bounds.bottom, viewportTop + (viewport?.height ?? window.innerHeight)) - gap;
+      if (rightEdge <= leftEdge || bottomEdge <= topEdge) return;
+
+      const live = anchor.element.isConnected ? anchor.element.getBoundingClientRect() : undefined;
+      if (live?.width && live.height && live.right > leftEdge - gap && live.left < rightEdge + gap &&
+          live.bottom > topEdge - gap && live.top < bottomEdge + gap) {
+        target = live;
+      }
+      if (!target.width || !target.height) return;
+      panel.style.setProperty("--fa-share-max-width", `${rightEdge - leftEdge}px`);
+      panel.style.setProperty("--fa-share-max-height", `${bottomEdge - topEdge}px`);
       const { width, height } = panel.getBoundingClientRect();
-      const preferredLeft = target.left - gap - width >= leftEdge
-        ? target.left - gap - width
-        : target.right + gap;
-      const left = Math.max(leftEdge, Math.min(preferredLeft, rightEdge - width));
-      const top = Math.max(topEdge, Math.min(target.top + target.height / 2 - height / 2, bottomEdge - height));
+      const leftOfButton = target.left - gap - width;
+      const rightOfButton = target.right + gap;
+      const aboveButton = target.top - gap - height;
+      const belowButton = target.bottom + gap;
+      let left = target.left + (target.width - width) / 2;
+      let top = aboveButton >= topEdge ? aboveButton : belowButton;
+      if (leftOfButton >= leftEdge || rightOfButton + width <= rightEdge) {
+        left = leftOfButton >= leftEdge ? leftOfButton : rightOfButton;
+        top = target.top + (target.height - height) / 2;
+      }
+      left = Math.max(leftEdge, Math.min(left, rightEdge - width));
+      top = Math.max(topEdge, Math.min(top, bottomEdge - height));
       panel.style.setProperty("--fa-share-left", `${left - bounds.left}px`);
       panel.style.setProperty("--fa-share-top", `${top - bounds.top}px`);
+      panel.dataset.sharePositioned = "";
     };
     position();
     const observer = new ResizeObserver(position);
     observer.observe(root);
     observer.observe(panel);
-    observer.observe(anchor);
+    observer.observe(anchor.element);
     wide.addEventListener("change", position);
     window.addEventListener("resize", position);
     window.addEventListener("scroll", position, true);

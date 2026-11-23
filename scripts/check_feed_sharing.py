@@ -9,6 +9,55 @@ from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import expect, sync_playwright
 
 
+def check_anchoring(page):
+    trigger = page.locator("#share-trigger")
+    dialog = page.get_by_role("dialog", name="分享与更多")
+
+    def expect_next_to(bounds, viewport):
+        expect(dialog).to_have_attribute("data-share-positioned", "")
+        page.wait_for_function("""({anchor, viewport}) => {
+            const panel = document.querySelector('[data-share-positioned]');
+            if (!panel) return false;
+            const rect = panel.getBoundingClientRect();
+            const top = Math.max(12, Math.min(anchor.y + (anchor.height - rect.height) / 2,
+                viewport.height - 12 - rect.height));
+            return Math.abs(rect.right - (anchor.x - 12)) < 2
+                && Math.abs(rect.top - top) < 2
+                && rect.left >= 0 && rect.top >= 0 && rect.right <= viewport.width
+                && rect.bottom <= viewport.height;
+        }""", arg={"anchor": bounds, "viewport": viewport})
+
+    tablet = {"width": 820, "height": 1180}
+    page.set_viewport_size(tablet)
+    page.evaluate("showShareFixture('images', true)")
+    trigger.tap()
+    expect_next_to(trigger.bounding_box(), tablet)
+    landscape = {"width": 1180, "height": 820}
+    page.set_viewport_size(landscape)
+    expect_next_to(trigger.bounding_box(), landscape)
+    dialog.press("Escape")
+    expect(dialog).to_have_count(0)
+    expect(trigger).to_be_focused()
+
+    page.set_viewport_size(tablet)
+    page.evaluate("showShareFixture('images', true, true)")
+    expect(trigger).to_have_attribute("data-detach-on-open", "true")
+    saved_bounds = trigger.bounding_box()
+    trigger.tap()
+    expect(trigger).to_have_count(0)
+    expect_next_to(saved_bounds, tablet)
+
+    phone = {"width": 390, "height": 844}
+    page.set_viewport_size(phone)
+    page.evaluate("showShareFixture('images', true)")
+    trigger.tap()
+    expect(dialog).to_be_visible()
+    page.wait_for_function("""height => {
+        const dialog = document.querySelector('.fa-sheet');
+        return dialog && Math.abs(dialog.getBoundingClientRect().bottom - height) < 2;
+    }""", arg=phone["height"])
+
+
 def check(engine, args):
     executable = getattr(args, engine.name)
     browser = engine.launch(**({"executable_path": executable} if executable else {}))
@@ -97,8 +146,9 @@ def check(engine, args):
         page.get_by_role("button", name="分享图片", exact=True).click()
         expect(page.locator(".fa-share-status")).to_contain_text("HTTPS")
         assert len(requests) == count
+        check_anchoring(page)
         assert not errors, errors
-        print(engine.name, "PASS: selected file bytes/auth/MIME, video, fresh tap, cancel/retry, abort, unsupported, HTTPS")
+        print(engine.name, "PASS: media sharing, anchored tablet menu, detached trigger, and phone sheet")
     finally:
         browser.close()
 

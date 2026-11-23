@@ -2413,15 +2413,20 @@
 /* Share menus follow the tapped rail button on tablets and desktops. */
 @media (min-width: 700px) {
   .fa-sheet-root.is-anchored .fa-sheet {
-    inset: var(--fa-share-top, 12px) auto auto var(--fa-share-left, 12px);
+    inset: 50% auto auto 50%;
     width: min(360px, var(--fa-share-max-width, calc(100% - 24px)));
     min-height: 0;
     max-height: var(--fa-share-max-height, calc(100% - 24px));
     margin: 0;
     padding-top: 8px;
     border-radius: 16px;
-    transform: none;
+    transform: translate(-50%, -50%);
     animation: fa-fade 0.15s ease-out;
+  }
+
+  .fa-sheet-root.is-anchored .fa-sheet[data-share-positioned] {
+    inset: var(--fa-share-top) auto auto var(--fa-share-left);
+    transform: none;
   }
 
   .fa-sheet-root.is-anchored .fa-sheet-grip {

@@ -61,7 +61,7 @@ export interface PagerActions {
 export interface ShareTarget {
   post: Post;
   snapshot?: VideoSnapshot;
-  anchor?: HTMLElement;
+  anchor?: { element: HTMLElement; rect: DOMRectReadOnly };
   playback?: { rate: number; setRate(rate: number): boolean };
 }
 
@@ -468,8 +468,9 @@ const Rail = memo(function Rail({
         aria-label="分享与更多操作"
         onClick={(event) => {
           const item = post.media[carouselPositions.get(post.key) ?? 0] ?? post.media[0];
-          const anchor = event.currentTarget;
-          const slide = anchor.closest(".fa-slide");
+          const element = event.currentTarget;
+          const anchor = { element, rect: element.getBoundingClientRect() };
+          const slide = element.closest(".fa-slide");
           const video = slide?.querySelector<HTMLVideoElement>(SHARE_VIDEO_SELECTOR) ?? null;
           actions.openShare({
             post,
