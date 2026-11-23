@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 
 import { fileUrl, thumbUrl } from "./api";
 import { usePagedWheel } from "./hooks";
+import { PlayIcon } from "./icons";
 import { IMAGE_SECONDS, type PagerHandle } from "./Pager";
 import { resumeVideo } from "./resumeVideo";
 import { preferences, useObservable, type PostList } from "./store";
@@ -13,6 +14,12 @@ interface Tile {
   index: number;
   aspect: number;
   media: MediaItem[];
+}
+
+const DOUBLE_TAP_MS = 300;
+
+function hasPlayback({ media }: Tile) {
+  return media.length > 1 || media[0]?.kind === "video";
 }
 
 function postAspect(post: Post) {
@@ -74,7 +81,8 @@ function UltraPreview({ path, current, original, onLoad }: {
   );
 }
 
-function UltraTile({ tile, frame, style, current, expanded, covered, play, paused, onAdvance, onPreview, onMeasure, onClick }: {
+function UltraTile({ tile, frame, style, current, expanded, covered, play, paused, pausePressed, showPause,
+  onAdvance, onPreview, onMeasure, onTap, onOpen }: {
   tile: Tile;
   frame: number;
   style: CSSProperties;
@@ -83,10 +91,13 @@ function UltraTile({ tile, frame, style, current, expanded, covered, play, pause
   covered: boolean;
   play: boolean;
   paused: boolean;
+  pausePressed?: boolean;
+  showPause: boolean;
   onAdvance(tile: Tile): void;
   onPreview(tile: Tile, image: HTMLImageElement, useAspect: boolean): void;
   onMeasure(tile: Tile, width: number, height: number): void;
-  onClick(): void;
+  onTap(keyboard: boolean): void;
+  onOpen(): void;
 }) {
   const { post, media } = tile;
   const item = media[frame];
@@ -119,7 +130,13 @@ function UltraTile({ tile, frame, style, current, expanded, covered, play, pause
   return (
     <button type="button" className="fa-ultra-tile" inert={covered} style={style}
       aria-label={[post.author.name, post.caption].filter(Boolean).join(" · ") || "浏览作品"}
-      aria-pressed={expanded} onClick={onClick}>
+      aria-pressed={pausePressed} data-expanded={expanded || undefined} aria-keyshortcuts="Space Enter"
+      onClick={(event) => onTap(event.detail === 0)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        if (!event.repeat) onOpen();
+      }}>
       {preview && <UltraPreview key={`${preview}:${original}`} path={preview} current={current} original={original}
         onLoad={(image) => {
           if (frame === 0) onPreview(tile, image, !path);
@@ -128,8 +145,9 @@ function UltraTile({ tile, frame, style, current, expanded, covered, play, pause
         onLoadedMetadata={({ currentTarget: video }) => {
           if (frame === 0) onMeasure(tile, video.videoWidth, video.videoHeight);
         }}
-        onEnded={() => { if (media.length > 1) onAdvance(tile); }}
+        onEnded={() => { if (running && media.length > 1) onAdvance(tile); }}
         onError={() => setFailedPath(path)} />}
+      {showPause && <span className="fa-center-icon" aria-hidden="true"><PlayIcon size={36} /></span>}
     </button>
   );
 }
@@ -156,7 +174,9 @@ export function UltraPager({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [position, setPosition] = useState(0);
   const [expanded, setExpanded] = useState<string>();
-  const [paused, setPaused] = useState(false);
+  const [batchPaused, setBatchPaused] = useState(false);
+  const [pausedTiles, setPausedTiles] = useState(() => new Set<string>());
+  const pendingTap = useRef<{ key: string; timeout: number; pause(): void } | undefined>(undefined);
   const [frames, setFrames] = useState<Record<string, number>>({});
   const [measuredAspects, setMeasuredAspects] = useState(() => new Map<string, number>());
   const [mediaColors, setMediaColors] = useState(() => new Map<string, string>());
@@ -185,6 +205,52 @@ export function UltraPager({
     videos[Math.min(videos.length, preferences.ultraVideos - 1)] = selected;
   }
   const videoKeys = new Set(videos.map(({ post }) => post.key));
+
+  const cancelTap = useCallback(() => {
+    if (pendingTap.current) window.clearTimeout(pendingTap.current.timeout);
+    pendingTap.current = undefined;
+  }, []);
+
+  useLayoutEffect(() => cancelTap, [active, current, cancelTap]);
+
+  const openTile = (tile: Tile) => {
+    cancelTap();
+    if (openPlayer) openPlayer(list, tile.index);
+    else setExpanded((key) => key === tile.post.key ? undefined : tile.post.key);
+  };
+
+  const tapTile = (tile: Tile, keyboard: boolean) => {
+    const key = tile.post.key;
+    const previous = pendingTap.current;
+    if (!keyboard && previous?.key === key) {
+      openTile(tile);
+      return;
+    }
+    cancelTap();
+    // A tap on a different work is an independent pause, not a double tap.
+    previous?.pause();
+    const pause = () => {
+      if (preferences.ultraPauseBatch) {
+        setBatchPaused((value) => !value);
+      } else if (hasPlayback(tile)) {
+        setPausedTiles((value) => {
+          const next = new Set(value);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+      }
+    };
+    if (keyboard) pause();
+    else pendingTap.current = {
+      key,
+      pause,
+      timeout: window.setTimeout(() => {
+        pendingTap.current = undefined;
+        pause();
+      }, DOUBLE_TAP_MS),
+    };
+  };
 
   const advanceTile = useCallback(({ post, media }: Tile) => {
     setFrames((previous) => ({ ...previous, [post.key]: ((previous[post.key] ?? 0) + 1) % media.length }));
@@ -268,7 +334,7 @@ export function UltraPager({
     const handle: PagerHandle = {
       next: () => go(1),
       previous: () => go(-1),
-      togglePause: () => setPaused((value) => !value),
+      togglePause: () => setBatchPaused((value) => !value),
       seek: (delta) => {
         const video = node?.querySelector("video");
         if (video && Number.isFinite(video.duration)) {
@@ -293,7 +359,9 @@ export function UltraPager({
     anchor.current = posts[batches[next].start].post.key;
     setPosition(next);
     setExpanded(undefined);
-    setPaused(false);
+    cancelTap();
+    setBatchPaused(false);
+    setPausedTiles(new Set());
     setFrames({});
   };
 
@@ -327,6 +395,8 @@ export function UltraPager({
               data-spanning={layout.spanning || undefined} style={{ background }}>
               {items.map((tile, index) => {
                 const isExpanded = batchIndex === active && selected?.post.key === tile.post.key;
+                const tilePaused = pausedTiles.has(tile.post.key);
+                const covered = batchIndex === active && Boolean(selected) && !isExpanded;
                 const bounds = layout.tiles[index];
                 const style: CSSProperties = { backgroundColor: mediaColors.get(tile.post.key) };
                 if (!isExpanded) {
@@ -338,18 +408,21 @@ export function UltraPager({
                 return (
                   <UltraTile key={tile.post.key} tile={tile} style={style}
                     frame={visible ? frameFor(tile) : 0}
-                    current={visible} expanded={openPlayer ? undefined : isExpanded}
-                    covered={batchIndex === active && Boolean(selected) && !isExpanded}
+                    current={visible} expanded={isExpanded} covered={covered}
                     play={visible && videoKeys.has(tile.post.key)}
-                    paused={paused}
+                    paused={batchPaused || tilePaused}
+                    pausePressed={preferences.ultraPauseBatch ? batchPaused : hasPlayback(tile) ? tilePaused : undefined}
+                    showPause={visible && !covered && !batchPaused && tilePaused && preferences.showPauseIcon}
                     onAdvance={advanceTile}
                     onPreview={onPreview}
                     onMeasure={onMeasure}
-                    onClick={() => openPlayer
-                      ? openPlayer(list, tile.index)
-                      : setExpanded(isExpanded ? undefined : tile.post.key)} />
+                    onTap={(keyboard) => tapTile(tile, keyboard)}
+                    onOpen={() => openTile(tile)} />
                 );
               })}
+              {visible && batchPaused && preferences.showPauseIcon && (
+                <span className="fa-center-icon" aria-hidden="true"><PlayIcon size={64} /></span>
+              )}
             </div>
           );
         })}

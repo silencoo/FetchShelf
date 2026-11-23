@@ -346,7 +346,7 @@
   pointer-events: none;
 }
 
-.fa-ultra .fa-ultra-tile[aria-pressed="true"] {
+.fa-ultra .fa-ultra-tile[data-expanded] {
   position: absolute;
   inset: 0;
   z-index: 1;

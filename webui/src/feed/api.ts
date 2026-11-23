@@ -85,6 +85,7 @@ export interface FeedPreferences {
   showPauseIcon: boolean;
   pinchZoom: boolean;
   ultraImmersive: boolean;
+  ultraPauseBatch: boolean;
   ultraOpenSingle: boolean;
   ultraColumns: number;
   ultraRows: number;

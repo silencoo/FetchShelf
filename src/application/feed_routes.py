@@ -54,6 +54,7 @@ class FeedPreferencesPatch(BaseModel):
     showPauseIcon: StrictBool = True
     pinchZoom: StrictBool = True
     ultraImmersive: StrictBool = False
+    ultraPauseBatch: StrictBool = False
     ultraOpenSingle: StrictBool = True
     ultraColumns: int = Field(default=3, strict=True, ge=1, le=MAX_SAFE_PREFERENCE_INTEGER)
     ultraRows: int = Field(default=2, strict=True, ge=1, le=MAX_SAFE_PREFERENCE_INTEGER)

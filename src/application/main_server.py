@@ -6237,6 +6237,8 @@ class APIServer(TikTok, ServerRoutesMixin):
                 return 100
             if execution.get("terminal_status") == "skipped":
                 return 90
+            if execution.get("outcome_code") == "private_followed_empty":
+                return 75
             category = execution.get("failure_category")
             return {
                 "visibility": 70,

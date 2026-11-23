@@ -666,9 +666,20 @@ async def test_douyin_account_batch_releases_identity_for_queued_monitor(
 
 
 @pytest.mark.asyncio
-async def test_visibility_failure_probes_other_identity_and_pins_success(
+@pytest.mark.parametrize(
+    ("reported_posts", "alternate_outcome", "terminal_count"),
+    [
+        (None, "success", "success"),
+        (0, "no_works", "skipped"),
+        (12, "private_followed_empty", "failed"),
+    ],
+)
+async def test_visibility_failure_uses_evidence_from_the_other_identity(
     tmp_path: Path,
     monkeypatch,
+    reported_posts,
+    alternate_outcome,
+    terminal_count,
 ):
     server = APIServer.__new__(APIServer)
     server.collector_store = CollectorStore(
@@ -718,18 +729,16 @@ async def test_visibility_failure_probes_other_identity_and_pins_success(
             return "private-account"
 
         async def deal_account_detail(self, *args, **kwargs):
+            worker = TikTok.__new__(TikTok)
             if self.identity_id == "dy-cannot-see":
-                return {
-                    "ok": False,
-                    "outcome_code": "private_not_visible",
-                    "reason": "私密账号对当前身份不可见",
-                    "failure_category": "visibility",
-                    "terminal_status": "failed",
-                    "retryable": True,
-                    "cross_identity": True,
-                    "affects_identity_health": False,
-                    "context": {},
-                }
+                return worker._empty_account_outcome(
+                    {"secret": 1, "follow_status": 0, "aweme_count": 0}, False
+                )
+            if reported_posts is not None:
+                return worker._empty_account_outcome(
+                    {"secret": 1, "follow_status": 1, "aweme_count": reported_posts},
+                    False,
+                )
             return {
                 "ok": True,
                 "outcome_code": "success",
@@ -757,19 +766,24 @@ async def test_visibility_failure_probes_other_identity_and_pins_success(
         tiktok=False,
     )
 
-    assert result.data["success"] == 1
-    assert result.data["failed"] == 0
+    assert {
+        key: result.data[key] for key in ("success", "failed", "skipped")
+    } == {key: int(key == terminal_count) for key in ("success", "failed", "skipped")}
     route = result.data["routes"][0]
     assert [
-        item["identity_id"] for item in route["attempted_identities"]
-    ] == ["dy-cannot-see", "dy-follows"]
-    assert route["recovered_by_identity"] == "dy-follows"
+        (item["identity_id"], item["outcome_code"])
+        for item in route["attempted_identities"]
+    ] == [("dy-cannot-see", "private_not_visible"), ("dy-follows", alternate_outcome)]
+    assert route["identity_id"] == "dy-follows"
+    assert route["recovered_by_identity"] == ("dy-follows" if terminal_count == "success" else "")
+    if terminal_count == "failed":
+        assert result.data["failures"][0]["outcome_code"] == alternate_outcome
     assignment = server.collector_store.get_assignment(
         CollectorPlatform.DOUYIN,
         "account",
         target,
     )
-    assert assignment.identity_id == "dy-follows"
+    assert assignment.identity_id == ("dy-follows" if terminal_count == "success" else "dy-cannot-see")
     assert assignment.source == AssignmentSource.POLICY
     server.collector_store.close()
 
@@ -812,6 +826,30 @@ def test_account_outcomes_distinguish_empty_private_and_download_failure():
     assert private["cross_identity"] is True
     assert download["outcome_code"] == "download_failed"
     assert download["failure_category"] == "download"
+
+
+@pytest.mark.parametrize(
+    ("profile_fields", "tab", "outcome_code"),
+    [
+        ({"follow_status": 2, "aweme_count": "0"}, "post", "no_works"),
+        ({"is_following": True, "aweme_count": 0}, "post", "no_works"),
+        ({"is_following": "false", "aweme_count": 0}, "post", "private_not_visible"),
+        ({"aweme_count": 0}, "post", "private_not_visible"),
+        ({"follow_status": 1}, "post", "private_followed_empty"),
+        ({"follow_status": 1, "aweme_count": False}, "post", "private_followed_empty"),
+        ({"follow_status": 1, "aweme_count": 0}, "favorite", "private_followed_empty"),
+    ],
+)
+def test_empty_private_posts_require_a_confirmed_follow_and_explicit_zero(
+    profile_fields, tab, outcome_code,
+):
+    worker = TikTok.__new__(TikTok)
+    result = worker._empty_account_outcome({"secret": 1, **profile_fields}, False, tab=tab)
+    assert result["outcome_code"] == outcome_code
+    confirmed_empty = outcome_code == "no_works"
+    assert result["terminal_status"] == ("skipped" if confirmed_empty else "failed")
+    assert result["cross_identity"] is not confirmed_empty
+    assert result["retryable"] is not confirmed_empty
 
 
 def test_anonymous_tiktok_identity_routes_without_cookie(tmp_path: Path):

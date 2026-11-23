@@ -5794,30 +5794,36 @@ function renderTaskAccounts(payload) {
   refreshIcons(refs.taskAccountList);
 }
 
+let taskAccountsRequest;
+
 async function loadTaskAccounts(taskId = state.selectedTaskId) {
-  if (!taskId || state.taskAccountsLoading) {
+  if (!taskId || taskId !== state.selectedTaskId) {
     return;
   }
-  state.taskAccountsLoading = true;
+  const query = new URLSearchParams({
+    page: String(state.taskAccounts.page),
+    page_size: String(state.taskAccounts.pageSize),
+    status: state.taskAccounts.status,
+    category: state.taskAccounts.category,
+  });
+  const url = `/ui/api/tasks/${encodeURIComponent(taskId)}/accounts?${query.toString()}`;
+  const taskStatus = state.selectedTaskStatus;
+  if (taskAccountsRequest?.url === url && taskAccountsRequest.taskStatus === taskStatus) {
+    return;
+  }
+  taskAccountsRequest?.controller.abort();
+  const request = { url, taskStatus, controller: new AbortController() };
+  taskAccountsRequest = request;
   state.taskAccountVisible = [];
   updateTaskAccountBulkToolbar();
   refs.taskAccountList.setAttribute("aria-busy", "true");
   refs.taskAccountList.innerHTML = '<div class="loading-state">正在加载账号检查点…</div>';
   try {
-    const query = new URLSearchParams({
-      page: String(state.taskAccounts.page),
-      page_size: String(state.taskAccounts.pageSize),
-      status: state.taskAccounts.status,
-      category: state.taskAccounts.category,
+    const payload = await fetchJson(url, {
+      headers: headerOptions(false),
+      signal: request.controller.signal,
     });
-    const payload = await fetchJson(
-      `/ui/api/tasks/${encodeURIComponent(taskId)}/accounts?${query.toString()}`,
-      {
-        method: "GET",
-        headers: headerOptions(false),
-      },
-    );
-    if (state.selectedTaskId !== taskId) {
+    if (taskAccountsRequest !== request || state.selectedTaskId !== taskId) {
       return;
     }
     renderTaskAccounts(payload);
@@ -5831,6 +5837,10 @@ async function loadTaskAccounts(taskId = state.selectedTaskId) {
       loadTaskAccounts();
     });
     const categoryCounts = payload?.category_counts || {};
+    const visibilityCount = Number(categoryCounts.visibility || 0);
+    refs.taskAccountVisibilityWarning.textContent = `${visibilityCount} 个账号作品不可见`;
+    refs.taskAccountVisibilityWarning.hidden =
+      visibilityCount <= 0 || ACTIVE_TASK_STATUSES.has(state.selectedTaskStatus);
     refs.taskAccountCategorySummary.textContent = Object.entries(
       TASK_ACCOUNT_CATEGORY_LABELS,
     )
@@ -5843,12 +5853,16 @@ async function loadTaskAccounts(taskId = state.selectedTaskId) {
       summary.failed || 0,
     )} · 无需下载 ${Number(summary.skipped || 0)} · 等待 ${Number(summary.pending || 0)}`;
   } catch (error) {
-    refs.taskAccountList.innerHTML = `<div class="error-state">检查点加载失败：${escapeHtml(
-      error.message,
-    )}</div>`;
+    if (taskAccountsRequest === request && state.selectedTaskId === taskId) {
+      refs.taskAccountList.innerHTML = `<div class="error-state">检查点加载失败：${escapeHtml(
+        error.message,
+      )}</div>`;
+    }
   } finally {
-    state.taskAccountsLoading = false;
-    refs.taskAccountList.setAttribute("aria-busy", "false");
+    if (taskAccountsRequest === request) {
+      taskAccountsRequest = undefined;
+      refs.taskAccountList.setAttribute("aria-busy", "false");
+    }
   }
 }
 
@@ -6007,7 +6021,11 @@ function renderTaskResult(task) {
   const nextTaskId = task.task_id || "";
   const taskChanged = state.selectedTaskId !== nextTaskId;
   const previousStatus = state.selectedTaskStatus;
+  const status = String(task.status || "");
   state.selectedTaskId = nextTaskId;
+  if (taskChanged || ACTIVE_TASK_STATUSES.has(status)) {
+    refs.taskAccountVisibilityWarning.hidden = true;
+  }
   if (taskChanged) {
     state.taskAccounts.page = 1;
     state.taskAccounts.status = Number(task?.account_summary?.failed || 0) > 0 ? "failed" : "";
@@ -6019,7 +6037,6 @@ function renderTaskResult(task) {
     refs.taskAccountStatusFilter.value = state.taskAccounts.status;
     refs.taskAccountCategoryFilter.value = "";
   }
-  const status = String(task.status || "");
   const endpoint = String(task.endpoint || "");
   const isAccountBatch = endpoint.endsWith("/account_batch");
   const taskFinishedWhileSelected =

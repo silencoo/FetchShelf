@@ -659,7 +659,7 @@ function FeedSession({ active, onExit, arrivalTask, platform, onPlatform, tab, s
               return (
                 <div key={item.tab} className="fa-home-pane" hidden={homeTab !== item.tab}>
                   {preferences.ultraImmersive
-                    ? <UltraPager {...pager} openSingle={fullscreen ? undefined : viewActions.openPlayer} />
+                    ? <UltraPager {...pager} openSingle={viewActions.openPlayer} />
                     : <Pager {...pager} actions={pagerActions} />}
                 </div>
               );

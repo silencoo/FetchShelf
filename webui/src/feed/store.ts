@@ -213,6 +213,7 @@ const preferenceKeys: Record<keyof FeedPreferences, string> = {
   showPauseIcon: "feed.pause_icon",
   pinchZoom: "feed.pinch_zoom",
   ultraImmersive: "feed.ultra_immersive",
+  ultraPauseBatch: "feed.ultra_pause_batch",
   ultraOpenSingle: "feed.ultra_open_single",
   ultraColumns: "feed.ultra_columns",
   ultraRows: "feed.ultra_rows",
@@ -228,6 +229,7 @@ class Preferences extends Observable implements FeedPreferences {
   showPauseIcon = readPreference(preferenceKeys.showPauseIcon, true);
   pinchZoom = readPreference(preferenceKeys.pinchZoom, true);
   ultraImmersive = readPreference(preferenceKeys.ultraImmersive, false);
+  ultraPauseBatch = readPreference(preferenceKeys.ultraPauseBatch, false);
   ultraOpenSingle = readPreference(preferenceKeys.ultraOpenSingle, true);
   ultraColumns = readLimit(preferenceKeys.ultraColumns, ultraDefaults.ultraColumns);
   ultraRows = readLimit(preferenceKeys.ultraRows, ultraDefaults.ultraRows);

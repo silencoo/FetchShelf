@@ -18,7 +18,9 @@ from typing import Literal
 
 MARK_KINDS = frozenset({"like", "save", "follow", "hide", "block"})
 _POST_KINDS = frozenset({"like", "save"})
-_BOOLEAN_PREFERENCES = frozenset({"sound", "autoNext", "showPauseIcon", "pinchZoom", "ultraImmersive", "ultraOpenSingle"})
+_BOOLEAN_PREFERENCES = frozenset({
+    "sound", "autoNext", "showPauseIcon", "pinchZoom", "ultraImmersive", "ultraPauseBatch", "ultraOpenSingle",
+})
 _ULTRA_LIMIT_KEYS = frozenset({"ultraColumns", "ultraRows", "ultraVideos"})
 MAX_SAFE_PREFERENCE_INTEGER = 2**53 - 1
 UltraLayout = Literal["adaptive", "rows", "portrait"]

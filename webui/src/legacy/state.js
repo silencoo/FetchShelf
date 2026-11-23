@@ -38,7 +38,6 @@ export const state = {
   taskLastPollAt: 0,
   taskFilter: "all",
   taskSearch: "",
-  taskAccountsLoading: false,
   taskAccounts: {
     page: 1,
     pageSize: 50,

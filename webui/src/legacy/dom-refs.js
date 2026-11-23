@@ -402,6 +402,7 @@ export const refs = {
   taskProgressMeta: document.getElementById("task-progress-meta"),
   taskAccountCheckpoints: document.getElementById("task-account-checkpoints"),
   taskAccountSummary: document.getElementById("task-account-summary"),
+  taskAccountVisibilityWarning: document.getElementById("task-account-visibility-warning"),
   taskAccountList: document.getElementById("task-account-list"),
   taskAccountRefreshBtn: document.getElementById("task-account-refresh-btn"),
   taskAccountStatusFilter: document.getElementById("task-account-status-filter"),

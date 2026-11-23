@@ -1201,8 +1201,17 @@ export function MeView({ actions, visible, platform, onPlatform }: { actions: Vi
             ] as const).map(([key, label]) => (
               <UltraLimitField key={key} field={key} label={label} />
             ))}
+            <div className="fa-setting-row">
+              <span>单击暂停范围</span>
+              <div className="fa-segmented-control" role="group" aria-label="单击暂停范围">
+                <button type="button" aria-pressed={!preferences.ultraPauseBatch}
+                  onClick={() => preferences.change("ultraPauseBatch", false)}>当前作品</button>
+                <button type="button" aria-pressed={preferences.ultraPauseBatch}
+                  onClick={() => preferences.change("ultraPauseBatch", true)}>当前整屏</button>
+              </div>
+            </div>
             <label className="fa-switch-row">
-              <span>点击进入单条播放<small>关闭后，点击在当前屏内放大</small></span>
+              <span>双击进入单条播放<small>关闭后，双击在当前屏内放大</small></span>
               <input type="checkbox" role="switch" checked={preferences.ultraOpenSingle}
                 onChange={(event) => preferences.change("ultraOpenSingle", event.target.checked)} />
             </label>

@@ -706,6 +706,8 @@ class TikTok:
 
     @staticmethod
     def _optional_nonnegative_int(value: Any) -> int | None:
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            return None
         try:
             result = int(value)
         except (TypeError, ValueError):
@@ -727,7 +729,8 @@ class TikTok:
             )
         )
         follow_status = cls._optional_nonnegative_int(source.get("follow_status"))
-        followed = bool(source.get("is_following")) or follow_status in {1, 2}
+        is_following = str(source.get("is_following")).strip().lower()
+        followed = is_following in {"true", "1"} or follow_status in {1, 2}
         return {
             "nickname": str(source.get("nickname") or "").strip(),
             "aweme_count": cls._optional_nonnegative_int(
@@ -832,11 +835,13 @@ class TikTok:
     def _is_deleted_nickname(cls, nickname: str) -> bool:
         return nickname.strip().lower() in cls.DELETED_ACCOUNT_HINTS
 
-    def _empty_account_outcome(self, info: dict, tiktok: bool, sec_user_id: str = "") -> dict:
+    def _empty_account_outcome(
+        self, info: dict, tiktok: bool, sec_user_id: str = "", *, tab: str = "post"
+    ) -> dict:
         if not tiktok and (state := getattr(self, "_confirmed_account_state", None)):
             if state.get("target_sec_uid") == sec_user_id:
                 return self._restricted_account_outcome(state)
-        outcome = self._classify_empty_account(info, tiktok)
+        outcome = self._classify_empty_account(info, tiktok, tab=tab)
         profile = info.get("user", info) if tiktok else info
         if isinstance(profile, dict) and sec_user_id:
             actual_id = profile.get("secUid" if tiktok else "sec_uid")
@@ -855,7 +860,7 @@ class TikTok:
             context={"account_state": state},
         )
 
-    def _classify_empty_account(self, info: dict, tiktok: bool) -> dict:
+    def _classify_empty_account(self, info: dict, tiktok: bool, *, tab: str) -> dict:
         for diagnostic in (
             getattr(self, "_account_items_diagnostic", {}),
             getattr(self, "_account_info_diagnostic", {}),
@@ -869,6 +874,18 @@ class TikTok:
                 code="account_deleted",
                 reason=_("账号已注销或不可访问"),
                 category="account_unavailable",
+                terminal_status="skipped",
+            )
+        # A private profile can show zero to viewers who lack access.
+        can_confirm_empty = not meta["private"] or (
+            not tiktok and tab in {"", "post"} and meta["followed"]
+        )
+        if meta["aweme_count"] == 0 and can_confirm_empty:
+            return self._account_outcome(
+                ok=False,
+                code="no_works",
+                reason=_("账号资料显示暂无发布作品"),
+                category="empty",
                 terminal_status="skipped",
             )
         if meta["private"]:
@@ -890,14 +907,6 @@ class TikTok:
                 category="visibility",
                 retryable=True,
                 cross_identity=True,
-            )
-        if meta["aweme_count"] == 0:
-            return self._account_outcome(
-                ok=False,
-                code="no_works",
-                reason=_("账号资料显示暂无发布作品"),
-                category="empty",
-                terminal_status="skipped",
             )
         if meta["aweme_count"] is not None and meta["aweme_count"] > 0:
             return self._account_outcome(
@@ -1114,7 +1123,7 @@ class TikTok:
                 "favorite",
                 "collection",
             }:
-                outcome = self._empty_account_outcome(info or {}, tiktok, sec_user_id)
+                outcome = self._empty_account_outcome(info or {}, tiktok, sec_user_id, tab=tab)
                 return outcome if return_outcome else None
             self.logger.info(
                 _(
@@ -1137,7 +1146,7 @@ class TikTok:
             **kwargs,
         )
         if not any(account_data):
-            outcome = self._empty_account_outcome(info or {}, tiktok, sec_user_id)
+            outcome = self._empty_account_outcome(info or {}, tiktok, sec_user_id, tab=tab)
             return outcome if return_outcome else None
         if source:
             result = self.extractor.source_date_filter(

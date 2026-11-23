@@ -1615,6 +1615,11 @@ html.feed-active .app-shell {
   min-width: 0;
 }
 
+.task-list-panel {
+  display: flex;
+  flex-direction: column;
+}
+
 .task-list-panel h4,
 .task-detail-heading h4 {
   color: var(--text-strong);
@@ -1623,8 +1628,10 @@ html.feed-active .app-shell {
 }
 
 .workbench-task-center .task-queue-list {
-  height: 420px;
-  max-height: 420px;
+  /* Use the height set by the detail panel while keeping the queue scrollable. */
+  flex: 1 1 0;
+  height: 0;
+  max-height: none;
 }
 
 .task-detail-panel {
@@ -1715,7 +1722,8 @@ html.feed-active .app-shell {
   min-height: 36px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   padding-block: 8px;
   color: var(--text-strong);
   cursor: pointer;
@@ -1728,10 +1736,16 @@ html.feed-active .app-shell {
   outline-offset: 2px;
 }
 
-.task-account-checkpoints > summary span:last-child {
+.task-account-summary-title {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+#task-account-summary {
   color: var(--text-muted);
   font-weight: 500;
-  text-align: right;
 }
 
 .task-account-toolbar {
@@ -6393,6 +6407,7 @@ select.batch-field-select + .app-select-mount {
   }
 
   .workbench-task-center .task-queue-list {
+    flex: none;
     height: 300px;
     max-height: 300px;
   }
