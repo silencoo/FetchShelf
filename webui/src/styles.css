@@ -7217,6 +7217,7 @@ select.batch-field-select + .app-select-mount {
 
 .account-media-stats-table {
   overflow-x: auto;
+  scrollbar-gutter: stable;
 }
 
 .account-media-stats-table table {
@@ -7243,6 +7244,11 @@ select.batch-field-select + .app-select-mount {
 
 .account-media-stats-table :is(th, td):nth-child(n + 3) {
   text-align: end;
+}
+
+.account-media-stats-table :is(th, td):last-child {
+  /* Keep the last column clear of overlay scrollbars. */
+  padding-inline-end: 20px;
 }
 
 .account-media-stats-table thead button {
