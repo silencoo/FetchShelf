@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from json import dumps, loads
 from pathlib import Path
 from sqlite3 import Connection, Row, connect
@@ -611,6 +611,34 @@ class TaskJournal:
         with self._lock:
             rows = self.connection.execute(query + " ORDER BY last_checked_at DESC, url", params).fetchall()
         return [self._activity_row(row) for row in rows]
+
+    def find_activity_checkpoint(self, activity: dict) -> dict:
+        """Resolve a recorded check to its batch checkpoint when the match is unique."""
+        checked_at = activity["last_checked_at"]
+        try:
+            # The batch saves activity just before completing the checkpoint.
+            finished_by = (datetime.fromisoformat(checked_at) + timedelta(seconds=1)).isoformat(
+                timespec="seconds"
+            )
+        except ValueError:
+            return {}
+        endpoint = f"/workflow/{activity['platform']}/account_batch"
+        code = activity["last_outcome_code"]
+        with self._lock:
+            rows = self.connection.execute(
+                """
+                SELECT a.task_id, a.identity_id, a.reason
+                FROM ui_tasks t JOIN ui_task_accounts a ON a.task_id = t.task_id
+                WHERE t.endpoint = ?
+                  AND a.finished_at BETWEEN ? AND ? AND a.status = ?
+                  AND json_extract(a.item_json, '$.url') = ?
+                  AND (? = '' OR json_extract(a.result_json, '$.outcome_code') = ?)
+                LIMIT 2
+                """,
+                (endpoint, checked_at, finished_by, activity["last_status"],
+                 activity["url"], code, code),
+            ).fetchall()
+        return dict(rows[0]) if len(rows) == 1 else {}
 
     def has_active_schedule_task(self, schedule_id: str) -> bool:
         if not schedule_id:

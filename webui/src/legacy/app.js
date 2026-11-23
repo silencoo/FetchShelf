@@ -1,4 +1,5 @@
 import { boardPreferenceKeys, createBoardPreferences } from "./board-preferences.js";
+import { bindAccountActivity } from "./account-activity.js";
 import { bindAccountMediaStats } from "./account-media-stats.js";
 import { handlePageShortcut, renderPageNumbers } from "./pagination.js";
 import { refs } from "./dom-refs.js";
@@ -36,6 +37,7 @@ const FEED_PATH = "/ui/feed";
 let feedModule = null;
 let feedLoading = null;
 let openedTaskArrivals = false;
+let boardActivity;
 
 function exitFeed() {
   if (history.state?.arrivalRoute) {
@@ -117,6 +119,7 @@ async function loadTabData(tab, refresh = false) {
       updateFilesAccountContext();
       return loadFiles();
     case "profiles":
+      if (boardActivity?.active()) return boardActivity.load();
       await boardPreferences.load();
       if (refresh || state.accountBoardDirty || state.accountBoard.status === "blocked") return loadAccountBoard(false);
       break;
@@ -6393,6 +6396,15 @@ async function copyTaskResult() {
 }
 
 function bindEvents() {
+  boardActivity = bindAccountActivity({
+    formatDate: formatFileDate,
+    formatCount: formatOverviewCount,
+    jumpToValidatedPage,
+    onShowCards: () => loadTabData("profiles"),
+    onOpenAccount: (item, button) => openAccountGallery({
+      dataset: { platform: item.platform, url: item.url, mark: item.mark },
+    }, button),
+  });
   bindAccountMediaStats({
     formatSize: formatFileSize,
     formatCount: formatOverviewCount,

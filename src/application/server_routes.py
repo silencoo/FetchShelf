@@ -1483,6 +1483,41 @@ class ServerRoutesMixin:
             )
 
         @self.server.get(
+            "/ui/api/accounts/activity",
+            summary="Web UI 账户采集状态",
+            tags=[_("配置")],
+        )
+        async def webui_account_activity(
+            platform: Literal["all", "douyin", "tiktok"] = Query("all"),
+            search: str = Query("", max_length=240),
+            status: Literal["all", "success", "empty", "visibility", "failed", "skipped", "never"] = Query("all"),
+            age_days: Literal["0", "30", "90", "365"] = Query("0"),
+            sort: Literal["checked_desc", "latest_asc", "latest_desc"] = Query("checked_desc"),
+            page: int = Query(1, ge=1),
+            page_size: int = Query(24, ge=1, le=80),
+            token: str = Depends(token_dependency),
+        ):
+            return await to_thread(
+                self._build_account_activity_page, platform, search, status, int(age_days),
+                sort, page, page_size,
+            )
+
+        @self.server.get(
+            "/ui/api/accounts/activity/details",
+            summary="Web UI 账户最近检查详情",
+            tags=[_("配置")],
+        )
+        async def webui_account_activity_details(
+            platform: Literal["douyin", "tiktok"],
+            url: str = Query(..., min_length=1, max_length=2048),
+            token: str = Depends(token_dependency),
+        ):
+            try:
+                return await to_thread(self._build_account_activity_details, platform, url)
+            except LookupError:
+                raise HTTPException(status_code=404, detail=_("账号不存在或已停用。"))
+
+        @self.server.get(
             "/ui/api/accounts/board",
             summary="Web UI 账号媒体看板",
             description="分页返回账号卡片，首次展示时自动固定媒体封面（图片优先）",

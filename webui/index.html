@@ -954,8 +954,12 @@
           aria-labelledby="tab-profiles"
           data-tab-panel="profiles"
         >
-          <div class="card-head page-actions-only">
-            <div class="card-actions">
+          <div class="card-head board-section-head">
+            <div class="board-section-switch" role="group" aria-label="账户看板视图">
+              <button type="button" class="btn ghost" id="board-show-cards" aria-controls="board-cards-panel" aria-pressed="true">媒体卡片</button>
+              <button type="button" class="btn ghost" id="board-show-activity" aria-controls="board-activity-panel" aria-pressed="false">采集状态</button>
+            </div>
+            <div id="board-card-actions" class="card-actions">
               <button id="board-reload-btn" type="button" class="btn ghost">刷新看板</button>
               <button type="button" class="btn ghost" data-open-account-media-stats>媒体统计</button>
               <button id="board-avatar-page-btn" type="button" class="btn ghost">处理当前页头像</button>
@@ -963,6 +967,7 @@
               <button id="board-pin-all-btn" type="button" class="btn ghost">固定当前页媒体</button>
             </div>
           </div>
+          <div id="board-cards-panel">
           <div class="board-toolbar">
             <label class="field compact board-search-field">
               <span>搜索账户</span>
@@ -1051,6 +1056,76 @@
             </div>
             <span id="board-meta" class="sr-only">第 1 / 1 页</span>
           </div>
+          </div>
+          <section id="board-activity-panel" aria-labelledby="board-show-activity" hidden>
+            <div class="board-toolbar">
+              <label class="field compact board-search-field">
+                <span>搜索账户</span>
+                <input type="search" name="search" maxlength="240" autocomplete="off" placeholder="搜索名称或 URL" />
+              </label>
+              <label class="field compact">
+                <span>平台</span>
+                <select name="platform">
+                  <option value="all">全部平台</option>
+                  <option value="douyin">抖音</option>
+                  <option value="tiktok">TikTok</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>采集状态</span>
+                <select name="status">
+                  <option value="all">全部状态</option>
+                  <option value="success">检查成功</option>
+                  <option value="empty">暂无作品</option>
+                  <option value="visibility">私密或不可见</option>
+                  <option value="failed">采集失败</option>
+                  <option value="never">从未检查</option>
+                  <option value="skipped">已跳过</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>最新已知作品</span>
+                <select name="age_days">
+                  <option value="0">不限时间</option>
+                  <option value="30">30 天前及更早</option>
+                  <option value="90">90 天前及更早</option>
+                  <option value="365">365 天前及更早</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>排序</span>
+                <select name="sort">
+                  <option value="checked_desc">最近检查优先</option>
+                  <option value="latest_asc">最久作品优先</option>
+                  <option value="latest_desc">最新作品优先</option>
+                </select>
+              </label>
+              <button type="button" class="btn ghost" data-activity-reset>重置筛选</button>
+              <button type="button" class="btn ghost" data-activity-refresh>刷新状态</button>
+            </div>
+            <p class="status-line" role="status" data-activity-feedback></p>
+            <div class="board-activity-table" role="region" aria-label="账户采集状态表" tabindex="0" hidden>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">账户</th>
+                    <th scope="col">采集状态</th>
+                    <th scope="col">最新已知作品</th>
+                    <th scope="col">最近检查</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="board-pagination" hidden>
+              <nav class="page-numbers" aria-label="账户采集状态页码"></nav>
+              <form class="page-jump">
+                <label for="board-activity-page">跳至</label>
+                <input id="board-activity-page" type="number" min="1" value="1" inputmode="numeric" required />
+                <button type="submit" class="btn ghost">前往</button>
+              </form>
+            </div>
+          </section>
         </section>
 
         <section
@@ -2305,6 +2380,19 @@
             <button type="submit" class="btn ghost">前往</button>
           </form>
         </footer>
+      </div>
+    </dialog>
+
+    <dialog id="board-activity-details" class="collector-dialog" aria-labelledby="board-activity-details-title">
+      <div class="collector-dialog-form">
+        <header class="collector-dialog-head">
+          <h2 id="board-activity-details-title">最近检查详情</h2>
+          <button type="button" class="btn ghost" data-activity-close autofocus>关闭</button>
+        </header>
+        <div class="collector-dialog-body">
+          <p class="status-line" role="status" data-activity-detail-feedback></p>
+          <dl class="board-activity-details" hidden></dl>
+        </div>
       </div>
     </dialog>
 

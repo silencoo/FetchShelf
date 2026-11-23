@@ -8,7 +8,7 @@ from asyncio import (
     sleep,
     to_thread,
 )
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import cached_property
 from hashlib import md5
 from json import JSONDecodeError, dumps, loads
@@ -3484,6 +3484,113 @@ class APIServer(TikTok, ServerRoutesMixin):
         if not code:
             return "legacy_success"
         return "no_updates" if code == "no_matching_items" else "success"
+
+    @staticmethod
+    def _account_activity_status(activity: dict) -> str:
+        code = activity.get("last_outcome_code")
+        if code == "no_works":
+            return "empty"
+        if code in {"private_not_visible", "private_followed_empty", "works_not_visible"}:
+            return "visibility"
+        return APIServer._board_outcome(activity)
+
+    def _build_account_activity_page(
+        self, platform: str, search: str, status: str, age_days: int, sort: str,
+        page: int, page_size: int,
+    ) -> dict:
+        query = search.strip().casefold()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=age_days)).timestamp()
+        journal = getattr(self, "task_journal", None)
+        items = []
+        for source in ("douyin", "tiktok") if platform == "all" else (platform,):
+            activities = {
+                item["url"]: item for item in journal.list_account_activity(source)
+            } if journal else {}
+            seen = set()
+            for row in self._active_account_rows(source):
+                url = row["url"]
+                if url in seen:
+                    continue
+                seen.add(url)
+                activity = activities.get(url, {})
+                mark = row.get("mark") or activity.get("mark") or url
+                if query and not any(
+                    query in value.casefold() for value in (mark, url, row.get("tab", "post"))
+                ):
+                    continue
+                result = self._account_activity_status(activity)
+                if status not in ("all", result) and not (
+                    status == "success" and result in {"no_updates", "legacy_success"}
+                ):
+                    continue
+                # Post dates come from the crawl. A local folder mtime is not a publication date.
+                latest_work = ""
+                latest_timestamp = None
+                if row.get("tab", "post") == "post":
+                    for key in ("latest_seen_work_at", "latest_saved_work_at"):
+                        value = activity.get(key)
+                        if not value:
+                            continue
+                        try:
+                            stamp = datetime.fromisoformat(value).timestamp()
+                        except (OSError, OverflowError, ValueError):
+                            continue
+                        if latest_timestamp is None or stamp > latest_timestamp:
+                            latest_work, latest_timestamp = value, stamp
+                if age_days and (latest_timestamp is None or latest_timestamp > cutoff):
+                    continue
+                items.append((latest_timestamp, {
+                    "platform": source,
+                    "url": url,
+                    "mark": mark,
+                    "enabled": row.get("enable", True),
+                    "status": result,
+                    "outcome_code": activity.get("last_outcome_code", ""),
+                    "latest_work_at": latest_work,
+                    "last_checked_at": activity.get("last_checked_at", ""),
+                }))
+
+        if sort == "checked_desc":
+            items.sort(key=lambda entry: entry[1]["last_checked_at"], reverse=True)
+        else:
+            direction = -1 if sort == "latest_desc" else 1
+            items.sort(key=lambda entry: (
+                entry[0] is None, direction * (entry[0] or 0),
+            ))
+        total = len(items)
+        pages = max(1, (total + page_size - 1) // page_size)
+        current = min(page, pages)
+        offset = (current - 1) * page_size
+        return {
+            "page": current, "pages": pages, "total": total,
+            "items": [item for _, item in items[offset:offset + page_size]],
+        }
+
+    def _build_account_activity_details(self, platform: str, url: str) -> dict:
+        if self._find_active_account_row(platform, url) is None:
+            raise LookupError(url)
+        journal = getattr(self, "task_journal", None)
+        activities = journal.list_account_activity(platform, [url]) if journal else []
+        if not activities:
+            return {"status": "never"}
+        activity = activities[0]
+        checkpoint = journal.find_activity_checkpoint(activity)
+        identity_id = checkpoint.get("identity_id", "")
+        identity_name = identity_id
+        if identity_id and getattr(self, "collector_store", None):
+            try:
+                identity_name = self.collector_store.get_identity(identity_id).name or identity_id
+            except IdentityNotFoundError:
+                pass
+        return {
+            "status": self._account_activity_status(activity),
+            "outcome_code": activity["last_outcome_code"],
+            "last_checked_at": activity["last_checked_at"],
+            "last_success_at": activity["last_success_at"],
+            "reason": redact_webui_value(checkpoint.get("reason") or activity["last_error"]),
+            "identity": identity_name,
+            "task_id": checkpoint.get("task_id", ""),
+        }
 
     def _indexed_account_folder(self, row, folder_index):
         candidates, candidate_index, candidate_mark_index, folder_by_account = folder_index
